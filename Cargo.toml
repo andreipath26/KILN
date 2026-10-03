@@ -9,6 +9,7 @@ members = [
     "crates/kiln-api",
     "crates/kiln-cli",
     "crates/kiln-bench",
+    "crates/kiln-kernels",
 ]
 
 [workspace.package]
@@ -25,3 +26,4 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive"] }
+cc = "1"
