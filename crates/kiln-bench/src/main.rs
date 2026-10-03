@@ -265,7 +265,152 @@ fn run_benchmarks() -> BenchReport {
             notes: format!("AVX2 path only, {} iterations", iters),
         });
 
-        // Bench 11: speedup ratio.
+        // Bench 12: fused ternary matmul scalar throughput.
+    // Weight row length 1024, 1000 iterations, measured per output.
+    let matmul_n = 1024usize;
+    let matmul_iters = 1000usize;
+    let w_vals: Vec<f32> = (0..matmul_n)
+        .map(|i| match i % 3 {
+            0 => -1.0,
+            1 => 0.0,
+            _ => 1.0,
+        })
+        .collect();
+    let w_packed = kiln_kernels::pack(&w_vals);
+    let acts: Vec<i8> = (0..matmul_n)
+        .map(|i| ((i as i32 * 7 % 200) - 100) as i8)
+        .collect();
+
+    measurements.push(measure("matmul_fused_scalar_ns_per_call", "nanos/call", || {
+        let start = Instant::now();
+        let mut sum = 0.0f32;
+        for _ in 0..matmul_iters {
+            sum += kiln_kernels::matmul_scalar(&w_packed, &acts, matmul_n, 1.0);
+        }
+        std::hint::black_box(sum);
+        let elapsed = start.elapsed().as_nanos() as f64;
+        elapsed / matmul_iters as f64
+    }));
+
+    // Bench 13: fused ternary matmul AVX2 throughput.
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    measurements.push(measure("matmul_fused_lut_naive_ns_per_call", "nanos/call", || {
+        let start = Instant::now();
+        let mut sum = 0.0f32;
+        for _ in 0..matmul_iters {
+            sum += kiln_kernels::matmul_lut_naive(&w_packed, &acts, matmul_n, 1.0);
+        }
+        std::hint::black_box(sum);
+        let elapsed = start.elapsed().as_nanos() as f64;
+        elapsed / matmul_iters as f64
+    }));
+
+    // Bench 14: fused matmul speedup ratio.
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    {
+        let scalar_ns = {
+            let start = Instant::now();
+            let mut sum = 0.0f32;
+            for _ in 0..matmul_iters {
+                sum += kiln_kernels::matmul_scalar(&w_packed, &acts, matmul_n, 1.0);
+            }
+            std::hint::black_box(sum);
+            start.elapsed().as_nanos() as f64 / matmul_iters as f64
+        };
+        let avx2_ns = {
+            let start = Instant::now();
+            let mut sum = 0.0f32;
+            for _ in 0..matmul_iters {
+                sum += kiln_kernels::matmul_lut_naive(&w_packed, &acts, matmul_n, 1.0);
+            }
+            std::hint::black_box(sum);
+            start.elapsed().as_nanos() as f64 / matmul_iters as f64
+        };
+        measurements.push(Measurement {
+            name: "matmul_fused_lut_naive_speedup".to_string(),
+            value: scalar_ns / avx2_ns,
+            unit: "x".to_string(),
+            success: avx2_ns < scalar_ns,
+            notes: format!("scalar {:.0} ns/call, avx2 {:.0} ns/call at n={}", scalar_ns, avx2_ns, matmul_n),
+        });
+    }
+
+    // Bench 12b: fused matmul 8-row AVX2 throughput.
+    // 8 weight rows of length 1024, shared activation vector.
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    {
+        let stride = (matmul_n + 4) / 5;
+        let mut weights_8x = vec![0u8; stride * 8];
+        for r in 0..8 {
+            let w: Vec<f32> = (0..matmul_n)
+                .map(|i| match (i + r * 3) % 3 {
+                    0 => -1.0,
+                    1 => 0.0,
+                    _ => 1.0,
+                })
+                .collect();
+            let p = kiln_kernels::pack(&w);
+            for b in 0..stride {
+                weights_8x[r * stride + b] = p[b];
+            }
+        }
+
+        measurements.push(measure("matmul_fused_8row_lut_failed_ns_per_call", "nanos/call", || {
+            let start = Instant::now();
+            let mut sum = 0.0f32;
+            for _ in 0..matmul_iters {
+                let out = kiln_kernels::matmul_8row_lut_failed(&weights_8x, stride, matmul_n, &acts, 1.0);
+                for v in out.iter() { sum += v; }
+            }
+            std::hint::black_box(sum);
+            let elapsed = start.elapsed().as_nanos() as f64;
+            elapsed / matmul_iters as f64
+        }));
+
+        // Speedup vs scalar for the same 8-row workload.
+        let scalar_8row_ns = {
+            let start = Instant::now();
+            let mut sum = 0.0f32;
+            for _ in 0..matmul_iters {
+                for r in 0..8 {
+                    let row_start = r * stride;
+                    let row_end = row_start + stride;
+                    sum += kiln_kernels::matmul_scalar(
+                        &weights_8x[row_start..row_end],
+                        &acts,
+                        matmul_n,
+                        1.0,
+                    );
+                }
+            }
+            std::hint::black_box(sum);
+            start.elapsed().as_nanos() as f64 / matmul_iters as f64
+        };
+
+        let avx2_8row_ns = {
+            let start = Instant::now();
+            let mut sum = 0.0f32;
+            for _ in 0..matmul_iters {
+                let out = kiln_kernels::matmul_8row_lut_failed(&weights_8x, stride, matmul_n, &acts, 1.0);
+                for v in out.iter() { sum += v; }
+            }
+            std::hint::black_box(sum);
+            start.elapsed().as_nanos() as f64 / matmul_iters as f64
+        };
+
+        measurements.push(Measurement {
+            name: "matmul_fused_8row_lut_failed_speedup".to_string(),
+            value: scalar_8row_ns / avx2_8row_ns,
+            unit: "x".to_string(),
+            success: avx2_8row_ns < scalar_8row_ns,
+            notes: format!(
+                "8-row scalar {:.0} ns/call, 8-row AVX2 {:.0} ns/call at n={}",
+                scalar_8row_ns, avx2_8row_ns, matmul_n
+            ),
+        });
+    }
+
+    // Bench 11: speedup ratio.
         let ratio = scalar_ns / avx2_ns;
         measurements.push(Measurement {
             name: "pack_tq1_0_avx2_speedup".to_string(),

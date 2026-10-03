@@ -22,13 +22,23 @@ extern "C" {
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 extern "C" {
-    fn kiln_tq1_0_matmul_avx2(
+    fn kiln_tq1_0_matmul_lut_naive(
         weights: *const u8,
         num_weights: usize,
         activations: *const i8,
         num_activations: usize,
         scale: c_float,
         output: *mut c_float,
+    ) -> c_int;
+
+    fn kiln_tq1_0_matmul_8row_lut_failed(
+        weights: *const u8,
+        row_stride_bytes: usize,
+        num_weights_per_row: usize,
+        activations: *const i8,
+        num_activations: usize,
+        scale: c_float,
+        outputs: *mut c_float,
     ) -> c_int;
 }
 
@@ -214,34 +224,34 @@ pub fn matmul_scalar(weights: &[u8], activations: &[i8], num_weights: usize, sca
 /// Computes the same result as `matmul_scalar` using a lookup table built
 /// from the activations. Panics on non-x86_64 targets.
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-pub fn matmul_avx2(weights: &[u8], activations: &[i8], num_weights: usize, scale: f32) -> f32 {
+pub fn matmul_lut_naive(weights: &[u8], activations: &[i8], num_weights: usize, scale: f32) -> f32 {
     if num_weights == 0 {
         return 0.0;
     }
     let required = (num_weights + 4) / 5;
     if weights.len() < required {
         panic!(
-            "kiln_kernels::matmul_avx2: need {} bytes for {} weights, got {}",
+            "kiln_kernels::matmul_lut_naive: need {} bytes for {} weights, got {}",
             required, num_weights, weights.len()
         );
     }
     if activations.len() < num_weights {
         panic!(
-            "kiln_kernels::matmul_avx2: need {} activations, got {}",
+            "kiln_kernels::matmul_lut_naive: need {} activations, got {}",
             num_weights, activations.len()
         );
     }
     for (i, &b) in weights[..required].iter().enumerate() {
         if b > 242 {
             panic!(
-                "kiln_kernels::matmul_avx2: byte at index {} is {} in reserved range [243, 255]",
+                "kiln_kernels::matmul_lut_naive: byte at index {} is {} in reserved range [243, 255]",
                 i, b
             );
         }
     }
     let mut output = 0.0f32;
     let rc = unsafe {
-        kiln_tq1_0_matmul_avx2(
+        kiln_tq1_0_matmul_lut_naive(
             weights.as_ptr(),
             num_weights,
             activations.as_ptr(),
@@ -251,9 +261,61 @@ pub fn matmul_avx2(weights: &[u8], activations: &[i8], num_weights: usize, scale
         )
     };
     if rc != 0 {
-        panic!("kiln_kernels::matmul_avx2: C kernel returned error code {}", rc);
+        panic!("kiln_kernels::matmul_lut_naive: C kernel returned error code {}", rc);
     }
     output
+}
+
+/// Fused ternary matmul, 8-row LUT path. DOCUMENTED FAILURE.
+///
+/// This kernel is preserved as a record of the LUT approach that did
+/// not work on Skylake. See the historical note in cpp/kernels/tq1_0.c.
+/// Do not use in production.
+///
+/// `weights` must contain 8 rows of TQ1.0 packed weights, laid out
+/// row-major with `row_stride_bytes` bytes per row.
+/// `activations` is a single shared activation vector.
+/// Returns a Vec of 8 output floats.
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+pub fn matmul_8row_lut_failed(
+    weights: &[u8],
+    row_stride_bytes: usize,
+    num_weights_per_row: usize,
+    activations: &[i8],
+    scale: f32,
+) -> Vec<f32> {
+    if num_weights_per_row == 0 {
+        return vec![0.0f32; 8];
+    }
+    let required = row_stride_bytes * 8;
+    if weights.len() < required {
+        panic!(
+            "kiln_kernels::matmul_8row_lut_failed: need {} bytes for 8 rows, got {}",
+            required, weights.len()
+        );
+    }
+    if activations.len() < num_weights_per_row {
+        panic!(
+            "kiln_kernels::matmul_8row_lut_failed: need {} activations, got {}",
+            num_weights_per_row, activations.len()
+        );
+    }
+    let mut outputs = vec![0.0f32; 8];
+    let rc = unsafe {
+        kiln_tq1_0_matmul_8row_lut_failed(
+            weights.as_ptr(),
+            row_stride_bytes,
+            num_weights_per_row,
+            activations.as_ptr(),
+            activations.len(),
+            scale,
+            outputs.as_mut_ptr(),
+        )
+    };
+    if rc != 0 {
+        panic!("kiln_kernels::matmul_8row_lut_failed: C kernel returned error code {}", rc);
+    }
+    outputs
 }
 
 #[cfg(test)]
@@ -341,7 +403,44 @@ mod tests {
     }
 
     #[test]
-    fn matmul_avx2_matches_scalar() {
+    fn matmul_8row_lut_failed_matches_scalar() {
+        #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+        {
+            for n in [5usize, 10, 25, 50, 100, 1000, 5000] {
+                let stride = (n + 4) / 5;
+                let mut weights_8x = vec![0u8; stride * 8];
+                let mut expected = vec![0.0f32; 8];
+                let activations: Vec<i8> = (0..n)
+                    .map(|i| ((i as i32 * 7 % 200) - 100) as i8)
+                    .collect();
+
+                // Build 8 random weight rows and compute the scalar
+                // reference for each.
+                for r in 0..8 {
+                    let w: Vec<f32> = (0..n)
+                        .map(|i| match ((i + r * 3) % 3) {
+                            0 => -1.0,
+                            1 => 0.0,
+                            _ => 1.0,
+                        })
+                        .collect();
+                    let packed = pack(&w);
+                    for b in 0..stride {
+                        weights_8x[r * stride + b] = packed[b];
+                    }
+                    expected[r] = matmul_scalar(&packed, &activations, n, 1.0);
+                }
+
+                let result = matmul_8row_lut_failed(&weights_8x, stride, n, &activations, 1.0);
+                for r in 0..8 {
+                    assert_eq!(result[r], expected[r], "row {} differs for n={}", r, n);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn matmul_lut_naive_matches_scalar() {
         #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
         {
             for n in [5usize, 10, 25, 50, 100, 1000, 5000] {
@@ -358,7 +457,7 @@ mod tests {
                     .collect();
 
                 let s = matmul_scalar(&weights, &activations, n, 1.0);
-                let a = matmul_avx2(&weights, &activations, n, 1.0);
+                let a = matmul_lut_naive(&weights, &activations, n, 1.0);
                 assert_eq!(s, a, "avx2 and scalar differ for n={}", n);
             }
         }

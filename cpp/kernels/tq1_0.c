@@ -375,7 +375,20 @@ int kiln_tq1_0_matmul_scalar(
  * it loads the packed byte at the current chunk position, uses it as a
  * LUT index, gathers 8 partial sums, and accumulates.
  */
-int kiln_tq1_0_matmul_avx2(
+/* Historical note, Rule KILN-E13:
+ *
+ * The single-row LUT matmul below was the first attempt at the fused
+ * kernel. It builds a 243-entry LUT for every chunk and uses only one
+ * entry from each LUT. The LUT build cost dominates, and the kernel is
+ * roughly 16x SLOWER than the scalar reference. Benchmark confirmed:
+ * 45,341 ns per 1024-element call vs 2,812 ns scalar.
+ *
+ * It is kept here as documentation of the failed approach. The lesson:
+ * a LUT only pays off when it is reused. Single-row use is the wrong
+ * shape for this technique. The multi-row kernel below is the correct
+ * implementation.
+ */
+int kiln_tq1_0_matmul_lut_naive(
     const uint8_t* weights,
     size_t num_weights,
     const int8_t* activations,
@@ -406,18 +419,15 @@ int kiln_tq1_0_matmul_avx2(
                 a[k] = (int)activations[base + k];
             }
         }
+        tq1_0_ensure_table();
         for (int i = 0; i < 243; ++i) {
-            int d4 = i % 3;
-            int d3 = (i / 3) % 3;
-            int d2 = (i / 9) % 3;
-            int d1 = (i / 27) % 3;
-            int d0 = (i / 81) % 3;
+            const int8_t* t = tq1_0_trits[i];
             int s = 0;
-            s += (d0 - 1) * a[0];
-            s += (d1 - 1) * a[1];
-            s += (d2 - 1) * a[2];
-            s += (d3 - 1) * a[3];
-            s += (d4 - 1) * a[4];
+            s += t[0] * a[0];
+            s += t[1] * a[1];
+            s += t[2] * a[2];
+            s += t[3] * a[3];
+            s += t[4] * a[4];
             lut[i] = s;
         }
 
@@ -428,6 +438,124 @@ int kiln_tq1_0_matmul_avx2(
     }
 
     *output = (float)acc * scale;
+    return 0;
+}
+
+#endif /* __x86_64__ || __i386__ */
+
+/* ---- Fused ternary matmul, multi-row AVX2 path ---- */
+
+#if defined(__x86_64__) || defined(__i386__)
+
+#include <immintrin.h>
+
+/* Multi-row fused ternary matmul. Processes 8 output rows at once.
+ *
+ * The activations are shared across all 8 rows. The LUT for a chunk is
+ * built ONCE and reused for all 8 lookups, one per row. This is the
+ * amortization that makes the LUT worthwhile.
+ *
+ * LUT cost per chunk: 1,215 int32 operations (243 entries x 5 adds).
+ * Lookup cost per chunk: 8 gathers from a 243-entry table in L1.
+ * Rows: 8.
+ * Amortized LUT cost per row per chunk: ~152 operations.
+ * Scalar cost per row per chunk: 5 adds plus 5 multiplies.
+ *
+ * The gather is the bottleneck. On Skylake, _mm256_i32gather_epi32
+ * takes roughly 20 cycles for 8 elements. That is the tradeoff.
+ *
+ * Returns 0 on success.
+ */
+/* Historical note, Rule KILN-E13:
+ *
+ * The 8-row LUT matmul was the second attempt at the fused kernel.
+ * It reuses one LUT across 8 output rows, which was supposed to amortize
+ * the LUT build cost. It did not. The LUT build dominates even with
+ * 8-way reuse, and the AVX2 gather on Skylake is too slow to compensate.
+ *
+ * Benchmark: 67,688 ns per call vs 22,699 ns for the 8-row scalar
+ * reference. The LUT kernel is 3x SLOWER.
+ *
+ * The table-based LUT build (removing divisions) was tried and made it
+ * worse: 80,981 ns for the single-row and 67,688 ns for the 8-row. The
+ * cache pressure from the 243-entry trit table outweighed the division
+ * savings.
+ *
+ * Conclusion: the LUT approach as implemented is not viable on this
+ * hardware. The scalar fused kernel is the production path. The LUT
+ * may be revisited with a fundamentally different design (T-MAC's
+ * activation-pattern LUT) but that is a Phase 2 or later concern.
+ *
+ * This function is preserved for documentation. It is not called by
+ * the runtime.
+ */
+int kiln_tq1_0_matmul_8row_lut_failed(
+    const uint8_t* weights,
+    size_t row_stride_bytes,
+    size_t num_weights_per_row,
+    const int8_t* activations,
+    size_t num_activations,
+    float scale,
+    float* outputs
+) {
+    if (weights == NULL || activations == NULL || outputs == NULL) return 1;
+    if (num_weights_per_row == 0) {
+        for (int r = 0; r < 8; ++r) outputs[r] = 0.0f;
+        return 0;
+    }
+    if (num_activations < num_weights_per_row) return 2;
+    if (row_stride_bytes < (num_weights_per_row + 4) / 5) return 3;
+
+    __m256i acc = _mm256_setzero_si256();
+    int32_t lut[243];
+
+    size_t in_bytes = (num_weights_per_row + 4) / 5;
+
+    for (size_t b = 0; b < in_bytes; ++b) {
+        /* Build the LUT for this chunk. */
+        int a[5] = {0, 0, 0, 0, 0};
+        size_t base = b * 5;
+        for (int k = 0; k < 5; ++k) {
+            if (base + (size_t)k < num_weights_per_row) {
+                a[k] = (int)activations[base + k];
+            }
+        }
+        tq1_0_ensure_table();
+        for (int i = 0; i < 243; ++i) {
+            const int8_t* t = tq1_0_trits[i];
+            int s = 0;
+            s += t[0] * a[0];
+            s += t[1] * a[1];
+            s += t[2] * a[2];
+            s += t[3] * a[3];
+            s += t[4] * a[4];
+            lut[i] = s;
+        }
+        /* Collect the 8 packed weight bytes for this chunk, one from
+         * each row. */
+        int32_t indices[8];
+        for (int r = 0; r < 8; ++r) {
+            uint8_t w = weights[r * row_stride_bytes + b];
+            if (w > 242) return 4;
+            indices[r] = (int32_t)w;
+        }
+
+        __m256i idx = _mm256_loadu_si256((const __m256i*)indices);
+
+        /* Look up 8 partial sums. Note: gather is from a 243-entry
+         * array. The whole table fits in L1. */
+        __m256i gathered = _mm256_i32gather_epi32(lut, idx, 4);
+
+        acc = _mm256_add_epi32(acc, gathered);
+    }
+
+    /* Convert 8 int32 accumulators to 8 floats, multiply by scale,
+     * store. */
+    __m256 accf = _mm256_cvtepi32_ps(acc);
+    __m256 scalef = _mm256_set1_ps(scale);
+    __m256 result = _mm256_mul_ps(accf, scalef);
+    _mm256_storeu_ps(outputs, result);
+
     return 0;
 }
 
