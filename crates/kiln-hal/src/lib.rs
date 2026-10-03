@@ -10,7 +10,7 @@ pub mod backend;
 pub mod registry;
 
 pub use types::{
-    BackendId, DeviceType, Precision, ResidencyState, ThermalState,
+    Algorithm, BackendId, DeviceType, Op, Precision, ResidencyState, ThermalState,
 };
 pub use backend::Backend;
 pub use registry::Registry;
