@@ -44,6 +44,17 @@ enum Commands {
     Plan { model: String },
     /// Print the hardware profile.
     Info,
+    /// Tokenize a string using a model's tokenizer.
+    Tokenize {
+        /// Path to the GGUF file.
+        #[arg(long)]
+        model: String,
+        /// The text to tokenize.
+        text: String,
+        /// Also decode the tokens back to text.
+        #[arg(long)]
+        roundtrip: bool,
+    },
     /// Inspect a GGUF file: print metadata and tensor table.
     Inspect {
         /// Path to the GGUF file.
@@ -111,6 +122,37 @@ async fn main() {
             println!("  ram_headroom_gb:        {:.2}", env.ram_headroom_bytes as f64 / 1_073_741_824.0);
             println!("  thermal_state:          {:?}", env.thermal_state);
             println!("  throughput_fraction:    {:.3}", env.throughput_fraction);
+        }
+        Commands::Tokenize { model, text, roundtrip } => {
+            let path_buf = std::path::PathBuf::from(&model);
+            let g = match GgufFile::open(&path_buf) {
+                Ok(g) => g,
+                Err(e) => {
+                    eprintln!("failed to open {}: {}", model, e);
+                    std::process::exit(1);
+                }
+            };
+            let tok = match BpeTokenizer::from_gguf(&g) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("failed to build tokenizer: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            println!("vocab_size: {}", tok.vocab_size());
+            let ids = tok.encode(&text);
+            println!("input:      {:?}", text);
+            println!("token_ids:  {:?}", ids);
+            println!("token_count: {}", ids.len());
+            for (i, &id) in ids.iter().enumerate() {
+                let s = tok.token_to_str(id).unwrap_or("<unknown>");
+                println!("  [{}] id={} str={:?}", i, id, s);
+            }
+            if roundtrip {
+                let decoded = tok.decode(&ids);
+                println!("decoded:    {:?}", decoded);
+                println!("roundtrip_ok: {}", decoded == text);
+            }
         }
         Commands::Inspect { path, tensors } => {
             let path_buf = std::path::PathBuf::from(&path);

@@ -38,6 +38,88 @@ impl std::fmt::Display for TokenizerError {
 
 impl std::error::Error for TokenizerError {}
 
+/// The GPT-2 byte-to-unicode mapping. Every byte value 0-255 maps to a
+/// unique printable unicode character. This is what makes space (0x20)
+/// become Ġ (U+0120) and newline become Ċ (U+010A).
+fn byte_to_unicode(byte: u8) -> char {
+    // The canonical mapping from the GPT-2 paper.
+    // Bytes 33-126, 161-172, 174-255 map to themselves.
+    // Other bytes map to unicode code points starting at 256.
+    let b = byte as u32;
+    let direct = (b >= 33 && b <= 126)
+        || (b >= 161 && b <= 172)
+        || (b >= 174 && b <= 255);
+    if direct {
+        char::from_u32(b).unwrap_or('?')
+    } else {
+        // Count the number of bytes below b that are not direct.
+        let mut n = 0u32;
+        for i in 0..b {
+            let direct_i = (i >= 33 && i <= 126)
+                || (i >= 161 && i <= 172)
+                || (i >= 174 && i <= 255);
+            if !direct_i {
+                n += 1;
+            }
+        }
+        char::from_u32(256 + n).unwrap_or('?')
+    }
+}
+
+/// The inverse of byte_to_unicode. Maps a GPT-2 unicode character
+/// back to its original byte value.
+fn unicode_to_byte(c: char) -> Option<u8> {
+    let cp = c as u32;
+    // Direct mappings.
+    if (cp >= 33 && cp <= 126)
+        || (cp >= 161 && cp <= 172)
+        || (cp >= 174 && cp <= 255)
+    {
+        return Some(cp as u8);
+    }
+    // Byte values that were remapped to code points starting at 256.
+    if cp >= 256 {
+        let target = cp - 256;
+        let mut n = 0u32;
+        for b in 0..256u32 {
+            let direct = (b >= 33 && b <= 126)
+                || (b >= 161 && b <= 172)
+                || (b >= 174 && b <= 255);
+            if !direct {
+                if n == target {
+                    return Some(b as u8);
+                }
+                n += 1;
+            }
+        }
+    }
+    None
+}
+
+/// Convert a GPT-2 byte-level unicode string back to its UTF-8 form.
+fn unicode_to_bytes(s: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(s.len());
+    for c in s.chars() {
+        if let Some(b) = unicode_to_byte(c) {
+            out.push(b);
+        } else {
+            // Fallback: encode the character as UTF-8 directly.
+            let mut buf = [0u8; 4];
+            out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+        }
+    }
+    out
+}
+
+/// Convert a UTF-8 string to its GPT-2 byte-level unicode form.
+fn bytes_to_unicode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        out.push(byte_to_unicode(b));
+    }
+    out
+}
+
 /// A byte-pair encoding tokenizer.
 #[derive(Debug, Clone)]
 pub struct BpeTokenizer {
@@ -142,8 +224,12 @@ impl BpeTokenizer {
     /// Encode text to token IDs. Uses the naive O(n^2) algorithm.
     /// Suitable for inputs under 1000 characters.
     pub fn encode(&self, text: &str) -> Vec<u32> {
-        // Split text into characters. Each character is a candidate token.
-        let mut tokens: Vec<String> = text.chars().map(|c| c.to_string()).collect();
+        // Pretokenize: convert every byte of the UTF-8 encoding to its
+        // GPT-2 unicode representation. This is what makes space work.
+        // Space (0x20) becomes the character U+0120 (Ġ).
+        let pretokenized = bytes_to_unicode(text);
+        // Split into characters. Each character is a candidate token.
+        let mut tokens: Vec<String> = pretokenized.chars().map(|c| c.to_string()).collect();
         if tokens.is_empty() {
             return Vec::new();
         }
@@ -222,7 +308,9 @@ impl BpeTokenizer {
 
     /// Decode token IDs back to text.
     pub fn decode(&self, tokens: &[u32]) -> String {
-        let mut out = String::new();
+        // First concatenate the raw vocabulary strings, which are in
+        // GPT-2 byte-level unicode form.
+        let mut raw = String::new();
         for &id in tokens {
             if Some(id) == self.bos_token_id
                 || Some(id) == self.eos_token_id
@@ -231,10 +319,13 @@ impl BpeTokenizer {
                 continue;
             }
             if let Some(s) = self.inverse_vocab.get(id as usize) {
-                out.push_str(s);
+                raw.push_str(s);
             }
         }
-        out
+        // Convert the byte-level unicode back to real bytes, then to a
+        // UTF-8 string.
+        let bytes = unicode_to_bytes(&raw);
+        String::from_utf8_lossy(&bytes).into_owned()
     }
 
     /// Look up the string for a token ID.
