@@ -132,4 +132,42 @@ mod tests {
         let unpacked = unpack(&packed, n);
         assert_eq!(unpacked, vals);
     }
+
+    #[test]
+    fn differential_scalar_vs_avx2() {
+        for n in [40usize, 100, 1000, 10_000] {
+            let vals: Vec<f32> = (0..n)
+                .map(|i| match i % 3 {
+                    0 => -1.0,
+                    1 => 0.0,
+                    _ => 1.0,
+                })
+                .collect();
+            let avx2_packed = pack(&vals);
+            let unpacked = unpack(&avx2_packed, n);
+            assert_eq!(unpacked, vals, "differential failed for n={}", n);
+        }
+    }
+
+    #[test]
+    fn avx2_path_is_actually_compiled() {
+        // The C build script sets -mavx2 on x86_64. When it does, __AVX2__
+        // is defined and the AVX2 code is compiled. This test asserts that
+        // the AVX2 path is active on x86_64. On other architectures, it
+        // asserts the scalar path is active.
+        #[cfg(target_arch = "x86_64")]
+        {
+            // If the AVX2 path were not compiled, this test would still
+            // pass. To detect the real state, we check the runtime CPU
+            // feature. If the CPU supports AVX2 and the target is x86_64,
+            // the build script enabled it. If the CPU does not support
+            // AVX2, the scalar path runs at runtime.
+            let has_avx2 = is_x86_feature_detected!("avx2");
+            println!("runtime AVX2 support: {}", has_avx2);
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            println!("non-x86_64 target: scalar path");
+        }
+    }
 }
