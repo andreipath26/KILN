@@ -13,6 +13,7 @@ pub mod experts;
 pub mod kv_layout;
 pub mod thermal;
 pub mod ml_cache;
+pub mod synthetic;
 
 pub use manifest::{Architecture, ModelManifest};
 pub use quantization::QuantizationSpec;
@@ -20,3 +21,5 @@ pub use experts::ExpertTable;
 pub use kv_layout::KvLayout;
 pub use thermal::ThermalProfile;
 pub use ml_cache::MlCacheRef;
+
+pub use synthetic::{SyntheticModel, write_synthetic, read_synthetic, SyntheticError};
