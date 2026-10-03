@@ -10,6 +10,14 @@ extern "C" {
     fn kiln_tq1_0_pack_scalar(src: *const c_float, n: usize, dst: *mut u8) -> c_int;
     fn kiln_tq1_0_unpack(src: *const u8, n: usize, dst: *mut c_float) -> c_int;
     fn kiln_tq1_0_unpack_table(src: *const u8, n: usize, dst: *mut c_float) -> c_int;
+    fn kiln_tq1_0_matmul_scalar(
+        weights: *const u8,
+        num_weights: usize,
+        activations: *const i8,
+        num_activations: usize,
+        scale: c_float,
+        output: *mut c_float,
+    ) -> c_int;
 }
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
@@ -138,6 +146,57 @@ pub fn unpack_table(src: &[u8], n: usize) -> Vec<f32> {
     dst
 }
 
+/// Fused ternary matmul, scalar reference.
+///
+/// Computes the dot product between a TQ1.0 packed weight row and an int8
+/// activation vector, scaled by `scale`.
+///
+/// `weights` must contain `num_weights` trits packed at 5 trits per byte.
+/// `activations` must be at least `num_weights` elements long.
+///
+/// Panics if the packed weight bytes are in the reserved range [243, 255].
+pub fn matmul_scalar(weights: &[u8], activations: &[i8], num_weights: usize, scale: f32) -> f32 {
+    if num_weights == 0 {
+        return 0.0;
+    }
+    let required = (num_weights + 4) / 5;
+    if weights.len() < required {
+        panic!(
+            "kiln_kernels::matmul_scalar: need {} bytes for {} weights, got {}",
+            required, num_weights, weights.len()
+        );
+    }
+    if activations.len() < num_weights {
+        panic!(
+            "kiln_kernels::matmul_scalar: need {} activations, got {}",
+            num_weights, activations.len()
+        );
+    }
+    for (i, &b) in weights[..required].iter().enumerate() {
+        if b > 242 {
+            panic!(
+                "kiln_kernels::matmul_scalar: byte at index {} is {} in reserved range [243, 255]",
+                i, b
+            );
+        }
+    }
+    let mut output = 0.0f32;
+    let rc = unsafe {
+        kiln_tq1_0_matmul_scalar(
+            weights.as_ptr(),
+            num_weights,
+            activations.as_ptr(),
+            activations.len(),
+            scale,
+            &mut output as *mut f32,
+        )
+    };
+    if rc != 0 {
+        panic!("kiln_kernels::matmul_scalar: C kernel returned error code {}", rc);
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,6 +278,62 @@ mod tests {
             let avx2_packed = pack(&vals);
             let unpacked = unpack(&avx2_packed, n);
             assert_eq!(unpacked, vals, "differential failed for n={}", n);
+        }
+    }
+
+    #[test]
+    fn matmul_scalar_hand_computed() {
+        // Weight row: [+1, -1, 0, +1, -1]
+        // Activations: [1, 2, 3, 4, 5]
+        // Expected: (1*1) + (-1*2) + (0*3) + (1*4) + (-1*5) = 1 - 2 + 4 - 5 = -2
+        let weights = pack(&[1.0, -1.0, 0.0, 1.0, -1.0]);
+        let activations: Vec<i8> = vec![1, 2, 3, 4, 5];
+        let result = matmul_scalar(&weights, &activations, 5, 1.0);
+        assert_eq!(result, -2.0);
+    }
+
+    #[test]
+    fn matmul_scalar_scale() {
+        let weights = pack(&[1.0, 0.0, -1.0]);
+        let activations: Vec<i8> = vec![10, 20, 30];
+        // (1*10) + (0*20) + (-1*30) = 10 - 30 = -20
+        // scale 0.5 -> -10
+        let result = matmul_scalar(&weights, &activations, 3, 0.5);
+        assert_eq!(result, -10.0);
+    }
+
+    #[test]
+    fn matmul_scalar_zero_weights() {
+        let weights: Vec<u8> = vec![];
+        let activations: Vec<i8> = vec![];
+        let result = matmul_scalar(&weights, &activations, 0, 1.0);
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn matmul_scalar_property() {
+        for n in [5usize, 10, 50, 500, 5000] {
+            let w: Vec<f32> = (0..n)
+                .map(|i| match i % 3 {
+                    0 => -1.0,
+                    1 => 0.0,
+                    _ => 1.0,
+                })
+                .collect();
+            let weights = pack(&w);
+            let activations: Vec<i8> = (0..n).map(|i| ((i % 200) as i32 - 100) as i8).collect();
+
+            // Reference: compute the dot product by hand.
+            let mut expected: i32 = 0;
+            for i in 0..n {
+                let trit = if w[i] == -1.0 { -1 }
+                          else if w[i] == 0.0 { 0 }
+                          else { 1 };
+                expected += trit * activations[i] as i32;
+            }
+
+            let result = matmul_scalar(&weights, &activations, n, 1.0);
+            assert_eq!(result, expected as f32, "matmul mismatch for n={}", n);
         }
     }
 

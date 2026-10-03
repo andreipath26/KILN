@@ -284,6 +284,77 @@ int kiln_tq1_0_unpack_table(const uint8_t* src, size_t n, float* dst) {
     return 0;
 }
 
+/* ---- Fused ternary matmul, scalar reference ---- */
+
+/* Compute one output row of the matmul between a TQ1.0 weight row and
+ * an int8 activation vector.
+ *
+ * The weight is ternary. The activation is int8. The output is float.
+ * The math is y = sum(w_i * x_i) * scale.
+ *
+ * The scalar reference does not use the LUT. It unpacks each trit and
+ * adds or subtracts the activation. This is the correctness anchor.
+ * Every optimized version must produce bit-identical output.
+ *
+ * Returns 0 on success, non-zero on error.
+ */
+int kiln_tq1_0_matmul_scalar(
+    const uint8_t* weights,
+    size_t num_weights,
+    const int8_t* activations,
+    size_t num_activations,
+    float scale,
+    float* output
+) {
+    if (weights == NULL || activations == NULL || output == NULL) return 1;
+    if (num_weights == 0) {
+        *output = 0.0f;
+        return 0;
+    }
+    if (num_activations < num_weights) return 2;
+
+    int32_t acc = 0;
+    size_t in_bytes = (num_weights + 4) / 5;
+
+    for (size_t b = 0; b < in_bytes; ++b) {
+        int packed = (int)weights[b];
+        if (packed < 0 || packed > 242) return 3;
+
+        int d4 = packed % 3;
+        int d3 = (packed / 3) % 3;
+        int d2 = (packed / 9) % 3;
+        int d1 = (packed / 27) % 3;
+        int d0 = (packed / 81) % 3;
+
+        size_t base = b * 5;
+        int trit;
+
+        if (base + 0 < num_weights) {
+            trit = d0 - 1;
+            acc += trit * (int32_t)activations[base + 0];
+        }
+        if (base + 1 < num_weights) {
+            trit = d1 - 1;
+            acc += trit * (int32_t)activations[base + 1];
+        }
+        if (base + 2 < num_weights) {
+            trit = d2 - 1;
+            acc += trit * (int32_t)activations[base + 2];
+        }
+        if (base + 3 < num_weights) {
+            trit = d3 - 1;
+            acc += trit * (int32_t)activations[base + 3];
+        }
+        if (base + 4 < num_weights) {
+            trit = d4 - 1;
+            acc += trit * (int32_t)activations[base + 4];
+        }
+    }
+
+    *output = (float)acc * scale;
+    return 0;
+}
+
 /* ---- Public dispatch ---- */
 
 /* The scalar packer is renamed to kiln_tq1_0_pack_scalar so that both
