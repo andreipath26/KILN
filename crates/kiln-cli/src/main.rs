@@ -9,6 +9,7 @@ use clap::{Parser, Subcommand};
 use kiln_core::{LinuxMonitor, PerformanceMonitor};
 use kiln_core::pipeline::{run_once as pipeline_run_once, Loader};
 use kiln_core::chat::{ChatSession, Sampler, SamplingStrategy, SyntheticForward};
+use kiln_core::transformer_config::TransformerConfig;
 use kiln_models::tokenizer::BpeTokenizer;
 use kiln_models::gguf::GgufFile;
 use kiln_api::serve;
@@ -44,6 +45,11 @@ enum Commands {
     Plan { model: String },
     /// Print the hardware profile.
     Info,
+    /// Print the transformer config read from a GGUF file.
+    Config {
+        /// Path to the GGUF file.
+        model: String,
+    },
     /// Tokenize a string using a model's tokenizer.
     Tokenize {
         /// Path to the GGUF file.
@@ -122,6 +128,36 @@ async fn main() {
             println!("  ram_headroom_gb:        {:.2}", env.ram_headroom_bytes as f64 / 1_073_741_824.0);
             println!("  thermal_state:          {:?}", env.thermal_state);
             println!("  throughput_fraction:    {:.3}", env.throughput_fraction);
+        }
+        Commands::Config { model } => {
+            let path_buf = std::path::PathBuf::from(&model);
+            let g = match GgufFile::open(&path_buf) {
+                Ok(g) => g,
+                Err(e) => {
+                    eprintln!("failed to open {}: {}", model, e);
+                    std::process::exit(1);
+                }
+            };
+            match TransformerConfig::from_gguf(&g) {
+                Ok(cfg) => {
+                    println!("KILN transformer config");
+                    println!("  arch:               {}", cfg.arch);
+                    println!("  vocab_size:         {}", cfg.vocab_size);
+                    println!("  hidden_size:        {}", cfg.hidden_size);
+                    println!("  num_layers:         {}", cfg.num_layers);
+                    println!("  intermediate_size:  {}", cfg.intermediate_size);
+                    println!("  num_heads:          {}", cfg.num_heads);
+                    println!("  num_kv_heads:       {}", cfg.num_kv_heads);
+                    println!("  head_dim:           {}", cfg.head_dim());
+                    println!("  rms_norm_eps:       {}", cfg.rms_norm_eps);
+                    println!("  context_length:     {}", cfg.context_length);
+                    println!("  rope_theta:         {}", cfg.rope_theta);
+                }
+                Err(e) => {
+                    eprintln!("config error: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Commands::Tokenize { model, text, roundtrip } => {
             let path_buf = std::path::PathBuf::from(&model);

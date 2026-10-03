@@ -76,7 +76,22 @@ impl TransformerConfig {
                 .ok_or(ConfigError::MissingKey(full_key))
         };
 
-        let vocab_size = get_u32("vocab_size")?;
+        // Read vocab_size. The metadata key may be absent. If it is,
+        // derive it from the length of the tokenizer.ggml.tokens array.
+        let vocab_size = match file.metadata_u32(&format!("{}vocab_size", prefix)) {
+            Some(v) => v as usize,
+            None => {
+                // Derive from the tokenizer tokens array length.
+                match file.metadata.get("tokenizer.ggml.tokens") {
+                    Some(GgufValue::Array { values, .. }) => values.len(),
+                    _ => {
+                        return Err(ConfigError::MissingKey(
+                            format!("{}vocab_size (and no tokenizer.ggml.tokens to derive from)", prefix)
+                        ));
+                    }
+                }
+            }
+        };
         let hidden_size = get_u32("embedding_length")?;
         let num_layers = get_u32("block_count")?;
         let intermediate_size = get_u32("feed_forward_length")?;
