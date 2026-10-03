@@ -29,4 +29,4 @@ pub use scheduler::{
     Scheduler, DefaultScheduler, MonitoredScheduler, StepOutcome,
 };
 
-pub use pipeline::{run_once, PipelineReport, PipelineError};
+pub use pipeline::{run_once, Loader, PipelineReport, PipelineError};

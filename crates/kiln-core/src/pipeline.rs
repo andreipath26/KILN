@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use kiln_kernels::matmul_scalar;
-use kiln_models::synthetic::{read_synthetic, SyntheticError, SyntheticModel};
+use kiln_models::synthetic::{read_synthetic, SyntheticError};
 use kiln_models::manifest::{Architecture, ModelManifest};
 use kiln_models::quantization::QuantizationSpec;
 use kiln_models::thermal::{Plan, ThermalProfile, TierBudget};
@@ -47,6 +47,101 @@ impl From<SyntheticError> for PipelineError {
     }
 }
 
+/// Which loader to use for the model file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Loader {
+    /// Synthetic model format for testing.
+    Synthetic,
+    /// Real GGUF model file.
+    Gguf,
+}
+
+impl Default for Loader {
+    fn default() -> Self {
+        Loader::Synthetic
+    }
+}
+
+/// A loaded model, regardless of source format. Provides the fields the
+/// pipeline needs: packed TQ1_0 weight rows, activations, and a scale.
+struct LoadedModel {
+    num_rows: u32,
+    num_cols: u32,
+    scale: f32,
+    weights: Vec<u8>,
+    activations: Vec<i8>,
+}
+
+impl LoadedModel {
+    fn total_weights(&self) -> usize {
+        self.num_rows as usize * self.num_cols as usize
+    }
+}
+
+fn load_synthetic(path: &std::path::Path) -> Result<LoadedModel, PipelineError> {
+    let m = read_synthetic(path)?;
+    Ok(LoadedModel {
+        num_rows: m.num_rows,
+        num_cols: m.num_cols,
+        scale: m.scale,
+        weights: m.weights,
+        activations: m.activations,
+    })
+}
+
+fn load_gguf(path: &std::path::Path) -> Result<LoadedModel, PipelineError> {
+    use kiln_models::gguf::GgufFile;
+    let g = GgufFile::open(path).map_err(|e| {
+        PipelineError::KernelFailed(Box::leak(format!("gguf: {}", e).into_boxed_str()))
+    })?;
+
+    // Find the first TQ1_0 tensor. That is the weight tensor.
+    let weight_tensor = g.tensors.iter()
+        .find(|t| matches!(t.dtype, kiln_models::gguf::GgufType::Tq1_0))
+        .ok_or(PipelineError::KernelFailed("no TQ1_0 tensor found in GGUF"))?;
+
+    if weight_tensor.shape.len() != 2 {
+        return Err(PipelineError::KernelFailed(
+            "weight tensor must be 2-dimensional"
+        ));
+    }
+    let num_rows = weight_tensor.shape[0] as u32;
+    let num_cols = weight_tensor.shape[1] as u32;
+
+    let weight_bytes = g.tensor_bytes(&weight_tensor.name)
+        .ok_or(PipelineError::KernelFailed("weight tensor bytes unavailable"))?
+        .to_vec();
+
+    // Find the first F32 tensor with shape [num_cols]. That is the
+    // activation vector for our purpose. In a real model, activations
+    // are computed, not stored. For pipeline testing, we look for a
+    // tensor called "activations" or fall back to a synthetic vector.
+    let acts: Vec<i8> = if let Some(t) = g.tensor("activations") {
+        let bytes = g.tensor_bytes(&t.name)
+            .ok_or(PipelineError::KernelFailed("activations bytes unavailable"))?;
+        bytes.iter().map(|&b| b as i8).collect()
+    } else {
+        // No activations tensor. Use a fixed pattern so the pipeline
+        // runs. A real model computes activations from input tokens.
+        (0..num_cols).map(|i| ((i as i32 * 7 % 200) - 100) as i8).collect()
+    };
+
+    // Read the scale from metadata, or default to 1.0.
+    let scale = g.metadata.get("kiln.scale")
+        .and_then(|v| v.as_f32())
+        .unwrap_or(1.0);
+
+    Ok(LoadedModel {
+        num_rows,
+        num_cols,
+        scale,
+        weights: weight_bytes,
+        activations: acts,
+    })
+}
+
+
+
 /// The report produced by one pipeline run.
 #[derive(Debug, Clone)]
 pub struct PipelineReport {
@@ -60,12 +155,15 @@ pub struct PipelineReport {
 }
 
 /// Run the pipeline once on a synthetic model file.
-pub fn run_once(path: PathBuf) -> Result<PipelineReport, PipelineError> {
+pub fn run_once(path: PathBuf, loader: Loader) -> Result<PipelineReport, PipelineError> {
     let total_start = Instant::now();
 
     // Step 1: Load.
     let load_start = Instant::now();
-    let model = read_synthetic(&path)?;
+    let model = match loader {
+        Loader::Synthetic => load_synthetic(&path)?,
+        Loader::Gguf => load_gguf(&path)?,
+    };
     if model.num_rows == 0 {
         return Err(PipelineError::EmptyModel);
     }
@@ -149,7 +247,7 @@ pub fn run_once(path: PathBuf) -> Result<PipelineReport, PipelineError> {
 
 /// Build a synthetic manifest from a synthetic model. In a real pipeline
 /// this would come from the model's real metadata.
-fn build_manifest(model: &SyntheticModel) -> ModelManifest {
+fn build_manifest(model: &LoadedModel) -> ModelManifest {
     ModelManifest {
         schema_version: 1,
         name: "synthetic".to_string(),
@@ -222,7 +320,7 @@ mod tests {
         };
         let path = tmp_path("e2e");
         write_synthetic(&path, &model).unwrap();
-        let report = run_once(path.clone()).unwrap();
+        let report = run_once(path.clone(), Loader::Synthetic).unwrap();
         assert_eq!(report.output, 0.0);
         assert_eq!(report.nodes_executed, 4);
         assert!(report.load_time_nanos > 0);
@@ -244,7 +342,7 @@ mod tests {
         };
         let path = tmp_path("ones");
         write_synthetic(&path, &model).unwrap();
-        let report = run_once(path.clone()).unwrap();
+        let report = run_once(path.clone(), Loader::Synthetic).unwrap();
         assert_eq!(report.output, 55.0);
         std::fs::remove_file(&path).ok();
     }

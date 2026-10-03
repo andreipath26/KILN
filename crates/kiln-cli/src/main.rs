@@ -7,7 +7,7 @@
 use clap::{Parser, Subcommand};
 
 use kiln_core::{LinuxMonitor, PerformanceMonitor};
-use kiln_core::pipeline::run_once as pipeline_run_once;
+use kiln_core::pipeline::{run_once as pipeline_run_once, Loader};
 use kiln_api::serve;
 
 /// KILN. The fastest local LLM runtime on Earth.
@@ -43,8 +43,11 @@ enum Commands {
     Info,
     /// Run the pipeline once on a synthetic model file.
     Pipeline {
-        /// Path to the synthetic model file.
+        /// Path to the model file.
         path: String,
+        /// Which loader to use: synthetic or gguf.
+        #[arg(long, default_value = "synthetic")]
+        loader: String,
         /// Print the report as JSON.
         #[arg(long)]
         json: bool,
@@ -82,9 +85,17 @@ async fn main() {
             println!("  thermal_state:          {:?}", env.thermal_state);
             println!("  throughput_fraction:    {:.3}", env.throughput_fraction);
         }
-        Commands::Pipeline { path, json } => {
+        Commands::Pipeline { path, loader, json } => {
             let path_buf = std::path::PathBuf::from(&path);
-            match pipeline_run_once(path_buf) {
+            let ld = match loader.as_str() {
+                "gguf" => Loader::Gguf,
+                "synthetic" => Loader::Synthetic,
+                other => {
+                    eprintln!("unknown loader: {} (expected synthetic or gguf)", other);
+                    std::process::exit(2);
+                }
+            };
+            match pipeline_run_once(path_buf, ld) {
                 Ok(report) => {
                     if json {
                         println!("{{\"output\":{},\"load_time_nanos\":{},\"select_time_nanos\":{},\"schedule_time_nanos\":{},\"execute_time_nanos\":{},\"total_time_nanos\":{},\"nodes_executed\":{}}}",
