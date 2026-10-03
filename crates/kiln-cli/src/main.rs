@@ -7,6 +7,7 @@
 use clap::{Parser, Subcommand};
 
 use kiln_core::{LinuxMonitor, PerformanceMonitor};
+use kiln_core::pipeline::run_once as pipeline_run_once;
 use kiln_api::serve;
 
 /// KILN. The fastest local LLM runtime on Earth.
@@ -40,6 +41,14 @@ enum Commands {
     Plan { model: String },
     /// Print the hardware profile.
     Info,
+    /// Run the pipeline once on a synthetic model file.
+    Pipeline {
+        /// Path to the synthetic model file.
+        path: String,
+        /// Print the report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[tokio::main]
@@ -72,6 +81,37 @@ async fn main() {
             println!("  ram_headroom_gb:        {:.2}", env.ram_headroom_bytes as f64 / 1_073_741_824.0);
             println!("  thermal_state:          {:?}", env.thermal_state);
             println!("  throughput_fraction:    {:.3}", env.throughput_fraction);
+        }
+        Commands::Pipeline { path, json } => {
+            let path_buf = std::path::PathBuf::from(&path);
+            match pipeline_run_once(path_buf) {
+                Ok(report) => {
+                    if json {
+                        println!("{{\"output\":{},\"load_time_nanos\":{},\"select_time_nanos\":{},\"schedule_time_nanos\":{},\"execute_time_nanos\":{},\"total_time_nanos\":{},\"nodes_executed\":{}}}",
+                            report.output,
+                            report.load_time_nanos,
+                            report.select_time_nanos,
+                            report.schedule_time_nanos,
+                            report.execute_time_nanos,
+                            report.total_time_nanos,
+                            report.nodes_executed,
+                        );
+                    } else {
+                        println!("KILN pipeline report");
+                        println!("  output:               {}", report.output);
+                        println!("  nodes_executed:       {}", report.nodes_executed);
+                        println!("  load_time_nanos:      {}", report.load_time_nanos);
+                        println!("  select_time_nanos:    {}", report.select_time_nanos);
+                        println!("  schedule_time_nanos:  {}", report.schedule_time_nanos);
+                        println!("  execute_time_nanos:   {}", report.execute_time_nanos);
+                        println!("  total_time_nanos:     {}", report.total_time_nanos);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("pipeline error: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Commands::Run { model } => not_implemented("run", &model),
         Commands::Pull { model } => not_implemented("pull", &model),

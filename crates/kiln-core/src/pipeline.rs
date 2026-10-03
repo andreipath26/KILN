@@ -12,7 +12,12 @@ use kiln_models::synthetic::{read_synthetic, SyntheticError, SyntheticModel};
 use kiln_models::manifest::{Architecture, ModelManifest};
 use kiln_models::quantization::QuantizationSpec;
 use kiln_models::thermal::{Plan, ThermalProfile, TierBudget};
+use kiln_hal::registry::InMemoryRegistry;
 use kiln_hal::Precision;
+
+use crate::monitor::{MockMonitor, PerformanceEnvelope};
+use crate::scheduler::{DefaultScheduler, Scheduler, StepOutcome};
+use crate::selector::{DefaultSelector, ModeSelector};
 
 /// Errors from the pipeline.
 #[derive(Debug)]
@@ -70,41 +75,64 @@ pub fn run_once(path: PathBuf) -> Result<PipelineReport, PipelineError> {
     let _manifest = build_manifest(&model);
     let load_time = load_start.elapsed().as_nanos() as u64;
 
-    // Step 2: Select.
+    // Step 2: Select. Build a plan from the manifest and a baseline
+    // performance envelope.
     let select_start = Instant::now();
-    let num_nodes = model.num_rows;
+    let envelope = PerformanceEnvelope::baseline(12 * 1024 * 1024 * 1024);
+    let registry = InMemoryRegistry::new();
+    let monitor = MockMonitor::new(envelope);
+    let selector = DefaultSelector {
+        num_layers: model.num_rows,
+        prompt_tokens: 0,
+    };
+    let outcome = selector.select(&_manifest, &envelope, &registry, &monitor);
+    let plan = outcome.plan;
     let select_time = select_start.elapsed().as_nanos() as u64;
 
-    // Step 3 and 4: Schedule and execute.
-    // For the minimal pipeline, each row is one node. We run the fused
-    // matmul kernel once per row. The first row's output is the
-    // reported output.
+    // Step 3: Schedule. Create a scheduler with the plan.
+    let schedule_start = Instant::now();
+    let mut scheduler = DefaultScheduler::new(plan.clone(), 1.0);
+    let _ = scheduler.revisions().len();
+    let schedule_time = schedule_start.elapsed().as_nanos() as u64;
+
+    // Step 4: Execute. Walk the plan and invoke the kernel for each node.
+    // Each node corresponds to one output row.
     let execute_start = Instant::now();
     let mut first_output = 0.0f32;
     let stride = (model.num_cols as usize + 4) / 5;
+    let mut nodes_executed = 0u32;
 
-    for r in 0..(model.num_rows as usize) {
-        let row_start = r * stride;
-        let row_end = row_start + stride;
-        if row_end > model.weights.len() {
-            return Err(PipelineError::KernelFailed("weight row out of bounds"));
-        }
-        let row_weights = &model.weights[row_start..row_end];
-        let out = matmul_scalar(
-            row_weights,
-            &model.activations,
-            model.num_cols as usize,
-            model.scale,
-        );
-        if r == 0 {
-            first_output = out;
+    while !scheduler.is_finished() {
+        match scheduler.step() {
+            Ok(StepOutcome::Executed { node, .. }) => {
+                let r = node.0 as usize;
+                let row_start = r * stride;
+                let row_end = row_start + stride;
+                if row_end > model.weights.len() {
+                    return Err(PipelineError::KernelFailed("weight row out of bounds"));
+                }
+                let row_weights = &model.weights[row_start..row_end];
+                let out = matmul_scalar(
+                    row_weights,
+                    &model.activations,
+                    model.num_cols as usize,
+                    model.scale,
+                );
+                if r == 0 {
+                    first_output = out;
+                }
+                nodes_executed += 1;
+            }
+            Ok(StepOutcome::Finished) => break,
+            Ok(StepOutcome::Revised { .. }) => continue,
+            Err(e) => {
+                return Err(PipelineError::KernelFailed(
+                    if e.to_string().is_empty() { "scheduler error" } else { "scheduler error" }
+                ));
+            }
         }
     }
     let execute_time = execute_start.elapsed().as_nanos() as u64;
-
-    // Schedule time is the difference between execute and the two
-    // bookkeeping steps. For now we record it as the small delta.
-    let schedule_time = 0u64;
 
     let total_time = total_start.elapsed().as_nanos() as u64;
 
@@ -115,7 +143,7 @@ pub fn run_once(path: PathBuf) -> Result<PipelineReport, PipelineError> {
         schedule_time_nanos: schedule_time,
         execute_time_nanos: execute_time,
         total_time_nanos: total_time,
-        nodes_executed: num_nodes,
+        nodes_executed,
     })
 }
 
