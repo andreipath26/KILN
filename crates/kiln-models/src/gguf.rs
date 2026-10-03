@@ -111,6 +111,242 @@ pub fn read_header(path: &Path) -> Result<GgufHeader, GgufError> {
     GgufHeader::from_bytes(&buf)
 }
 
+/// The nine GGUF metadata value types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GgufValueType {
+    Uint8 = 0,
+    Int8 = 1,
+    Uint16 = 2,
+    Int16 = 3,
+    Uint32 = 4,
+    Int32 = 5,
+    Float32 = 6,
+    Bool = 7,
+    String = 8,
+    Array = 9,
+}
+
+impl GgufValueType {
+    pub fn from_u32(v: u32) -> Result<Self, GgufError> {
+        match v {
+            0 => Ok(GgufValueType::Uint8),
+            1 => Ok(GgufValueType::Int8),
+            2 => Ok(GgufValueType::Uint16),
+            3 => Ok(GgufValueType::Int16),
+            4 => Ok(GgufValueType::Uint32),
+            5 => Ok(GgufValueType::Int32),
+            6 => Ok(GgufValueType::Float32),
+            7 => Ok(GgufValueType::Bool),
+            8 => Ok(GgufValueType::String),
+            9 => Ok(GgufValueType::Array),
+            other => Err(GgufError::Metadata(format!("unknown value type: {}", other))),
+        }
+    }
+}
+
+/// A GGUF metadata value.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GgufValue {
+    Uint8(u8),
+    Int8(i8),
+    Uint16(u16),
+    Int16(i16),
+    Uint32(u32),
+    Int32(i32),
+    Float32(f32),
+    Bool(bool),
+    String(String),
+    Array {
+        element_type: GgufValueType,
+        values: Vec<GgufValue>,
+    },
+}
+
+impl GgufValue {
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            GgufValue::String(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn as_u32(&self) -> Option<u32> {
+        match self {
+            GgufValue::Uint8(v) => Some(*v as u32),
+            GgufValue::Uint16(v) => Some(*v as u32),
+            GgufValue::Uint32(v) => Some(*v),
+            GgufValue::Int8(v) if *v >= 0 => Some(*v as u32),
+            GgufValue::Int16(v) if *v >= 0 => Some(*v as u32),
+            GgufValue::Int32(v) if *v >= 0 => Some(*v as u32),
+            _ => None,
+        }
+    }
+
+    pub fn as_f32(&self) -> Option<f32> {
+        match self {
+            GgufValue::Float32(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            GgufValue::Bool(v) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+struct Reader<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Reader<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, pos: 0 }
+    }
+
+    fn remaining(&self) -> usize {
+        self.bytes.len() - self.pos
+    }
+
+    fn need(&self, n: usize) -> Result<(), GgufError> {
+        if self.remaining() < n {
+            return Err(GgufError::TruncatedFile {
+                needed: n,
+                got: self.remaining(),
+            });
+        }
+        Ok(())
+    }
+
+    fn u8(&mut self) -> Result<u8, GgufError> {
+        self.need(1)?;
+        let v = self.bytes[self.pos];
+        self.pos += 1;
+        Ok(v)
+    }
+
+    fn i8(&mut self) -> Result<i8, GgufError> {
+        Ok(self.u8()? as i8)
+    }
+
+    fn u16(&mut self) -> Result<u16, GgufError> {
+        self.need(2)?;
+        let v = u16::from_le_bytes([self.bytes[self.pos], self.bytes[self.pos + 1]]);
+        self.pos += 2;
+        Ok(v)
+    }
+
+    fn i16(&mut self) -> Result<i16, GgufError> {
+        Ok(self.u16()? as i16)
+    }
+
+    fn u32(&mut self) -> Result<u32, GgufError> {
+        self.need(4)?;
+        let v = u32::from_le_bytes([
+            self.bytes[self.pos],
+            self.bytes[self.pos + 1],
+            self.bytes[self.pos + 2],
+            self.bytes[self.pos + 3],
+        ]);
+        self.pos += 4;
+        Ok(v)
+    }
+
+    fn i32(&mut self) -> Result<i32, GgufError> {
+        Ok(self.u32()? as i32)
+    }
+
+    fn f32(&mut self) -> Result<f32, GgufError> {
+        Ok(f32::from_bits(self.u32()?))
+    }
+
+    fn u64(&mut self) -> Result<u64, GgufError> {
+        self.need(8)?;
+        let v = u64::from_le_bytes([
+            self.bytes[self.pos],
+            self.bytes[self.pos + 1],
+            self.bytes[self.pos + 2],
+            self.bytes[self.pos + 3],
+            self.bytes[self.pos + 4],
+            self.bytes[self.pos + 5],
+            self.bytes[self.pos + 6],
+            self.bytes[self.pos + 7],
+        ]);
+        self.pos += 8;
+        Ok(v)
+    }
+
+    fn bool(&mut self) -> Result<bool, GgufError> {
+        Ok(self.u8()? != 0)
+    }
+
+    fn string(&mut self) -> Result<String, GgufError> {
+        let len = self.u64()? as usize;
+        self.need(len)?;
+        let s = std::str::from_utf8(&self.bytes[self.pos..self.pos + len])
+            .map_err(|e| GgufError::Metadata(format!("invalid UTF-8: {}", e)))?
+            .to_string();
+        self.pos += len;
+        Ok(s)
+    }
+
+    fn value(&mut self, t: GgufValueType) -> Result<GgufValue, GgufError> {
+        match t {
+            GgufValueType::Uint8 => Ok(GgufValue::Uint8(self.u8()?)),
+            GgufValueType::Int8 => Ok(GgufValue::Int8(self.i8()?)),
+            GgufValueType::Uint16 => Ok(GgufValue::Uint16(self.u16()?)),
+            GgufValueType::Int16 => Ok(GgufValue::Int16(self.i16()?)),
+            GgufValueType::Uint32 => Ok(GgufValue::Uint32(self.u32()?)),
+            GgufValueType::Int32 => Ok(GgufValue::Int32(self.i32()?)),
+            GgufValueType::Float32 => Ok(GgufValue::Float32(self.f32()?)),
+            GgufValueType::Bool => Ok(GgufValue::Bool(self.bool()?)),
+            GgufValueType::String => Ok(GgufValue::String(self.string()?)),
+            GgufValueType::Array => {
+                let element_type_raw = self.u32()?;
+                let element_type = GgufValueType::from_u32(element_type_raw)?;
+                let count = self.u64()? as usize;
+                let mut values = Vec::with_capacity(count.min(1024));
+                for _ in 0..count {
+                    values.push(self.value(element_type)?);
+                }
+                Ok(GgufValue::Array { element_type, values })
+            }
+        }
+    }
+}
+
+/// Parse the metadata key-value table from a byte slice starting at the
+/// offset immediately after the header.
+pub fn parse_metadata(
+    bytes: &[u8],
+    start_offset: usize,
+    kv_count: u64,
+) -> Result<(std::collections::HashMap<String, GgufValue>, usize), GgufError> {
+    let mut reader = Reader::new(&bytes[start_offset..]);
+    let mut map = std::collections::HashMap::new();
+
+    for i in 0..kv_count {
+        let key = reader.string().map_err(|e| {
+            GgufError::Metadata(format!("key {} read failed: {}", i, e))
+        })?;
+        let type_raw = reader.u32().map_err(|e| {
+            GgufError::Metadata(format!("value type for key '{}' failed: {}", key, e))
+        })?;
+        let vt = GgufValueType::from_u32(type_raw).map_err(|e| {
+            GgufError::Metadata(format!("value type for key '{}' failed: {}", key, e))
+        })?;
+        let value = reader.value(vt).map_err(|e| {
+            GgufError::Metadata(format!("value for key '{}' failed: {}", key, e))
+        })?;
+        map.insert(key, value);
+    }
+
+    Ok((map, start_offset + reader.pos))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,5 +389,73 @@ mod tests {
         let buf = [0u8; 10];
         let result = GgufHeader::from_bytes(&buf);
         assert!(matches!(result, Err(GgufError::TruncatedFile { .. })));
+    }
+
+    #[test]
+    fn parse_metadata_single_string() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&4u64.to_le_bytes());
+        buf.extend_from_slice(b"name");
+        buf.extend_from_slice(&8u32.to_le_bytes());
+        buf.extend_from_slice(&3u64.to_le_bytes());
+        buf.extend_from_slice(b"abc");
+        let (map, end) = parse_metadata(&buf, 0, 1).unwrap();
+        assert_eq!(end, buf.len());
+        assert_eq!(map.get("name").unwrap().as_str().unwrap(), "abc");
+    }
+
+    #[test]
+    fn parse_metadata_mixed_types() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&1u64.to_le_bytes());
+        buf.extend_from_slice(b"a");
+        buf.extend_from_slice(&4u32.to_le_bytes());
+        buf.extend_from_slice(&42u32.to_le_bytes());
+        buf.extend_from_slice(&1u64.to_le_bytes());
+        buf.extend_from_slice(b"b");
+        buf.extend_from_slice(&6u32.to_le_bytes());
+        buf.extend_from_slice(&3.5f32.to_le_bytes());
+        buf.extend_from_slice(&1u64.to_le_bytes());
+        buf.extend_from_slice(b"c");
+        buf.extend_from_slice(&7u32.to_le_bytes());
+        buf.push(1);
+        let (map, _) = parse_metadata(&buf, 0, 3).unwrap();
+        assert_eq!(map.get("a").unwrap().as_u32().unwrap(), 42);
+        assert_eq!(map.get("b").unwrap().as_f32().unwrap(), 3.5);
+        assert!(map.get("c").unwrap().as_bool().unwrap());
+    }
+
+    #[test]
+    fn parse_metadata_array_of_strings() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&4u64.to_le_bytes());
+        buf.extend_from_slice(b"tags");
+        buf.extend_from_slice(&9u32.to_le_bytes());
+        buf.extend_from_slice(&8u32.to_le_bytes());
+        buf.extend_from_slice(&2u64.to_le_bytes());
+        buf.extend_from_slice(&3u64.to_le_bytes());
+        buf.extend_from_slice(b"one");
+        buf.extend_from_slice(&3u64.to_le_bytes());
+        buf.extend_from_slice(b"two");
+        let (map, _) = parse_metadata(&buf, 0, 1).unwrap();
+        match map.get("tags").unwrap() {
+            GgufValue::Array { element_type, values } => {
+                assert_eq!(*element_type, GgufValueType::String);
+                assert_eq!(values.len(), 2);
+                assert_eq!(values[0].as_str().unwrap(), "one");
+                assert_eq!(values[1].as_str().unwrap(), "two");
+            }
+            other => panic!("expected array, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_metadata_rejects_unknown_type() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&1u64.to_le_bytes());
+        buf.extend_from_slice(b"x");
+        buf.extend_from_slice(&99u32.to_le_bytes());
+        let result = parse_metadata(&buf, 0, 1);
+        assert!(result.is_err());
     }
 }

@@ -25,4 +25,4 @@ pub use ml_cache::MlCacheRef;
 
 pub use synthetic::{SyntheticModel, write_synthetic, read_synthetic, SyntheticError};
 
-pub use gguf::{GgufError, GgufHeader, read_header};
+pub use gguf::{GgufError, GgufHeader, GgufValue, GgufValueType, read_header, parse_metadata};
