@@ -14,7 +14,7 @@ pub mod kv_layout;
 pub mod thermal;
 pub mod ml_cache;
 
-pub use manifest::ModelManifest;
+pub use manifest::{Architecture, ModelManifest};
 pub use quantization::QuantizationSpec;
 pub use experts::ExpertTable;
 pub use kv_layout::KvLayout;

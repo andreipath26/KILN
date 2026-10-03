@@ -11,6 +11,7 @@ pub mod plan;
 pub mod revision;
 pub mod error;
 pub mod monitor;
+pub mod selector;
 
 pub use plan::{ExecutionPlan, Node, Edge, TensorRef, NodeId};
 pub use revision::{PlanRevision, RevisionReason};
@@ -18,4 +19,7 @@ pub use error::SchedulerError;
 pub use monitor::{
     PerformanceMonitor, PerformanceEnvelope, ThermalHistory, ThrottlePrediction,
     Sample, LinuxMonitor, MockMonitor,
+};
+pub use selector::{
+    ModeSelector, DefaultSelector, SelectionOutcome, LadderRung, AlgorithmReason,
 };

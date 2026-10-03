@@ -12,5 +12,5 @@ pub mod registry;
 pub use types::{
     Algorithm, BackendId, DeviceType, Op, Precision, ResidencyState, ThermalState,
 };
-pub use backend::Backend;
+pub use backend::{Backend, ConversionCost, ConversionPath, ConversionStep, MemoryModel};
 pub use registry::Registry;
