@@ -17,6 +17,7 @@ pub mod pipeline;
 pub mod chat;
 pub mod transformer_config;
 pub mod transformer_weights;
+pub mod transformer;
 
 pub use plan::{ExecutionPlan, Node, Edge, TensorRef, NodeId};
 pub use revision::{PlanRevision, RevisionReason};
@@ -39,3 +40,5 @@ pub use chat::{Forward, MockForward, SyntheticForward, Sampler, SamplingStrategy
 pub use transformer_config::{TransformerConfig, ConfigError};
 
 pub use transformer_weights::{TransformerWeights, LayerWeights, WeightError};
+
+pub use transformer::{Transformer, TransformerError};
