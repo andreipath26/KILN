@@ -9,3 +9,5 @@ authors.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 kiln-hal = { path = "../kiln-hal" }
+
+memmap2 = "0.9"

@@ -14,6 +14,7 @@ pub mod kv_layout;
 pub mod thermal;
 pub mod ml_cache;
 pub mod synthetic;
+pub mod gguf;
 
 pub use manifest::{Architecture, ModelManifest};
 pub use quantization::QuantizationSpec;
@@ -23,3 +24,5 @@ pub use thermal::ThermalProfile;
 pub use ml_cache::MlCacheRef;
 
 pub use synthetic::{SyntheticModel, write_synthetic, read_synthetic, SyntheticError};
+
+pub use gguf::{GgufError, GgufHeader, read_header};
