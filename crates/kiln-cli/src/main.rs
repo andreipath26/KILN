@@ -10,6 +10,7 @@ use kiln_core::{LinuxMonitor, PerformanceMonitor};
 use kiln_core::pipeline::{run_once as pipeline_run_once, Loader};
 use kiln_core::chat::{ChatSession, Sampler, SamplingStrategy, SyntheticForward};
 use kiln_core::transformer_config::TransformerConfig;
+use kiln_core::transformer_weights::TransformerWeights;
 use kiln_models::tokenizer::BpeTokenizer;
 use kiln_models::gguf::GgufFile;
 use kiln_api::serve;
@@ -45,6 +46,11 @@ enum Commands {
     Plan { model: String },
     /// Print the hardware profile.
     Info,
+    /// Load every weight tensor from a GGUF file and report sizes.
+    Weights {
+        /// Path to the GGUF file.
+        model: String,
+    },
     /// Print the transformer config read from a GGUF file.
     Config {
         /// Path to the GGUF file.
@@ -128,6 +134,45 @@ async fn main() {
             println!("  ram_headroom_gb:        {:.2}", env.ram_headroom_bytes as f64 / 1_073_741_824.0);
             println!("  thermal_state:          {:?}", env.thermal_state);
             println!("  throughput_fraction:    {:.3}", env.throughput_fraction);
+        }
+        Commands::Weights { model } => {
+            let path_buf = std::path::PathBuf::from(&model);
+            let g = match GgufFile::open(&path_buf) {
+                Ok(g) => g,
+                Err(e) => {
+                    eprintln!("failed to open {}: {}", model, e);
+                    std::process::exit(1);
+                }
+            };
+            let g = std::sync::Arc::new(g);
+            match TransformerWeights::from_gguf(&g) {
+                Ok(w) => {
+                    println!("KILN transformer weights");
+                    println!("  config:      {}", w.config.summary());
+                    println!("  token_embd:  {} bytes", w.token_embd.len());
+                    println!("  output_norm: {} bytes", w.output_norm.len());
+                    println!("  output:      {} bytes", w.output.len());
+                    println!("  layers:      {}", w.layers.len());
+                    let l = &w.layers[0];
+                    println!("  layer 0:");
+                    println!("    attn_norm:   {} bytes", l.attn_norm.len());
+                    println!("    attn_q:      {} bytes", l.attn_q.len());
+                    println!("    attn_k:      {} bytes", l.attn_k.len());
+                    println!("    attn_v:      {} bytes", l.attn_v.len());
+                    println!("    attn_output: {} bytes", l.attn_output.len());
+                    println!("    ffn_norm:    {} bytes", l.ffn_norm.len());
+                    println!("    ffn_gate:    {} bytes", l.ffn_gate.len());
+                    println!("    ffn_up:      {} bytes", l.ffn_up.len());
+                    println!("    ffn_down:    {} bytes", l.ffn_down.len());
+                    let total = w.total_bytes();
+                    println!("  total:       {} bytes ({:.2} GB)",
+                        total, total as f64 / 1_073_741_824.0);
+                }
+                Err(e) => {
+                    eprintln!("weights error: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Commands::Config { model } => {
             let path_buf = std::path::PathBuf::from(&model);

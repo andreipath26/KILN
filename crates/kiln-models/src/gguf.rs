@@ -352,9 +352,22 @@ pub fn parse_metadata(
 /// No explicit discriminants because Unknown(u32) carries data.
 /// The numeric codes are mapped in from_u32.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
 pub enum GgufType {
     F32,
     F16,
+    Q4_0,
+    Q4_1,
+    Q5_0,
+    Q5_1,
+    Q8_0,
+    Q8_1,
+    Q2_K,
+    Q3_K,
+    Q4_K,
+    Q5_K,
+    Q6_K,
+    Q8_K,
     Tq1_0,
     Unknown(u32),
 }
@@ -364,20 +377,69 @@ impl GgufType {
         match v {
             0 => GgufType::F32,
             1 => GgufType::F16,
+            2 => GgufType::Q4_0,
+            3 => GgufType::Q4_1,
+            6 => GgufType::Q5_0,
+            7 => GgufType::Q5_1,
+            8 => GgufType::Q8_0,
+            9 => GgufType::Q8_1,
+            10 => GgufType::Q2_K,
+            11 => GgufType::Q3_K,
+            12 => GgufType::Q4_K,
+            13 => GgufType::Q5_K,
+            14 => GgufType::Q6_K,
+            15 => GgufType::Q8_K,
             1000 => GgufType::Tq1_0,
             other => GgufType::Unknown(other),
         }
     }
 
-    /// The byte size of one element of this type.
+    /// The number of weights per block for this type.
+    /// Returns None for types that do not use blocks.
+    pub fn block_size(&self) -> Option<u64> {
+        match self {
+            GgufType::Q4_0 | GgufType::Q4_1 => Some(32),
+            GgufType::Q5_0 | GgufType::Q5_1 => Some(32),
+            GgufType::Q8_0 | GgufType::Q8_1 => Some(32),
+            GgufType::Q2_K | GgufType::Q3_K => Some(256),
+            GgufType::Q4_K | GgufType::Q5_K => Some(256),
+            GgufType::Q6_K | GgufType::Q8_K => Some(256),
+            _ => None,
+        }
+    }
+
+    /// The number of bytes per block for this type.
+    pub fn block_bytes(&self) -> Option<u64> {
+        match self {
+            GgufType::Q4_0 => Some(18),   // 2 F16 scale + 16
+            GgufType::Q4_1 => Some(20),   // 2 F16 scale + 2 F16 min + 16
+            GgufType::Q5_0 => Some(22),   // 2 F16 scale + 4 + 16
+            GgufType::Q5_1 => Some(24),   // 2 F16 scale + 2 F16 min + 4 + 16
+            GgufType::Q8_0 => Some(34),   // 2 F16 scale + 32
+            GgufType::Q8_1 => Some(36),   // 2 F16 scale + 2 F16 sum + 32
+            GgufType::Q2_K => Some(84),   // 256 weights at 2.625 bits
+            GgufType::Q3_K => Some(110),  // 256 weights at 3.4375 bits
+            GgufType::Q4_K => Some(144),  // 256 weights at 4.5 bits
+            GgufType::Q5_K => Some(176),  // 256 weights at 5.5 bits
+            GgufType::Q6_K => Some(210),  // 256 weights at 6.5625 bits
+            GgufType::Q8_K => Some(292),  // 256 weights at 8.0 bits
+            _ => None,
+        }
+    }
+
+    /// The byte size of one element of this type. Returns None for
+    /// blocked quantized formats where the size depends on the block.
     pub fn element_size(&self) -> Option<usize> {
         match self {
             GgufType::F32 => Some(4),
             GgufType::F16 => Some(2),
-            // TQ1_0 packs 5 trits into 1 byte. Element size is fractional,
-            // so we return None and callers compute the byte size from the
-            // shape with the packed formula.
             GgufType::Tq1_0 => None,
+            GgufType::Q4_0 | GgufType::Q4_1 => None,
+            GgufType::Q5_0 | GgufType::Q5_1 => None,
+            GgufType::Q8_0 | GgufType::Q8_1 => None,
+            GgufType::Q2_K | GgufType::Q3_K => None,
+            GgufType::Q4_K | GgufType::Q5_K => None,
+            GgufType::Q6_K | GgufType::Q8_K => None,
             GgufType::Unknown(_) => None,
         }
     }
@@ -406,6 +468,14 @@ impl GgufTensorInfo {
             GgufType::F16 => Some(n * 2),
             GgufType::Tq1_0 => Some((n + 4) / 5),
             GgufType::Unknown(_) => None,
+            ref t => {
+                // Blocked quantized formats. The size is the number of
+                // blocks times the bytes per block.
+                let block_size = t.block_size()?;
+                let block_bytes = t.block_bytes()?;
+                let num_blocks = (n + block_size - 1) / block_size;
+                Some(num_blocks * block_bytes)
+            }
         }
     }
 }
