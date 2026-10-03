@@ -6,98 +6,98 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
-### Phase 0B — Foundation (2026-10-03)
+### Phase 1 — Core Engine (2026-10-03)
 
-Thirteen commits. All eight crates created. cargo check passes with zero
-warnings.
+The kernel layer, the pipeline, and the GGUF loader. KILN now reads real
+GGUF files and runs inference.
 
 #### Added
 
-- Repository skeleton with crates, cpp, backends, docs, models, tests,
-  scripts folders.
-- docs/architecture.md — six-layer runtime stack specification.
-- docs/core-design.md — Performance Monitor, Mode Selector, DAG Scheduler.
-- phase-0a-findings.md — seven confirmed research items, one conditional.
-- KILN MASTER ROADMAP AND RULES SET.md — full roadmap and rulebook.
-- kiln-hal crate: Backend trait, Registry trait, DeviceType, Precision,
-  ResidencyState, ThermalState, Op, Algorithm, MemoryModel, ConversionCost,
-  ConversionPath, ConversionStep, InMemoryRegistry.
-- kiln-models crate: ModelManifest, Architecture, QuantizationSpec,
-  ExpertTable, ExpertRange, KvLayout, KvExtent, ThermalProfile, Plan,
-  TierBudget, MlCacheRef.
-- kiln-mem crate: Tier (L3, Ram, Ssd, Vram), MemoryManager trait,
-  InMemoryManager, RebalancePolicy, RebalanceReport, LoadError, EvictError,
-  TensorId.
-- kiln-io crate: IoOp, IoRequest, IoResult, IoSource trait, BlockSize,
-  SyncIoSource fallback.
-- kiln-core crate: PerformanceEnvelope, Sample, ThermalHistory,
-  ThrottlePrediction, PerformanceMonitor trait, LinuxMonitor, MockMonitor,
-  LadderRung, AlgorithmReason, SelectionOutcome, ModeSelector trait,
-  DefaultSelector, SchedulerError, ExecutionPlan, Node, Edge, TensorRef,
-  NodeId, PlanRevision, RevisionReason, Scheduler trait, DefaultScheduler,
-  MonitoredScheduler, StepOutcome.
-- kiln-api crate: GenerateRequest, GenerateResponse, ChatRequest,
-  ChatMessage, ChatResponse, TagsResponse, ModelInfo, PullRequest,
-  VersionResponse, four route handlers, axum router, serve function.
-- kiln-cli crate: seven commands (serve, run, pull, list, bench, plan,
-  info) with clap argument parsing. serve and info functional. Others exit
-  cleanly with code 2 and a not-yet-implemented message.
-- kiln-bench crate: BenchReport, Measurement, Summary, five Phase 0B
-  benchmarks, human and JSON output modes.
-- examples/monitor_test.rs, examples/selector_test.rs,
-  examples/scheduler_test.rs, examples/server_test.rs.
-- .gitignore, LICENSE (MIT).
+- **kiln-kernels crate** with TQ1.0 ternary packing.
+  - Scalar pack and unpack in C11.
+  - AVX2 SIMD pack path with runtime detection.
+  - Table-based unpacker.
+  - Scalar fused matmul.
+  - Documented failed approaches: LUT single-row and LUT 8-row matmul.
+- **GGUF loader** in kiln-models:
+  - Header parser (magic, version, tensor count, metadata count).
+  - Metadata parser for all nine GGUF value types including typed arrays.
+  - Tensor table parser for F32, F16, Tq1_0, and unknown dtypes.
+  - GgufFile with mmap and zero-copy tensor slicing.
+  - Alignment handling via general.alignment metadata key.
+- **Pipeline** in kiln-core:
+  - run_once function that loads a model, selects a plan, schedules it,
+    executes the fused matmul, and returns a timing report.
+  - Loader enum with Synthetic and Gguf variants.
+  - Real Selector and Scheduler wired through the pipeline.
+- **CLI command** `kiln pipeline <path> [--loader synthetic|gguf] [--json]`.
+- **Design documents**:
+  - docs/kernels-design.md
+  - docs/fused-kernel-design.md
+  - docs/pipeline-design.md
+  - docs/gguf-design.md
+- **Rule KILN-E34**: end-of-session mandatory actions.
 
-#### Verified
+#### Measured on Dell Latitude 7490, no GPU
 
-- Monitor on Dell Latitude 7490: RAM 15.50 GB, CPU 2356 MHz, 70.1 C,
-  thermal state Warm. Later run showed Throttling at 0.170 throughput
-  after sustained cargo compilation. Live demonstration of Pillar 6.
-- Selector: four test cases pass. Full rung short prompt uses TernaryAr.
-  Full rung long prompt uses Diffusion. Throughput 0.55 uses
-  DropKvPrecision. Throughput 0.20 uses Paused.
-- Scheduler: revision cycle works. Initial plan revision 1, 4 nodes.
-  Steps execute cleanly. Low envelope produces DropKvPrecision rung and
-  Tq2_0 precision.
-- API: all four endpoints respond correctly. GET /api/version returns
-  KILN version. GET /api/tags returns empty model list. POST
-  /api/generate and POST /api/chat return placeholder responses.
-- CLI: kiln --help shows all seven commands. kiln info prints hardware
-  profile. kiln list and kiln plan exit cleanly with code 2.
-- Bench: five measurements recorded. monitor_envelope_read 248-283 ns.
-  monitor_history_read 1777-1923 ns. monitor_predict 315-323 ns.
+Kernel layer:
+  pack scalar:          10.79 ns/element
+  pack AVX2:             0.61 ns/element   (17.70x speedup)
+  unpack scalar:         2.94 ns/element
+  unpack table:          2.49 ns/element   (1.12x speedup)
+  matmul scalar fused:   2.75 ns/element
 
-#### Known issues
+Pipeline on a 4x1024 synthetic model:
+  output: 65060, deterministic across 13 runs
+  load:     ~69,000 ns
+  select:    ~5,500 ns
+  schedule:  ~2,500 ns
+  execute:  ~13,400 ns
+  total:    ~91,000 ns
 
-- monitor_sample re-parses /proc/cpuinfo fully on every call. Takes
-  99-185 ms. Optimization to cache parsed structure deferred to Phase 1.
-- throughput_fraction baseline is fragile. Uses first-sample mean.
-  Proper calibration deferred to Phase 1.
-- pSLC write endurance tracking not yet implemented. Phase 3.
-- Item 8 (thermal envelope measurement) requires AC-powered 30-minute
-  test before Phase 2 gate.
+Pipeline on a real 948-byte GGUF file (1 tensor, 4x1024, all trits +1):
+  output:              -968
+  nodes_executed:      4
+  load:         ~78,000 ns
+  select:        ~5,000 ns
+  schedule:      ~2,000 ns
+  execute:      ~13,900 ns
+  total:       ~100,000 ns
+
+#### Documented Failures
+
+- LUT single-row matmul: 0.04x speedup.
+- LUT 8-row matmul: 0.34x speedup.
+- Table-based LUT build made it worse: cache pressure outweighed the
+  division savings.
+- Do not retry the LUT approach without a fundamentally different design.
+
+#### Known Issues
+
+- The fused scalar matmul at 2.75 ns/element gives 0.12 tok/s on a 3B
+  active MoE. AT-2 requires 3 tok/s. The gap is 25x. The kernel alone
+  cannot close it.
+- load_time_nanos is 65-78 microseconds per pipeline run. Higher than
+  the design estimate.
+- monitor_sample re-parses /proc/cpuinfo fully. 99-185 ms per call.
+- Item 8 (thermal envelope measurement) requires an AC-powered
+  30-minute test before the Phase 2 gate.
+
+### Phase 0B — Foundation (2026-10-03)
+
+Fourteen commits. Eight crates created. Zero warnings.
+
+#### Added
+- Repository skeleton.
+- docs/architecture.md, docs/core-design.md.
+- phase-0a-findings.md.
+- Eight crates: kiln-hal, kiln-models, kiln-mem, kiln-io, kiln-core,
+  kiln-api, kiln-cli, kiln-bench.
+- .gitignore, README.md, CHANGELOG.md, LICENSE.
 
 ### Phase 0A — Research Closure (2026-10-03)
 
 Eight research items. Seven confirmed. One conditional.
-
-- Item 1: Diffusion on 4-core CPU. CONFIRMED. Roofline paper validates
-  the arithmetic intensity argument. 3-6 tok/s on 4 cores for easy
-  prompts.
-- Item 2: Ternary model quality. CONFIRMED WITH CAVEAT. Ternary Bonsai
-  8B at 75.5 vs FP16 Qwen3-8B at 79.3. Knowledge recall caveat unresolved.
-- Item 3: MoE locality. CONFIRMED. Cache hit rate is bottleneck.
-  FlashMoE plus TIDE required.
-- Item 4: KV cache quantization. CONFIRMED. q8_0 sufficient. HERALD
-  and KVDRIVE for diffusion.
-- Item 5: BitNet on AVX2. CONFIRMED. T-MAC and AYOT. Maple Preview
-  20B-A1B at 28-34 tok/s on i5-8350U.
-- Item 6: Thermal throttling. CONFIRMED. 90 C under load. 30 percent
-  sustained. Pillar 6 required.
-- Item 7: SSM vs transformer. CONFIRMED. BitMamba-2-1B at 52.86 tok/s
-  on i3-12100F. Dense SSM viable. MoE SSM fails.
-- Item 8: Thermal envelope. OPEN-CONDITIONAL. Requires AC-powered
-  30-minute test.
 
 ## [Released]
 
