@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/kiln-hal",
     "crates/kiln-models",
+    "crates/kiln-mem",
 ]
 
 [workspace.package]

@@ -17,6 +17,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kiln-mem"
+version = "0.0.1"
+dependencies = [
+ "kiln-hal",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "kiln-models"
 version = "0.0.1"
 dependencies = [
