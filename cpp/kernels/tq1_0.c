@@ -93,7 +93,10 @@ int kiln_tq1_0_unpack(const uint8_t* src, size_t n, float* dst) {
 
 /* ---- AVX2 pack path ---- */
 
-#if defined(__AVX2__) || defined(KILN_FORCE_AVX2)
+/* On x86_64 with -mavx2, both paths are compiled and the dispatcher
+ * chooses at runtime. On non-x86_64, only the scalar path exists. */
+
+#if defined(__x86_64__) || defined(__i386__)
 
 #include <immintrin.h>
 
@@ -222,20 +225,36 @@ static int kiln_tq1_0_pack_avx2(const float* src, size_t n, uint8_t* dst) {
     return 0;
 }
 
-#endif /* __AVX2__ || KILN_FORCE_AVX2 */
+#endif /* __x86_64__ || __i386__ */
 
 
 /* ---- Public dispatch ---- */
 
-#if defined(__AVX2__) || defined(KILN_FORCE_AVX2)
-int kiln_tq1_0_pack_dispatch(const float* src, size_t n, uint8_t* dst) {
+/* The scalar packer is renamed to kiln_tq1_0_pack_scalar so that both
+ * paths are always available. The old name kiln_tq1_0_pack is kept as an
+ * alias for backward compatibility. */
+int kiln_tq1_0_pack_scalar(const float* src, size_t n, uint8_t* dst) {
+    return kiln_tq1_0_pack(src, n, dst);
+}
+
+/* On x86_64, the AVX2 packer is exposed. On other architectures, this
+ * function is not defined. The Rust side handles the conditional. */
+#if defined(__x86_64__) || defined(__i386__)
+int kiln_tq1_0_pack_avx2_dispatch(const float* src, size_t n, uint8_t* dst) {
     if (n == 0) return 0;
     if (src == NULL || dst == NULL) return 1;
     return kiln_tq1_0_pack_avx2(src, n, dst);
 }
+#endif
+
+/* The default dispatcher picks the fastest available path. */
+#if defined(__x86_64__) || defined(__i386__)
+int kiln_tq1_0_pack_dispatch(const float* src, size_t n, uint8_t* dst) {
+    return kiln_tq1_0_pack_avx2_dispatch(src, n, dst);
+}
 #else
 int kiln_tq1_0_pack_dispatch(const float* src, size_t n, uint8_t* dst) {
-    return kiln_tq1_0_pack(src, n, dst);
+    return kiln_tq1_0_pack_scalar(src, n, dst);
 }
 #endif
 

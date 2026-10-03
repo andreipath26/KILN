@@ -7,7 +7,13 @@ use std::os::raw::{c_float, c_int};
 
 extern "C" {
     fn kiln_tq1_0_pack(src: *const c_float, n: usize, dst: *mut u8) -> c_int;
+    fn kiln_tq1_0_pack_scalar(src: *const c_float, n: usize, dst: *mut u8) -> c_int;
     fn kiln_tq1_0_unpack(src: *const u8, n: usize, dst: *mut c_float) -> c_int;
+}
+
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+extern "C" {
+    fn kiln_tq1_0_pack_avx2_dispatch(src: *const c_float, n: usize, dst: *mut u8) -> c_int;
 }
 
 /// Pack a slice of ternary values into TQ1.0 bytes.
@@ -30,6 +36,44 @@ pub fn pack(src: &[f32]) -> Vec<u8> {
     let rc = unsafe { kiln_tq1_0_pack(src.as_ptr(), src.len(), dst.as_mut_ptr()) };
     if rc != 0 {
         panic!("kiln_kernels::pack: C kernel returned error code {}", rc);
+    }
+    dst
+}
+
+/// Pack using the scalar path only. Used for benchmarking and for
+/// verifying the AVX2 path produces identical output.
+pub fn pack_scalar(src: &[f32]) -> Vec<u8> {
+    if src.is_empty() {
+        panic!("kiln_kernels::pack_scalar: empty input slice");
+    }
+    for (i, &v) in src.iter().enumerate() {
+        if v != -1.0 && v != 0.0 && v != 1.0 {
+            panic!(
+                "kiln_kernels::pack_scalar: value at index {} is {}, expected -1.0, 0.0, or 1.0",
+                i, v
+            );
+        }
+    }
+    let byte_len = (src.len() + 4) / 5;
+    let mut dst = vec![0u8; byte_len];
+    let rc = unsafe { kiln_tq1_0_pack_scalar(src.as_ptr(), src.len(), dst.as_mut_ptr()) };
+    if rc != 0 {
+        panic!("kiln_kernels::pack_scalar: C kernel returned error code {}", rc);
+    }
+    dst
+}
+
+/// Pack using the AVX2 path only. Panics on non-x86_64 targets.
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+pub fn pack_avx2(src: &[f32]) -> Vec<u8> {
+    if src.is_empty() {
+        panic!("kiln_kernels::pack_avx2: empty input slice");
+    }
+    let byte_len = (src.len() + 4) / 5;
+    let mut dst = vec![0u8; byte_len];
+    let rc = unsafe { kiln_tq1_0_pack_avx2_dispatch(src.as_ptr(), src.len(), dst.as_mut_ptr()) };
+    if rc != 0 {
+        panic!("kiln_kernels::pack_avx2: C kernel returned error code {}", rc);
     }
     dst
 }
@@ -146,6 +190,25 @@ mod tests {
             let avx2_packed = pack(&vals);
             let unpacked = unpack(&avx2_packed, n);
             assert_eq!(unpacked, vals, "differential failed for n={}", n);
+        }
+    }
+
+    #[test]
+    fn pack_scalar_and_avx2_match() {
+        #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+        {
+            for n in [40usize, 100, 1000, 10_000, 100_000] {
+                let vals: Vec<f32> = (0..n)
+                    .map(|i| match i % 3 {
+                        0 => -1.0,
+                        1 => 0.0,
+                        _ => 1.0,
+                    })
+                    .collect();
+                let s = pack_scalar(&vals);
+                let a = pack_avx2(&vals);
+                assert_eq!(s, a, "scalar and avx2 differ for n={}", n);
+            }
         }
     }
 

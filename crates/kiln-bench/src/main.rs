@@ -193,6 +193,53 @@ fn run_benchmarks() -> BenchReport {
         (bytes_out * iters as f64) / elapsed / 1_000_000.0
     }));
 
+    // Bench 9: pack scalar path, for speedup comparison.
+    let scalar_ns = {
+        let start = Instant::now();
+        for _ in 0..iters {
+            let p = kiln_kernels::pack_scalar(&test_vals);
+            std::hint::black_box(p);
+        }
+        start.elapsed().as_nanos() as f64 / (iters as f64 * n as f64)
+    };
+    measurements.push(Measurement {
+        name: "pack_tq1_0_scalar_ns_per_element".to_string(),
+        value: scalar_ns,
+        unit: "nanos/elem".to_string(),
+        success: scalar_ns > 0.0,
+        notes: format!("scalar path only, {} iterations", iters),
+    });
+
+    // Bench 10: pack AVX2 path, measured separately.
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    {
+        let avx2_ns = {
+            let start = Instant::now();
+            for _ in 0..iters {
+                let p = kiln_kernels::pack_avx2(&test_vals);
+                std::hint::black_box(p);
+            }
+            start.elapsed().as_nanos() as f64 / (iters as f64 * n as f64)
+        };
+        measurements.push(Measurement {
+            name: "pack_tq1_0_avx2_ns_per_element".to_string(),
+            value: avx2_ns,
+            unit: "nanos/elem".to_string(),
+            success: avx2_ns > 0.0,
+            notes: format!("AVX2 path only, {} iterations", iters),
+        });
+
+        // Bench 11: speedup ratio.
+        let ratio = scalar_ns / avx2_ns;
+        measurements.push(Measurement {
+            name: "pack_tq1_0_avx2_speedup".to_string(),
+            value: ratio,
+            unit: "x".to_string(),
+            success: ratio > 1.0,
+            notes: format!("scalar {:.2} ns/elem / avx2 {:.2} ns/elem", scalar_ns, avx2_ns),
+        });
+    }
+
     let passed = measurements.iter().filter(|m| m.success).count() as u32;
     let failed = measurements.iter().filter(|m| !m.success).count() as u32;
 
@@ -238,6 +285,16 @@ fn print_info() {
     println!("    - monitor_envelope_read: time to read current envelope");
     println!("    - monitor_history_read:  time to build a thermal history window");
     println!("    - monitor_predict:    time to run throttle prediction");
+    println!("");
+    println!("");
+    println!("  Phase 1 measures (kernels):");
+    println!("    - pack_tq1_0_ns_per_element:   pack 1M trits, ns per element");
+    println!("    - unpack_tq1_0_ns_per_element: unpack 1M trits, ns per element");
+    println!("    - pack_tq1_0_mb_per_sec_input:  pack throughput, MB/s input");
+    println!("    - pack_tq1_0_mb_per_sec_output: pack throughput, MB/s output");
+    println!("    - pack_tq1_0_scalar_ns_per_element: scalar only, ns per element");
+    println!("    - pack_tq1_0_avx2_ns_per_element:   AVX2 only, ns per element");
+    println!("    - pack_tq1_0_avx2_speedup:          ratio, scalar / AVX2");
     println!("");
     println!("  Phase 1 will add:");
     println!("    - decode_tokens_per_sec: for each model in the catalog");
