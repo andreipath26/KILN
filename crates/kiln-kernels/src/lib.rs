@@ -10,6 +10,14 @@ extern "C" {
     fn kiln_tq1_0_pack_scalar(src: *const c_float, n: usize, dst: *mut u8) -> c_int;
     fn kiln_tq1_0_unpack(src: *const u8, n: usize, dst: *mut c_float) -> c_int;
     fn kiln_tq1_0_unpack_table(src: *const u8, n: usize, dst: *mut c_float) -> c_int;
+    fn kiln_q4k_dequant_block(src: *const u8, dst: *mut c_float) -> c_int;
+    fn kiln_q4k_matmul_scalar(
+        weights: *const u8,
+        num_weights: usize,
+        activations: *const c_float,
+        num_activations: usize,
+        output: *mut c_float,
+    ) -> c_int;
     fn kiln_tq1_0_matmul_scalar(
         weights: *const u8,
         num_weights: usize,
@@ -318,6 +326,62 @@ pub fn matmul_8row_lut_failed(
     outputs
 }
 
+/// Dequantize one Q4_K super-block (144 bytes) into 256 f32 values.
+pub fn q4k_dequant_block(src: &[u8]) -> [f32; 256] {
+    if src.len() < 144 {
+        panic!(
+            "kiln_kernels::q4k_dequant_block: need 144 bytes, got {}",
+            src.len()
+        );
+    }
+    let mut out = [0.0f32; 256];
+    let rc = unsafe { kiln_q4k_dequant_block(src.as_ptr(), out.as_mut_ptr()) };
+    if rc != 0 {
+        panic!("kiln_kernels::q4k_dequant_block: C kernel returned error code {}", rc);
+    }
+    out
+}
+
+/// Fused Q4_K matmul. Dot product of a packed Q4_K weight row against
+/// an f32 activation vector.
+pub fn q4k_matmul_scalar(
+    weights: &[u8],
+    num_weights: usize,
+    activations: &[f32],
+) -> f32 {
+    if num_weights == 0 {
+        return 0.0;
+    }
+    let num_blocks = (num_weights + 255) / 256;
+    let required = num_blocks * 144;
+    if weights.len() < required {
+        panic!(
+            "kiln_kernels::q4k_matmul_scalar: need {} bytes for {} weights, got {}",
+            required, num_weights, weights.len()
+        );
+    }
+    if activations.len() < num_weights {
+        panic!(
+            "kiln_kernels::q4k_matmul_scalar: need {} activations, got {}",
+            num_weights, activations.len()
+        );
+    }
+    let mut output = 0.0f32;
+    let rc = unsafe {
+        kiln_q4k_matmul_scalar(
+            weights.as_ptr(),
+            num_weights,
+            activations.as_ptr(),
+            activations.len(),
+            &mut output as *mut f32,
+        )
+    };
+    if rc != 0 {
+        panic!("kiln_kernels::q4k_matmul_scalar: C kernel returned error code {}", rc);
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,7 +482,7 @@ mod tests {
                 // reference for each.
                 for r in 0..8 {
                     let w: Vec<f32> = (0..n)
-                        .map(|i| match ((i + r * 3) % 3) {
+                        .map(|i| match (i + r * 3) % 3 {
                             0 => -1.0,
                             1 => 0.0,
                             _ => 1.0,
@@ -553,6 +617,106 @@ mod tests {
                 assert_eq!(s, a, "scalar and avx2 differ for n={}", n);
             }
         }
+    }
+
+    #[test]
+    fn q4k_dequant_zero_block() {
+        // A Q4_K super-block where d=0 and dmin=0 should produce all
+        // zeros regardless of the nibbles.
+        let mut block = [0u8; 144];
+        // d = 0.0 as F16 = 0x0000
+        // dmin = 0.0 as F16 = 0x0000
+        // scales and qs are all zero.
+        block[0] = 0;
+        block[1] = 0;
+        let out = q4k_dequant_block(&block);
+        for v in out.iter() {
+            assert_eq!(*v, 0.0);
+        }
+    }
+
+    #[test]
+    fn q4k_dequant_simple_constant() {
+        // Build a super-block with d = 1.0, dmin = 0.0, all 8 scales = 1,
+        // all 8 mins = 0, all nibbles = 1.
+        //
+        // The Q4_K scale layout (from ggml get_scale_min_k4):
+        //   For j = 0..3: scale[j] = q[j] & 0x3F, min[j] = q[j+4] & 0x3F
+        //   For j = 4..7: scale[j] = (q[j+4] & 0x0F) | ((q[j-4] >> 6) << 4)
+        //                 min[j]   = (q[j+4] >> 4)    | ((q[j]     >> 6) << 4)
+        //
+        // To make all 8 scales = 1 and all mins = 0 with q = block+4:
+        //   q[0..4] = 0x01   (scales 0-3 = 1, low bits for scales 4-7 = 0)
+        //   q[4..8] = 0x00   (mins 0-3 = 0)
+        //   q[8..12] = 0x01  (low nibble of q[j+4] for j=4..7 = 1 = scale[j])
+        //   high bits: q[0..4] >> 6 = 0, so scales 4-7 high = 0
+        let mut block = [0u8; 144];
+        // d = 1.0 F16 = 0x3C00
+        block[0] = 0x00;
+        block[1] = 0x3C;
+        block[2] = 0;
+        block[3] = 0;
+        // q[0..4] = block[4..8] = scales 0-3 = 1
+        block[4] = 0x01;
+        block[5] = 0x01;
+        block[6] = 0x01;
+        block[7] = 0x01;
+        // q[4..8] = block[8..12] = mins 0-3 = 0
+        block[8] = 0x00;
+        block[9] = 0x00;
+        block[10] = 0x00;
+        block[11] = 0x00;
+        // q[8..12] = block[12..16] = low nibbles for scales 4-7 = 1
+        // For j=4: scale[4] = (q[8] & 0x0F) | ((q[0] >> 6) << 4)
+        //         = (block[12] & 0x0F) | ((block[4] >> 6) << 4)
+        //         = 1 | 0 = 1
+        // Also for mins 4-7: min[j] = (q[j+4] >> 4) | ((q[j] >> 6) << 4)
+        // For j=4: min[4] = (q[8] >> 4) | ((q[4] >> 6) << 4)
+        //         = (block[12] >> 4) | ((block[8] >> 6) << 4) = 0 | 0 = 0
+        block[12] = 0x01;
+        block[13] = 0x01;
+        block[14] = 0x01;
+        block[15] = 0x01;
+
+        // Set all 128 bytes of qs to 0x11 (low nibble = 1, high nibble = 1)
+        for i in 16..144 {
+            block[i] = 0x11;
+        }
+
+        let out = q4k_dequant_block(&block);
+        for (i, v) in out.iter().enumerate() {
+            assert!((*v - 1.0).abs() < 0.001, "at index {} expected 1.0, got {}", i, v);
+        }
+    }
+
+    #[test]
+    fn q4k_matmul_identity() {
+        // Same setup as q4k_dequant_simple_constant but check the
+        // matmul wrapper. Every weight is 1.0, activations are all 1.0,
+        // so the dot product is 256.0.
+        let mut block = [0u8; 144];
+        block[0] = 0x00;
+        block[1] = 0x3C;
+        block[2] = 0;
+        block[3] = 0;
+        block[4] = 0x01;
+        block[5] = 0x01;
+        block[6] = 0x01;
+        block[7] = 0x01;
+        block[8] = 0x00;
+        block[9] = 0x00;
+        block[10] = 0x00;
+        block[11] = 0x00;
+        block[12] = 0x01;
+        block[13] = 0x01;
+        block[14] = 0x01;
+        block[15] = 0x01;
+        for i in 16..144 {
+            block[i] = 0x11;
+        }
+        let acts = vec![1.0f32; 256];
+        let result = q4k_matmul_scalar(&block, 256, &acts);
+        assert!((result - 256.0).abs() < 0.01, "expected 256.0, got {}", result);
     }
 
     #[test]
