@@ -794,7 +794,7 @@ mod tests {
 
     /// Build a minimal valid GGUF file in memory and write it to a
     /// temp path. Returns the path.
-    fn write_minimal_gguf() -> std::path::PathBuf {
+    fn write_minimal_gguf(name: &str) -> std::path::PathBuf {
         let mut buf = Vec::new();
         // Header: magic, version 3, tensor_count=1, metadata_count=1
         buf.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
@@ -808,9 +808,9 @@ mod tests {
         buf.extend_from_slice(&4u32.to_le_bytes()); // Uint32
         buf.extend_from_slice(&32u32.to_le_bytes());
         // Tensor table: 1 tensor "w", 1 dim [10], TQ1_0, offset 0
-        let name = b"w";
-        buf.extend_from_slice(&(name.len() as u64).to_le_bytes());
-        buf.extend_from_slice(name);
+        let tensor_name = b"w";
+        buf.extend_from_slice(&(tensor_name.len() as u64).to_le_bytes());
+        buf.extend_from_slice(tensor_name);
         buf.extend_from_slice(&1u32.to_le_bytes());
         buf.extend_from_slice(&10u64.to_le_bytes());
         buf.extend_from_slice(&1000u32.to_le_bytes()); // Tq1_0
@@ -823,14 +823,14 @@ mod tests {
         buf.extend_from_slice(&[0x11, 0x22]);
 
         let mut p = std::env::temp_dir();
-        p.push(format!("kiln_gguf_test_{}.gguf", std::process::id()));
+        p.push(format!("kiln_gguf_test_{}_{}.gguf", name, std::process::id()));
         std::fs::write(&p, &buf).unwrap();
         p
     }
 
     #[test]
     fn gguf_file_open_and_read_tensor() {
-        let path = write_minimal_gguf();
+        let path = write_minimal_gguf("open");
         let g = GgufFile::open(&path).unwrap();
         assert_eq!(g.tensor_count(), 1);
         assert_eq!(g.metadata_count(), 1);
@@ -847,7 +847,7 @@ mod tests {
 
     #[test]
     fn gguf_file_missing_tensor_returns_none() {
-        let path = write_minimal_gguf();
+        let path = write_minimal_gguf("missing");
         let g = GgufFile::open(&path).unwrap();
         assert!(g.tensor("does-not-exist").is_none());
         assert!(g.tensor_bytes("does-not-exist").is_none());
