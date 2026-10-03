@@ -874,6 +874,45 @@ mod tests {
             "expected -7936.0, got {}", result);
     }
 
+
+    #[test]
+    fn q4k_real_block_check() {
+        // Read one Q4_K super-block from the real model and print the
+        // first 32 dequantized values. The values are compared against
+        // a Python reference.
+        let path = "/home/andreipath/Desktop/KILN/models/tiny/qwen25-1.5b.gguf";
+        let data = match std::fs::read(path) {
+            Ok(d) => d,
+            Err(_) => {
+                eprintln!("skipping: model not present");
+                return;
+            }
+        };
+        let file_pos = 5950976 + 219779584;
+        if file_pos + 144 > data.len() {
+            eprintln!("skipping: offset out of range");
+            return;
+        }
+        let block = &data[file_pos..file_pos + 144];
+        let out = q4k_dequant_block(block);
+        for k in 0..32 {
+            println!("q4k[{}] = {:.5}", k, out[k]);
+        }
+    }
+
+
+    #[test]
+    fn q6k_check_quick() {
+        let path = "/home/andreipath/Desktop/KILN/models/tiny/qwen25-1.5b.gguf";
+        let data = std::fs::read(path).expect("read");
+        let file_pos = 5950976 + 191445504;
+        let block = &data[file_pos..file_pos + 210];
+        let out = q6k_dequant_block(block);
+        for k in 0..32 {
+            println!("q6k[{}] = {:.8}", k, out[k]);
+        }
+    }
+
     #[test]
     fn avx2_path_is_actually_compiled() {
         // The C build script sets -mavx2 on x86_64. When it does, __AVX2__

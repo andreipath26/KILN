@@ -63,47 +63,6 @@ impl Forward for MockForward {
     }
 }
 
-/// A synthetic forward pass for pipeline testing. Uses a seeded
-/// xorshift to produce pseudo-random logits from the token sequence.
-pub struct SyntheticForward {
-    vocab_size: usize,
-    seed: u64,
-}
-
-impl SyntheticForward {
-    pub fn new(vocab_size: usize, seed: u64) -> Self {
-        Self { vocab_size, seed }
-    }
-}
-
-impl Forward for SyntheticForward {
-    fn forward(&mut self, tokens: &[u32]) -> Vec<f32> {
-        // Hash the token sequence and the seed to get a reproducible
-        // logits vector.
-        let mut h: u64 = self.seed;
-        for &t in tokens {
-            h ^= t as u64;
-            h = h.wrapping_mul(0x100000001B3);
-        }
-        let mut state = h | 1;
-        let mut logits = Vec::with_capacity(self.vocab_size);
-        for _ in 0..self.vocab_size {
-            // xorshift64
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            // Map to a float in [-1, 1].
-            let v = ((state as f32) / (u64::MAX as f32)) * 2.0 - 1.0;
-            logits.push(v);
-        }
-        logits
-    }
-
-    fn vocab_size(&self) -> usize {
-        self.vocab_size
-    }
-}
-
 /// The sampling strategy.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SamplingStrategy {

@@ -35,7 +35,7 @@ pub use scheduler::{
 
 pub use pipeline::{run_once, Loader, PipelineReport, PipelineError};
 
-pub use chat::{Forward, MockForward, SyntheticForward, Sampler, SamplingStrategy, ChatSession, ChatError};
+pub use chat::{Forward, MockForward, Sampler, SamplingStrategy, ChatSession, ChatError};
 
 pub use transformer_config::{TransformerConfig, ConfigError};
 

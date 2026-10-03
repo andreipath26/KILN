@@ -52,6 +52,12 @@ pub struct LayerWeights {
     pub ffn_gate: Vec<u8>,
     pub ffn_up: Vec<u8>,
     pub ffn_down: Vec<u8>,
+    /// Bias for Q projection. Qwen2.5 uses these.
+    pub attn_q_bias: Vec<u8>,
+    /// Bias for K projection.
+    pub attn_k_bias: Vec<u8>,
+    /// Bias for V projection.
+    pub attn_v_bias: Vec<u8>,
 }
 
 /// The full transformer weights.
@@ -111,6 +117,18 @@ impl TransformerWeights {
                 ffn_gate: get_tensor(&format!("{}ffn_gate.weight", p))?,
                 ffn_up: get_tensor(&format!("{}ffn_up.weight", p))?,
                 ffn_down: get_tensor(&format!("{}ffn_down.weight", p))?,
+                attn_q_bias: file.tensor(&format!("{}attn_q.bias", p))
+                    .map(|_| get_tensor(&format!("{}attn_q.bias", p)))
+                    .transpose()?
+                    .unwrap_or_default(),
+                attn_k_bias: file.tensor(&format!("{}attn_k.bias", p))
+                    .map(|_| get_tensor(&format!("{}attn_k.bias", p)))
+                    .transpose()?
+                    .unwrap_or_default(),
+                attn_v_bias: file.tensor(&format!("{}attn_v.bias", p))
+                    .map(|_| get_tensor(&format!("{}attn_v.bias", p)))
+                    .transpose()?
+                    .unwrap_or_default(),
             };
             layers.push(layer);
         }

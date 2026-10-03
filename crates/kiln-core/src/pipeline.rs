@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use kiln_kernels::matmul_scalar;
-use kiln_models::synthetic::{read_synthetic, SyntheticError};
 use kiln_models::manifest::{Architecture, ModelManifest};
 use kiln_models::quantization::QuantizationSpec;
 use kiln_models::thermal::{Plan, ThermalProfile, TierBudget};
@@ -22,7 +21,6 @@ use crate::selector::{DefaultSelector, ModeSelector};
 /// Errors from the pipeline.
 #[derive(Debug)]
 pub enum PipelineError {
-    Synthetic(SyntheticError),
     EmptyModel,
     ZeroColumns,
     KernelFailed(&'static str),
@@ -31,7 +29,6 @@ pub enum PipelineError {
 impl std::fmt::Display for PipelineError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PipelineError::Synthetic(e) => write!(f, "synthetic model error: {}", e),
             PipelineError::EmptyModel => write!(f, "synthetic model has zero rows"),
             PipelineError::ZeroColumns => write!(f, "synthetic model has zero columns"),
             PipelineError::KernelFailed(msg) => write!(f, "kernel failed: {}", msg),
@@ -41,24 +38,16 @@ impl std::fmt::Display for PipelineError {
 
 impl std::error::Error for PipelineError {}
 
-impl From<SyntheticError> for PipelineError {
-    fn from(e: SyntheticError) -> Self {
-        PipelineError::Synthetic(e)
-    }
-}
-
 /// Which loader to use for the model file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Loader {
-    /// Synthetic model format for testing.
-    Synthetic,
     /// Real GGUF model file.
     Gguf,
 }
 
 impl Default for Loader {
     fn default() -> Self {
-        Loader::Synthetic
+        Loader::Gguf
     }
 }
 
@@ -76,17 +65,6 @@ impl LoadedModel {
     fn total_weights(&self) -> usize {
         self.num_rows as usize * self.num_cols as usize
     }
-}
-
-fn load_synthetic(path: &std::path::Path) -> Result<LoadedModel, PipelineError> {
-    let m = read_synthetic(path)?;
-    Ok(LoadedModel {
-        num_rows: m.num_rows,
-        num_cols: m.num_cols,
-        scale: m.scale,
-        weights: m.weights,
-        activations: m.activations,
-    })
 }
 
 fn load_gguf(path: &std::path::Path) -> Result<LoadedModel, PipelineError> {
@@ -161,7 +139,6 @@ pub fn run_once(path: PathBuf, loader: Loader) -> Result<PipelineReport, Pipelin
     // Step 1: Load.
     let load_start = Instant::now();
     let model = match loader {
-        Loader::Synthetic => load_synthetic(&path)?,
         Loader::Gguf => load_gguf(&path)?,
     };
     if model.num_rows == 0 {
@@ -296,54 +273,10 @@ fn build_manifest(model: &LoadedModel) -> ModelManifest {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use kiln_models::synthetic::{write_synthetic, SyntheticModel};
-
-    fn tmp_path(name: &str) -> PathBuf {
-        let mut p = std::env::temp_dir();
-        p.push(format!("kiln_pipeline_test_{}_{}.bin", name, std::process::id()));
-        p
-    }
-
-    #[test]
-    fn pipeline_runs_end_to_end() {
-        // 4 rows x 10 cols. All zero weights, activations 1..10.
-        // Expected output for row 0: 0.0 (all trits are 0).
-        let model = SyntheticModel {
-            num_rows: 4,
-            num_cols: 10,
-            scale: 1.0,
-            weights: vec![121u8; 8], // 121 = all digits are 1 = all trits 0
-            activations: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-        };
-        let path = tmp_path("e2e");
-        write_synthetic(&path, &model).unwrap();
-        let report = run_once(path.clone(), Loader::Synthetic).unwrap();
-        assert_eq!(report.output, 0.0);
-        assert_eq!(report.nodes_executed, 4);
-        assert!(report.load_time_nanos > 0);
-        assert!(report.execute_time_nanos > 0);
-        assert!(report.total_time_nanos > 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn pipeline_handles_all_ones() {
-        // All trits +1. Expected row 0 output = sum of activations
-        // = 1+2+...+10 = 55.
-        let model = SyntheticModel {
-            num_rows: 1,
-            num_cols: 10,
-            scale: 1.0,
-            weights: vec![242u8; 2], // 242 = all digits are 2 = all trits +1
-            activations: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-        };
-        let path = tmp_path("ones");
-        write_synthetic(&path, &model).unwrap();
-        let report = run_once(path.clone(), Loader::Synthetic).unwrap();
-        assert_eq!(report.output, 55.0);
-        std::fs::remove_file(&path).ok();
-    }
-}
+// Tests for the pipeline were removed when the synthetic model format
+// was deleted. The pipeline is exercised end to end by the CLI:
+//   kiln pipeline <gguf>
+// Integration tests using a real GGUF file are a Phase 2 task. They
+// require a small fixture GGUF checked into the repository. The current
+// fixture is the real Qwen2.5 1.5B model at 986 MB, which is too large
+// for routine tests.

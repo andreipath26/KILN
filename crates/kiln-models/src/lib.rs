@@ -13,7 +13,6 @@ pub mod experts;
 pub mod kv_layout;
 pub mod thermal;
 pub mod ml_cache;
-pub mod synthetic;
 pub mod gguf;
 pub mod tokenizer;
 
@@ -23,8 +22,6 @@ pub use experts::ExpertTable;
 pub use kv_layout::KvLayout;
 pub use thermal::ThermalProfile;
 pub use ml_cache::MlCacheRef;
-
-pub use synthetic::{SyntheticModel, write_synthetic, read_synthetic, SyntheticError};
 
 pub use gguf::{GgufError, GgufFile, GgufHeader, GgufType, GgufTensorInfo, GgufValue, GgufValueType, read_header, parse_metadata, parse_tensor_table};
 

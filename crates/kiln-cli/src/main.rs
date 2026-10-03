@@ -8,8 +8,9 @@ use clap::{Parser, Subcommand};
 
 use kiln_core::{LinuxMonitor, PerformanceMonitor};
 use kiln_core::pipeline::{run_once as pipeline_run_once, Loader};
-use kiln_core::chat::{ChatSession, Sampler, SamplingStrategy, SyntheticForward};
+use kiln_core::chat::{ChatSession, Sampler, SamplingStrategy};
 use kiln_core::transformer_config::TransformerConfig;
+use kiln_core::transformer::Transformer;
 use kiln_core::transformer_weights::TransformerWeights;
 use kiln_models::tokenizer::BpeTokenizer;
 use kiln_models::gguf::GgufFile;
@@ -56,6 +57,16 @@ enum Commands {
         /// Path to the GGUF file.
         model: String,
     },
+    /// Print the top-N logits for a prompt without generating.
+    Debug {
+        /// Path to the GGUF file.
+        model: String,
+        /// The prompt.
+        prompt: String,
+        /// Number of top tokens to print.
+        #[arg(long, default_value_t = 20)]
+        top: usize,
+    },
     /// Tokenize a string using a model's tokenizer.
     Tokenize {
         /// Path to the GGUF file.
@@ -91,13 +102,10 @@ enum Commands {
         #[arg(long, default_value = "greedy")]
         strategy: String,
     },
-    /// Run the pipeline once on a synthetic model file.
+    /// Run the pipeline once on a GGUF model file.
     Pipeline {
-        /// Path to the model file.
+        /// Path to the GGUF model file.
         path: String,
-        /// Which loader to use: synthetic or gguf.
-        #[arg(long, default_value = "synthetic")]
-        loader: String,
         /// Print the report as JSON.
         #[arg(long)]
         json: bool,
@@ -204,6 +212,25 @@ async fn main() {
                 }
             }
         }
+        Commands::Debug { model, prompt, top } => {
+            let g = match GgufFile::open(std::path::Path::new(&model)) { Ok(g) => std::sync::Arc::new(g), Err(e) => { eprintln!("open: {}", e); std::process::exit(1); } };
+            let tok = match BpeTokenizer::from_gguf(&g) { Ok(t) => t, Err(e) => { eprintln!("tok: {}", e); std::process::exit(1); } };
+            let mut tr = match Transformer::from_gguf(&g) { Ok(t) => t, Err(e) => { eprintln!("transformer: {}", e); std::process::exit(1); } };
+            let ids = tok.encode(&prompt);
+            println!("prompt: {:?}", prompt);
+            println!("tokens: {:?}", ids);
+            let t0 = std::time::Instant::now();
+            let logits = kiln_core::chat::Forward::forward(&mut tr, &ids);
+            println!("forward: {:.2}s", t0.elapsed().as_secs_f64());
+            let mut idx: Vec<usize> = (0..logits.len()).collect();
+            idx.sort_by(|&a,&b| logits[b].partial_cmp(&logits[a]).unwrap());
+            println!("top {}:", top);
+            for k in 0..top.min(idx.len()) {
+                let i = idx[k];
+                let s = tok.token_to_str(i as u32).unwrap_or("?");
+                println!("  {:>6}  {:>10.4}  {:?}", i, logits[i], s);
+            }
+        }
         Commands::Tokenize { model, text, roundtrip } => {
             let path_buf = std::path::PathBuf::from(&model);
             let g = match GgufFile::open(&path_buf) {
@@ -300,7 +327,8 @@ async fn main() {
             };
 
             // Build the tokenizer from the GGUF metadata.
-            let tokenizer = match BpeTokenizer::from_gguf(&g) {
+            let g_arc = std::sync::Arc::new(g);
+            let tokenizer = match BpeTokenizer::from_gguf(&g_arc) {
                 Ok(t) => t,
                 Err(e) => {
                     eprintln!("failed to build tokenizer: {}", e);
@@ -315,7 +343,6 @@ async fn main() {
             println!("  seed:      {}", seed);
             println!("  max_tokens: {}", max_tokens);
             println!("  strategy:  {}", strategy);
-            println!("  forward:   synthetic (real transformer not yet wired)");
             println!();
             println!("Type a message and press Enter. Ctrl-D to exit.");
             println!();
@@ -331,7 +358,19 @@ async fn main() {
                 }
             };
 
-            let forward = Box::new(SyntheticForward::new(vocab_size, seed));
+            // Load the real transformer. The weights come from the
+            // GGUF file the user provided.
+            let forward: Box<dyn kiln_core::chat::Forward> = match Transformer::from_gguf(&g_arc) {
+                Ok(t) => {
+                    println!("  forward:   real transformer loaded ({} layers)",
+                        t.config_ref().num_layers);
+                    Box::new(t)
+                }
+                Err(e) => {
+                    eprintln!("failed to load transformer: {}", e);
+                    std::process::exit(1);
+                }
+            };
             let sampler = Sampler::new(strat, seed);
             let eos = tokenizer.eos_token_id;
             let mut session = ChatSession::new(tokenizer, forward, sampler, max_tokens, eos);
@@ -366,17 +405,9 @@ async fn main() {
                 }
             }
         }
-        Commands::Pipeline { path, loader, json } => {
+        Commands::Pipeline { path, json } => {
             let path_buf = std::path::PathBuf::from(&path);
-            let ld = match loader.as_str() {
-                "gguf" => Loader::Gguf,
-                "synthetic" => Loader::Synthetic,
-                other => {
-                    eprintln!("unknown loader: {} (expected synthetic or gguf)", other);
-                    std::process::exit(2);
-                }
-            };
-            match pipeline_run_once(path_buf, ld) {
+            match pipeline_run_once(path_buf, Loader::Gguf) {
                 Ok(report) => {
                     if json {
                         println!("{{\"output\":{},\"load_time_nanos\":{},\"select_time_nanos\":{},\"schedule_time_nanos\":{},\"execute_time_nanos\":{},\"total_time_nanos\":{},\"nodes_executed\":{}}}",
