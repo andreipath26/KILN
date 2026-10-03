@@ -379,6 +379,7 @@ dependencies = [
  "kiln-core",
  "kiln-hal",
  "kiln-io",
+ "kiln-kernels",
  "kiln-mem",
  "kiln-models",
  "serde",

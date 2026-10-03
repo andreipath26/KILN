@@ -137,6 +137,62 @@ fn run_benchmarks() -> BenchReport {
         }
     }));
 
+    // Bench 6: TQ1.0 pack throughput.
+    let n = 1_000_000usize;
+    let test_vals: Vec<f32> = (0..n)
+        .map(|i| match i % 3 {
+            0 => -1.0,
+            1 => 0.0,
+            _ => 1.0,
+        })
+        .collect();
+
+    let _ = kiln_kernels::pack(&test_vals);
+
+    let iters = 10usize;
+    measurements.push(measure("pack_tq1_0_ns_per_element", "nanos/elem", || {
+        let start = Instant::now();
+        for _ in 0..iters {
+            let packed = kiln_kernels::pack(&test_vals);
+            std::hint::black_box(packed);
+        }
+        let elapsed = start.elapsed().as_nanos() as f64;
+        elapsed / (iters as f64 * n as f64)
+    }));
+
+    let packed = kiln_kernels::pack(&test_vals);
+    measurements.push(measure("unpack_tq1_0_ns_per_element", "nanos/elem", || {
+        let start = Instant::now();
+        for _ in 0..iters {
+            let unpacked = kiln_kernels::unpack(&packed, n);
+            std::hint::black_box(unpacked);
+        }
+        let elapsed = start.elapsed().as_nanos() as f64;
+        elapsed / (iters as f64 * n as f64)
+    }));
+
+    let bytes_in = (n * 4) as f64;
+    let bytes_out = (n / 5) as f64;
+    measurements.push(measure("pack_tq1_0_mb_per_sec_input", "MB/s", || {
+        let start = Instant::now();
+        for _ in 0..iters {
+            let p = kiln_kernels::pack(&test_vals);
+            std::hint::black_box(p);
+        }
+        let elapsed = start.elapsed().as_secs_f64();
+        (bytes_in * iters as f64) / elapsed / 1_000_000.0
+    }));
+
+    measurements.push(measure("pack_tq1_0_mb_per_sec_output", "MB/s", || {
+        let start = Instant::now();
+        for _ in 0..iters {
+            let p = kiln_kernels::pack(&test_vals);
+            std::hint::black_box(p);
+        }
+        let elapsed = start.elapsed().as_secs_f64();
+        (bytes_out * iters as f64) / elapsed / 1_000_000.0
+    }));
+
     let passed = measurements.iter().filter(|m| m.success).count() as u32;
     let failed = measurements.iter().filter(|m| !m.success).count() as u32;
 
