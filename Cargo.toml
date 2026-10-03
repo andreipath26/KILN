@@ -4,6 +4,7 @@ members = [
     "crates/kiln-hal",
     "crates/kiln-models",
     "crates/kiln-mem",
+    "crates/kiln-io",
 ]
 
 [workspace.package]

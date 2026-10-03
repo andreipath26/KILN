@@ -11,6 +11,6 @@ pub mod policy;
 pub mod error;
 
 pub use tier::Tier;
-pub use manager::MemoryManager;
+pub use manager::{MemoryManager, TensorId};
 pub use policy::{RebalancePolicy, RebalanceReport};
 pub use error::{LoadError, EvictError};
