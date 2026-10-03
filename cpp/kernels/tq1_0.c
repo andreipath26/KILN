@@ -228,6 +228,62 @@ static int kiln_tq1_0_pack_avx2(const float* src, size_t n, uint8_t* dst) {
 #endif /* __x86_64__ || __i386__ */
 
 
+/* ---- Table-based fast unpacker ---- */
+
+/* A 243-entry lookup table. Each entry packs 5 trit digits (0, 1, or 2)
+ * into a single uint32 as 5 bytes, one per trit. The table is built once
+ * at load time. It removes four integer divisions per byte from the
+ * unpacker, which was the dominant cost in the scalar path.
+ */
+
+/* A 243-entry lookup table. Each entry holds 5 trit values laid out
+ * sequentially. The whole table is 243 * 5 = 1215 bytes and fits in L1.
+ * It removes four integer divisions per byte from the unpacker. */
+static int8_t tq1_0_trits[243][5];
+static int tq1_0_table_ready = 0;
+
+static void tq1_0_build_trits(void) {
+    for (int i = 0; i < 243; ++i) {
+        int d4 = i % 3;
+        int d3 = (i / 3) % 3;
+        int d2 = (i / 9) % 3;
+        int d1 = (i / 27) % 3;
+        int d0 = (i / 81) % 3;
+        tq1_0_trits[i][0] = (int8_t)(d0 - 1);
+        tq1_0_trits[i][1] = (int8_t)(d1 - 1);
+        tq1_0_trits[i][2] = (int8_t)(d2 - 1);
+        tq1_0_trits[i][3] = (int8_t)(d3 - 1);
+        tq1_0_trits[i][4] = (int8_t)(d4 - 1);
+    }
+    tq1_0_table_ready = 1;
+}
+
+static void tq1_0_ensure_table(void) {
+    if (!tq1_0_table_ready) {
+        tq1_0_build_trits();
+    }
+}
+
+int kiln_tq1_0_unpack_table(const uint8_t* src, size_t n, float* dst) {
+    if (n == 0) return 0;
+    if (src == NULL || dst == NULL) return 1;
+    tq1_0_ensure_table();
+
+    size_t in_bytes = (n + 4) / 5;
+    for (size_t b = 0; b < in_bytes; ++b) {
+        int packed = (int)src[b];
+        if (packed < 0 || packed > 242) return 3;
+        const int8_t* trits = tq1_0_trits[packed];
+        size_t base = b * 5;
+        if (base + 0 < n) dst[base + 0] = (float)trits[0];
+        if (base + 1 < n) dst[base + 1] = (float)trits[1];
+        if (base + 2 < n) dst[base + 2] = (float)trits[2];
+        if (base + 3 < n) dst[base + 3] = (float)trits[3];
+        if (base + 4 < n) dst[base + 4] = (float)trits[4];
+    }
+    return 0;
+}
+
 /* ---- Public dispatch ---- */
 
 /* The scalar packer is renamed to kiln_tq1_0_pack_scalar so that both

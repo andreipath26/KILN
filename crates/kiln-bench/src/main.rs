@@ -193,6 +193,42 @@ fn run_benchmarks() -> BenchReport {
         (bytes_out * iters as f64) / elapsed / 1_000_000.0
     }));
 
+    // Bench 8b: table-based unpack throughput.
+    measurements.push(measure("unpack_tq1_0_table_ns_per_element", "nanos/elem", || {
+        let start = Instant::now();
+        for _ in 0..iters {
+            let u = kiln_kernels::unpack_table(&packed, n);
+            std::hint::black_box(u);
+        }
+        let elapsed = start.elapsed().as_nanos() as f64;
+        elapsed / (iters as f64 * n as f64)
+    }));
+
+    // Bench 8c: unpack table speedup ratio.
+    let unpack_scalar_ns = {
+        let start = Instant::now();
+        for _ in 0..iters {
+            let u = kiln_kernels::unpack(&packed, n);
+            std::hint::black_box(u);
+        }
+        start.elapsed().as_nanos() as f64 / (iters as f64 * n as f64)
+    };
+    let unpack_table_ns = {
+        let start = Instant::now();
+        for _ in 0..iters {
+            let u = kiln_kernels::unpack_table(&packed, n);
+            std::hint::black_box(u);
+        }
+        start.elapsed().as_nanos() as f64 / (iters as f64 * n as f64)
+    };
+    measurements.push(Measurement {
+        name: "unpack_tq1_0_table_speedup".to_string(),
+        value: unpack_scalar_ns / unpack_table_ns,
+        unit: "x".to_string(),
+        success: unpack_table_ns < unpack_scalar_ns,
+        notes: format!("scalar {:.2} ns/elem, table {:.2} ns/elem", unpack_scalar_ns, unpack_table_ns),
+    });
+
     // Bench 9: pack scalar path, for speedup comparison.
     let scalar_ns = {
         let start = Instant::now();

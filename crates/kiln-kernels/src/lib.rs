@@ -9,6 +9,7 @@ extern "C" {
     fn kiln_tq1_0_pack(src: *const c_float, n: usize, dst: *mut u8) -> c_int;
     fn kiln_tq1_0_pack_scalar(src: *const c_float, n: usize, dst: *mut u8) -> c_int;
     fn kiln_tq1_0_unpack(src: *const u8, n: usize, dst: *mut c_float) -> c_int;
+    fn kiln_tq1_0_unpack_table(src: *const u8, n: usize, dst: *mut c_float) -> c_int;
 }
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
@@ -109,6 +110,34 @@ pub fn unpack(src: &[u8], n: usize) -> Vec<f32> {
     dst
 }
 
+/// Unpack using the table-based fast path.
+pub fn unpack_table(src: &[u8], n: usize) -> Vec<f32> {
+    if n == 0 {
+        panic!("kiln_kernels::unpack_table: n must be greater than 0");
+    }
+    let required = (n + 4) / 5;
+    if src.len() < required {
+        panic!(
+            "kiln_kernels::unpack_table: need {} bytes for {} values, got {}",
+            required, n, src.len()
+        );
+    }
+    for (i, &b) in src[..required].iter().enumerate() {
+        if b > 242 {
+            panic!(
+                "kiln_kernels::unpack_table: byte at index {} is {} which is in the reserved range [243, 255]",
+                i, b
+            );
+        }
+    }
+    let mut dst = vec![0.0f32; n];
+    let rc = unsafe { kiln_tq1_0_unpack_table(src.as_ptr(), n, dst.as_mut_ptr()) };
+    if rc != 0 {
+        panic!("kiln_kernels::unpack_table: C kernel returned error code {}", rc);
+    }
+    dst
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,6 +219,23 @@ mod tests {
             let avx2_packed = pack(&vals);
             let unpacked = unpack(&avx2_packed, n);
             assert_eq!(unpacked, vals, "differential failed for n={}", n);
+        }
+    }
+
+    #[test]
+    fn unpack_scalar_and_table_match() {
+        for n in [40usize, 100, 1000, 10_000, 100_000] {
+            let vals: Vec<f32> = (0..n)
+                .map(|i| match i % 3 {
+                    0 => -1.0,
+                    1 => 0.0,
+                    _ => 1.0,
+                })
+                .collect();
+            let packed = pack(&vals);
+            let s = unpack(&packed, n);
+            let t = unpack_table(&packed, n);
+            assert_eq!(s, t, "scalar and table unpack differ for n={}", n);
         }
     }
 
