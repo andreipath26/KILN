@@ -14,6 +14,7 @@ pub mod monitor;
 pub mod selector;
 pub mod scheduler;
 pub mod pipeline;
+pub mod chat;
 
 pub use plan::{ExecutionPlan, Node, Edge, TensorRef, NodeId};
 pub use revision::{PlanRevision, RevisionReason};
@@ -30,3 +31,5 @@ pub use scheduler::{
 };
 
 pub use pipeline::{run_once, Loader, PipelineReport, PipelineError};
+
+pub use chat::{Forward, MockForward, SyntheticForward, Sampler, SamplingStrategy, ChatSession, ChatError};

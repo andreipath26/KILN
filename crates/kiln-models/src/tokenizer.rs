@@ -251,6 +251,40 @@ impl BpeTokenizer {
     pub fn vocab_size(&self) -> usize {
         self.inverse_vocab.len()
     }
+
+    /// Build a tokenizer from raw parts. Used by tests and by code that
+    /// has already parsed the vocabulary and merges.
+    pub fn from_parts(
+        vocab: Vec<String>,
+        merges: Vec<String>,
+        bos_token_id: Option<u32>,
+        eos_token_id: Option<u32>,
+    ) -> Self {
+        let mut vocab_map = std::collections::HashMap::with_capacity(vocab.len());
+        for (i, s) in vocab.iter().enumerate() {
+            vocab_map.insert(s.clone(), i as u32);
+        }
+        let mut merge_map = std::collections::HashMap::new();
+        for (rank, s) in merges.iter().enumerate() {
+            let mut parts = s.splitn(2, ' ');
+            let a = parts.next().unwrap_or("").to_string();
+            let b = parts.next().unwrap_or("").to_string();
+            if !a.is_empty() && !b.is_empty() {
+                merge_map.insert((a, b), rank as u32);
+            }
+        }
+        let inverse_vocab = vocab.clone();
+        Self {
+            vocab: vocab_map,
+            merges: merge_map,
+            inverse_vocab,
+            bos_token_id,
+            eos_token_id,
+            padding_token_id: None,
+            add_bos_token: false,
+            add_eos_token: false,
+        }
+    }
 }
 
 #[cfg(test)]
