@@ -13,6 +13,7 @@ pub mod error;
 pub mod monitor;
 pub mod selector;
 pub mod scheduler;
+pub mod pipeline;
 
 pub use plan::{ExecutionPlan, Node, Edge, TensorRef, NodeId};
 pub use revision::{PlanRevision, RevisionReason};
@@ -27,3 +28,5 @@ pub use selector::{
 pub use scheduler::{
     Scheduler, DefaultScheduler, MonitoredScheduler, StepOutcome,
 };
+
+pub use pipeline::{run_once, PipelineReport, PipelineError};

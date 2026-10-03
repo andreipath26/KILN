@@ -411,6 +411,7 @@ version = "0.0.1"
 dependencies = [
  "kiln-hal",
  "kiln-io",
+ "kiln-kernels",
  "kiln-mem",
  "kiln-models",
  "serde",

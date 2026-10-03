@@ -12,3 +12,4 @@ kiln-hal = { path = "../kiln-hal" }
 kiln-models = { path = "../kiln-models" }
 kiln-mem = { path = "../kiln-mem" }
 kiln-io = { path = "../kiln-io" }
+kiln-kernels = { path = "../kiln-kernels" }
