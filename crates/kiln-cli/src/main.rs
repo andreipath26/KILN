@@ -8,6 +8,9 @@ use clap::{Parser, Subcommand};
 
 use kiln_core::{LinuxMonitor, PerformanceMonitor};
 use kiln_core::pipeline::{run_once as pipeline_run_once, Loader};
+use kiln_core::chat::{ChatSession, Sampler, SamplingStrategy, SyntheticForward};
+use kiln_models::tokenizer::BpeTokenizer;
+use kiln_models::gguf::GgufFile;
 use kiln_api::serve;
 
 /// KILN. The fastest local LLM runtime on Earth.
@@ -41,6 +44,22 @@ enum Commands {
     Plan { model: String },
     /// Print the hardware profile.
     Info,
+    /// Start an interactive chat session. Uses a synthetic forward
+    /// pass until the real transformer lands.
+    Chat {
+        /// Path to a GGUF file with tokenizer metadata.
+        #[arg(long)]
+        model: String,
+        /// Random seed for deterministic sampling.
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+        /// Maximum new tokens per response.
+        #[arg(long, default_value_t = 50)]
+        max_tokens: usize,
+        /// Sampling strategy: greedy, topk, or topp.
+        #[arg(long, default_value = "greedy")]
+        strategy: String,
+    },
     /// Run the pipeline once on a synthetic model file.
     Pipeline {
         /// Path to the model file.
@@ -84,6 +103,84 @@ async fn main() {
             println!("  ram_headroom_gb:        {:.2}", env.ram_headroom_bytes as f64 / 1_073_741_824.0);
             println!("  thermal_state:          {:?}", env.thermal_state);
             println!("  throughput_fraction:    {:.3}", env.throughput_fraction);
+        }
+        Commands::Chat { model, seed, max_tokens, strategy } => {
+            // Load the GGUF file.
+            let path_buf = std::path::PathBuf::from(&model);
+            let g = match GgufFile::open(&path_buf) {
+                Ok(g) => g,
+                Err(e) => {
+                    eprintln!("failed to open {}: {}", model, e);
+                    std::process::exit(1);
+                }
+            };
+
+            // Build the tokenizer from the GGUF metadata.
+            let tokenizer = match BpeTokenizer::from_gguf(&g) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("failed to build tokenizer: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            let vocab_size = tokenizer.vocab_size();
+            println!("KILN chat session");
+            println!("  model:     {}", model);
+            println!("  vocab:     {} tokens", vocab_size);
+            println!("  seed:      {}", seed);
+            println!("  max_tokens: {}", max_tokens);
+            println!("  strategy:  {}", strategy);
+            println!("  forward:   synthetic (real transformer not yet wired)");
+            println!();
+            println!("Type a message and press Enter. Ctrl-D to exit.");
+            println!();
+
+            // Build the sampling strategy.
+            let strat = match strategy.as_str() {
+                "greedy" => SamplingStrategy::Greedy,
+                "topk" => SamplingStrategy::TopK { k: 40, temperature: 0.8 },
+                "topp" => SamplingStrategy::TopP { p: 0.9, temperature: 0.8 },
+                other => {
+                    eprintln!("unknown strategy: {} (expected greedy, topk, or topp)", other);
+                    std::process::exit(2);
+                }
+            };
+
+            let forward = Box::new(SyntheticForward::new(vocab_size, seed));
+            let sampler = Sampler::new(strat, seed);
+            let eos = tokenizer.eos_token_id;
+            let mut session = ChatSession::new(tokenizer, forward, sampler, max_tokens, eos);
+
+            // Read lines from stdin and generate responses.
+            let stdin = std::io::stdin();
+            let mut line = String::new();
+            loop {
+                print!("> ");
+                use std::io::Write;
+                std::io::stdout().flush().ok();
+                line.clear();
+                match stdin.read_line(&mut line) {
+                    Ok(0) => break,
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("input error: {}", e);
+                        break;
+                    }
+                }
+                let prompt = line.trim_end();
+                if prompt.is_empty() {
+                    continue;
+                }
+                match session.generate(prompt) {
+                    Ok(response) => {
+                        println!("{}", response);
+                    }
+                    Err(e) => {
+                        eprintln!("chat error: {}", e);
+                    }
+                }
+            }
         }
         Commands::Pipeline { path, loader, json } => {
             let path_buf = std::path::PathBuf::from(&path);
