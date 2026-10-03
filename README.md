@@ -6,9 +6,11 @@ in Sydney. No cloud. No GPU required. No compromise on accuracy.
 
 ## Status
 
-Phase 1 in progress. The kernel layer exists and is benchmarked. The
-end-to-end pipeline runs. The GGUF loader works. KILN reads real GGUF
-files and runs inference.
+Phase 1 core engine complete. The runtime loads real GGUF files, parses
+the tokenizer metadata, runs the pipeline through the real Selector and
+Scheduler, and holds a chat session with deterministic sampling. The
+output is currently produced by a synthetic forward pass because the
+real transformer has not been wired yet.
 
 Gate 0A: CONDITIONALLY PASSED. Seven of eight research items confirmed.
 Item 8 (thermal envelope measurement) requires an AC-powered 30-minute
@@ -29,6 +31,7 @@ engine.
 - docs/fused-kernel-design.md — LUT-based matmul design and why it failed
 - docs/pipeline-design.md — end-to-end pipeline
 - docs/gguf-design.md — partial GGUF loader specification
+- docs/chat-loop-design.md — generation loop
 
 ## Principles
 
@@ -44,30 +47,21 @@ engine.
 ## Crates
 
 - **kiln-hal** — Backend trait, Registry trait, core types
-- **kiln-models** — Unified Model Format, synthetic format, GGUF loader
+- **kiln-models** — UMF, synthetic format, GGUF loader, BPE tokenizer
 - **kiln-mem** — Memory Hierarchy Manager
 - **kiln-io** — I/O abstraction, IoSource trait, SyncIoSource
-- **kiln-core** — Performance Monitor, Mode Selector, DAG Scheduler, Pipeline
+- **kiln-core** — Monitor, Selector, Scheduler, Pipeline, Chat loop
 - **kiln-kernels** — TQ1.0 ternary pack, unpack, and fused matmul
 - **kiln-api** — Ollama-compatible REST server on port 11435
-- **kiln-cli** — Command-line interface
+- **kiln-cli** — Command-line interface with ten commands
 - **kiln-bench** — Benchmark harness
 
 ## Commands
 
-Run the pipeline on a model file:
+    cargo run -p kiln-cli -- chat --model <gguf> --seed 42 --max-tokens 50
     cargo run -p kiln-cli -- pipeline <file> --loader gguf
-
-Run the pipeline on a synthetic model:
-    cargo run -p kiln-cli -- pipeline <file> --loader synthetic
-
-Print hardware profile:
     cargo run -p kiln-cli -- info
-
-Serve the API:
     cargo run -p kiln-cli -- serve
-
-Run the benchmark suite:
     cargo run -p kiln-bench -- run
 
 ## Measured performance (Dell Latitude 7490, no GPU)
@@ -94,16 +88,6 @@ Run the benchmark suite:
 
 Output is deterministic at 65060 across 13 runs.
 
-### Pipeline (real GGUF, 948-byte file)
-
-| Stage | Time |
-|---|---|
-| Load | ~78,000 ns |
-| Select | ~5,000 ns |
-| Schedule | ~2,000 ns |
-| Execute | ~13,900 ns |
-| Total | ~100,000 ns |
-
 ### Documented kernel failures
 
 | Approach | Speedup |
@@ -111,23 +95,16 @@ Output is deterministic at 65060 across 13 runs.
 | LUT single-row matmul | 0.04x |
 | LUT 8-row matmul | 0.34x |
 
-The LUT approach does not work on Skylake. The LUT build cost dominates
-even with 8-way reuse. The AVX2 gather is too slow to compensate. Do not
-retry without a fundamentally different design.
-
-## Default ports
-
-KILN API: 11435
-Ollama: 11434
-Both can run side by side.
+The LUT approach does not work on Skylake. Do not retry without a
+fundamentally different design.
 
 ## Repository layout
 
 - crates/ — Rust orchestration, scheduler, kernels, and CLI
 - cpp/ — C kernels
-- backends/ — Hardware backends (empty, Phase 4)
+- backends/ — Hardware backends (Phase 4)
 - docs/ — Design documents
-- models/ — Curated model catalog (empty, Phase 5)
+- models/ — Curated model catalog (Phase 5)
 - tests/ — Integration, acceptance, and performance tests
 - scripts/ — Build and release scripts
 

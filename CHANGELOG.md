@@ -99,6 +99,63 @@ Fourteen commits. Eight crates created. Zero warnings.
 
 Eight research items. Seven confirmed. One conditional.
 
+
+### Phase 1 late — Tokenizer, Chat Loop, CLI (2026-10-03)
+
+The tokenizer, chat loop, and CLI chat command. Phase 1 core engine is
+complete.
+
+#### Added
+
+- **BPE tokenizer** in kiln-models:
+  - BpeTokenizer::from_gguf reads tokenizer.ggml.tokens, merges,
+    special token IDs, add_bos_token, add_eos_token
+  - encode with iterative merge by rank
+  - encode_with_special for BOS and EOS injection
+  - decode with special token skipping
+  - BpeTokenizer::from_parts public constructor for tests
+  - TokenizerError with MissingMetadata, MalformedMerge, UnknownToken,
+    InvalidType variants
+  - Five tests: encode_decode_round_trip, encode_without_merges,
+    encode_with_special_tokens, decode_skips_special_tokens,
+    empty_input_produces_empty_output
+- **Chat loop** in kiln-core:
+  - Forward trait with forward() and vocab_size()
+  - MockForward for tests, SyntheticForward for pipeline demos
+  - SamplingStrategy enum: Greedy, TopK, TopP
+  - Sampler with xorshift64 PRNG for determinism
+  - ChatSession with generate and generate_streaming
+  - ChatError enum
+  - Four tests: deterministic_greedy, max_new_tokens_respected,
+    eos_stops_generation, empty_logits_errors
+- **Chat command** in kiln-cli:
+  - kiln chat --model <gguf> --seed N --max-tokens N --strategy S
+  - Loads tokenizer from GGUF metadata, builds SyntheticForward,
+    loops reading stdin, streams decoded tokens
+- **docs/chat-loop-design.md** anchoring the generation loop
+
+#### What Phase 1 core engine includes
+
+Nine crates. Forty-two commits. All compiling.
+
+- TQ1.0 ternary kernel with AVX2 pack at 17.70x speedup
+- Scalar fused matmul at 2.75 ns/element
+- GGUF loader with header, metadata, tensor table, and mmap
+- BPE tokenizer reading from GGUF metadata
+- Chat loop with three sampling strategies and seeded PRNG
+- Pipeline wired through the real Selector and Scheduler
+- CLI with ten commands
+
+#### What remains for a working assistant
+
+- Real transformer forward pass (attention, layernorm, FFN)
+- Real model weights in a GGUF with tokenizer metadata
+- KV cache for efficient multi-token generation
+- Thermal response in a live inference
+
+Those are Phase 1 late and Phase 2.
+
+
 ## [Released]
 
 None yet.
