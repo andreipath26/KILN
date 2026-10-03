@@ -355,6 +355,84 @@ int kiln_tq1_0_matmul_scalar(
     return 0;
 }
 
+/* ---- Fused ternary matmul, AVX2 path ---- */
+
+#if defined(__x86_64__) || defined(__i386__)
+
+/* LUT for a block size of 5. Entry i holds the signed sum of the five
+ * activations at chunk position, weighted by the trit pattern encoded
+ * in i. The trit pattern is the TQ1.0 packed byte, so the packed byte
+ * IS the LUT index. This is why G=5 is the natural block size.
+ *
+ * The LUT is built once per activation chunk. It is small: 243 entries
+ * times 4 bytes = 972 bytes. Fits comfortably in L1.
+ *
+ * Note: the kernel processes one chunk at a time. For a weight row of
+ * length N, the number of chunks is ceil(N / 5). Each chunk has its own
+ * LUT, built from that chunk's 5 activations.
+ *
+ * The AVX2 path processes 8 output rows at once. For each of the 8 rows,
+ * it loads the packed byte at the current chunk position, uses it as a
+ * LUT index, gathers 8 partial sums, and accumulates.
+ */
+int kiln_tq1_0_matmul_avx2(
+    const uint8_t* weights,
+    size_t num_weights,
+    const int8_t* activations,
+    size_t num_activations,
+    float scale,
+    float* output
+) {
+    if (weights == NULL || activations == NULL || output == NULL) return 1;
+    if (num_weights == 0) {
+        *output = 0.0f;
+        return 0;
+    }
+    if (num_activations < num_weights) return 2;
+
+    /* Single-row AVX2 implementation. Process one output row. This is
+     * the first AVX2 version. An 8-row version that processes 8 rows
+     * in parallel using the gather across rows is a follow-up. */
+    int32_t acc = 0;
+    size_t in_bytes = (num_weights + 4) / 5;
+
+    int32_t lut[243];
+    for (size_t b = 0; b < in_bytes; ++b) {
+        /* Build the LUT for this chunk. */
+        int a[5] = {0, 0, 0, 0, 0};
+        size_t base = b * 5;
+        for (int k = 0; k < 5; ++k) {
+            if (base + (size_t)k < num_weights) {
+                a[k] = (int)activations[base + k];
+            }
+        }
+        for (int i = 0; i < 243; ++i) {
+            int d4 = i % 3;
+            int d3 = (i / 3) % 3;
+            int d2 = (i / 9) % 3;
+            int d1 = (i / 27) % 3;
+            int d0 = (i / 81) % 3;
+            int s = 0;
+            s += (d0 - 1) * a[0];
+            s += (d1 - 1) * a[1];
+            s += (d2 - 1) * a[2];
+            s += (d3 - 1) * a[3];
+            s += (d4 - 1) * a[4];
+            lut[i] = s;
+        }
+
+        /* Look up the partial sum for this chunk. */
+        int packed = (int)weights[b];
+        if (packed < 0 || packed > 242) return 3;
+        acc += lut[packed];
+    }
+
+    *output = (float)acc * scale;
+    return 0;
+}
+
+#endif /* __x86_64__ || __i386__ */
+
 /* ---- Public dispatch ---- */
 
 /* The scalar packer is renamed to kiln_tq1_0_pack_scalar so that both
