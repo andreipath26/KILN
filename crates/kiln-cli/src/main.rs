@@ -44,6 +44,14 @@ enum Commands {
     Plan { model: String },
     /// Print the hardware profile.
     Info,
+    /// Inspect a GGUF file: print metadata and tensor table.
+    Inspect {
+        /// Path to the GGUF file.
+        path: String,
+        /// Print every tensor. Without this flag, print only the count.
+        #[arg(long)]
+        tensors: bool,
+    },
     /// Start an interactive chat session. Uses a synthetic forward
     /// pass until the real transformer lands.
     Chat {
@@ -103,6 +111,59 @@ async fn main() {
             println!("  ram_headroom_gb:        {:.2}", env.ram_headroom_bytes as f64 / 1_073_741_824.0);
             println!("  thermal_state:          {:?}", env.thermal_state);
             println!("  throughput_fraction:    {:.3}", env.throughput_fraction);
+        }
+        Commands::Inspect { path, tensors } => {
+            let path_buf = std::path::PathBuf::from(&path);
+            let g = match GgufFile::open(&path_buf) {
+                Ok(g) => g,
+                Err(e) => {
+                    eprintln!("failed to open {}: {}", path, e);
+                    std::process::exit(1);
+                }
+            };
+            println!("KILN inspect: {}", path);
+            println!("  version:        {}", g.header.version);
+            println!("  tensor_count:   {}", g.header.tensor_count);
+            println!("  metadata_count: {}", g.header.metadata_kv_count);
+            println!("  data_offset:    {}", g.data_offset);
+            println!("  file_size:      {}", g.file_size());
+            println!();
+            println!("Metadata:");
+            let mut keys: Vec<&String> = g.metadata.keys().collect();
+            keys.sort();
+            for k in keys {
+                let v = &g.metadata[k];
+                let s = format!("{:?}", v);
+                let short = if s.len() > 100 { format!("{}...", &s[..100]) } else { s };
+                println!("  {} = {}", k, short);
+            }
+            println!();
+            if tensors {
+                println!("Tensors ({} total):", g.tensors.len());
+                for t in &g.tensors {
+                    println!("  {:<40} {:>20} {:?} offset={}",
+                        t.name,
+                        t.shape.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("x"),
+                        t.dtype,
+                        t.offset
+                    );
+                }
+            } else {
+                println!("Tensors: {} (use --tensors to list)", g.tensors.len());
+                // Print dtype distribution.
+                use std::collections::HashMap;
+                let mut dtypes: HashMap<String, usize> = HashMap::new();
+                for t in &g.tensors {
+                    let key = format!("{:?}", t.dtype);
+                    *dtypes.entry(key).or_insert(0) += 1;
+                }
+                println!("Dtype distribution:");
+                let mut pairs: Vec<(&String, &usize)> = dtypes.iter().collect();
+                pairs.sort_by(|a, b| b.1.cmp(a.1));
+                for (k, v) in pairs {
+                    println!("  {:<20} {}", k, v);
+                }
+            }
         }
         Commands::Chat { model, seed, max_tokens, strategy } => {
             // Load the GGUF file.

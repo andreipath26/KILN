@@ -520,14 +520,17 @@ impl GgufFile {
         // Round the offset up to the alignment boundary.
         let data_offset = align_up(after_tensor_table as u64, alignment);
 
-        // Verify that every tensor fits within the file.
+        // Verify that every tensor with a known dtype fits within the
+        // file. Tensors with unknown dtypes are skipped. The loader
+        // opens any GGUF file regardless of dtype. It only refuses to
+        // decode tensors whose type it does not support, and that
+        // refusal happens in tensor_bytes when the caller asks for
+        // the bytes.
         for t in &tensors {
-            let byte_size = t
-                .byte_size()
-                .ok_or_else(|| GgufError::Tensor(format!(
-                    "tensor '{}' has unknown dtype, cannot compute size",
-                    t.name
-                )))?;
+            let byte_size = match t.byte_size() {
+                Some(n) => n,
+                None => continue, // unknown dtype, skip bounds check
+            };
             let end = data_offset
                 .checked_add(t.offset)
                 .and_then(|v| v.checked_add(byte_size))
