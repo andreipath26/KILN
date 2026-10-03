@@ -13,7 +13,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed={}", kernels_dir.display());
 
-    let sources = ["tq1_0.c", "q4k.c"];
+    let sources = ["tq1_0.c", "q4k.c", "q6k.c"];
 
     let mut build = cc::Build::new();
     build.include(&kernels_dir);

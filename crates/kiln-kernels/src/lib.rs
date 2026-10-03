@@ -18,6 +18,14 @@ extern "C" {
         num_activations: usize,
         output: *mut c_float,
     ) -> c_int;
+    fn kiln_q6k_dequant_block(src: *const u8, dst: *mut c_float) -> c_int;
+    fn kiln_q6k_matmul_scalar(
+        weights: *const u8,
+        num_weights: usize,
+        activations: *const c_float,
+        num_activations: usize,
+        output: *mut c_float,
+    ) -> c_int;
     fn kiln_tq1_0_matmul_scalar(
         weights: *const u8,
         num_weights: usize,
@@ -382,6 +390,62 @@ pub fn q4k_matmul_scalar(
     output
 }
 
+/// Dequantize one Q6_K super-block (210 bytes) into 256 f32 values.
+pub fn q6k_dequant_block(src: &[u8]) -> [f32; 256] {
+    if src.len() < 210 {
+        panic!(
+            "kiln_kernels::q6k_dequant_block: need 210 bytes, got {}",
+            src.len()
+        );
+    }
+    let mut out = [0.0f32; 256];
+    let rc = unsafe { kiln_q6k_dequant_block(src.as_ptr(), out.as_mut_ptr()) };
+    if rc != 0 {
+        panic!("kiln_kernels::q6k_dequant_block: C kernel returned error code {}", rc);
+    }
+    out
+}
+
+/// Fused Q6_K matmul. Dot product of a packed Q6_K weight row against
+/// an f32 activation vector.
+pub fn q6k_matmul_scalar(
+    weights: &[u8],
+    num_weights: usize,
+    activations: &[f32],
+) -> f32 {
+    if num_weights == 0 {
+        return 0.0;
+    }
+    let num_blocks = (num_weights + 255) / 256;
+    let required = num_blocks * 210;
+    if weights.len() < required {
+        panic!(
+            "kiln_kernels::q6k_matmul_scalar: need {} bytes for {} weights, got {}",
+            required, num_weights, weights.len()
+        );
+    }
+    if activations.len() < num_weights {
+        panic!(
+            "kiln_kernels::q6k_matmul_scalar: need {} activations, got {}",
+            num_weights, activations.len()
+        );
+    }
+    let mut output = 0.0f32;
+    let rc = unsafe {
+        kiln_q6k_matmul_scalar(
+            weights.as_ptr(),
+            num_weights,
+            activations.as_ptr(),
+            activations.len(),
+            &mut output as *mut f32,
+        )
+    };
+    if rc != 0 {
+        panic!("kiln_kernels::q6k_matmul_scalar: C kernel returned error code {}", rc);
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -717,6 +781,97 @@ mod tests {
         let acts = vec![1.0f32; 256];
         let result = q4k_matmul_scalar(&block, 256, &acts);
         assert!((result - 256.0).abs() < 0.01, "expected 256.0, got {}", result);
+    }
+
+    #[test]
+    fn q6k_dequant_zero_block() {
+        // d = 0, all scales = 0, all weights = 0 -> all output values
+        // should be d * scale * (q - 32) = 0.
+        let block = [0u8; 210];
+        let out = q6k_dequant_block(&block);
+        for v in out.iter() {
+            assert_eq!(*v, 0.0);
+        }
+    }
+
+    #[test]
+    fn q6k_dequant_constant_q1() {
+        // Build a Q6_K block with:
+        //   d = 1.0 (F16 = 0x3C00)
+        //   all scales = 1
+        //   all weights = 1 (6-bit value 1, centered: -31)
+        //
+        // To set all 6-bit weights to 1:
+        //   ql bytes: low nibbles = 1, high nibbles = 1 -> 0x11
+        //   qh bytes: all 2-bit fields = 0 -> 0x00
+        //
+        // Expected: d * 1 * (1 - 32) = -31.0 for every output.
+        let mut block = [0u8; 210];
+        // d = 1.0
+        block[208] = 0x00;
+        block[209] = 0x3C;
+        // ql: bytes 0..128, all 0x11
+        for i in 0..128 {
+            block[i] = 0x11;
+        }
+        // qh: bytes 128..192, all 0x00
+        for i in 128..192 {
+            block[i] = 0x00;
+        }
+        // scales: bytes 192..208, all 1 (int8)
+        for i in 192..208 {
+            block[i] = 0x01;
+        }
+        let out = q6k_dequant_block(&block);
+        for (i, v) in out.iter().enumerate() {
+            assert!((*v - (-31.0)).abs() < 0.001,
+                "at index {} expected -31.0, got {}", i, v);
+        }
+    }
+
+    #[test]
+    fn q6k_dequant_constant_q32() {
+        // Build a Q6_K block with all 6-bit weights = 32 (centered: 0).
+        // 32 = 0b100000. Low 4 bits = 0, high 2 bits = 2.
+        // ql bytes: all 0x00
+        // qh bytes: each 2-bit field = 2 -> 0b10101010 = 0xAA
+        // Expected: 0.0 for every output.
+        let mut block = [0u8; 210];
+        block[208] = 0x00;
+        block[209] = 0x3C; // d = 1.0
+        for i in 0..128 {
+            block[i] = 0x00;
+        }
+        for i in 128..192 {
+            block[i] = 0xAA;
+        }
+        for i in 192..208 {
+            block[i] = 0x01;
+        }
+        let out = q6k_dequant_block(&block);
+        for (i, v) in out.iter().enumerate() {
+            assert!((*v - 0.0).abs() < 0.001,
+                "at index {} expected 0.0, got {}", i, v);
+        }
+    }
+
+    #[test]
+    fn q6k_matmul_constant() {
+        // All weights = 1 (centered: -31), all activations = 1.
+        // Expected: 256 * (-31) = -7936.0.
+        let mut block = [0u8; 210];
+        block[208] = 0x00;
+        block[209] = 0x3C;
+        for i in 0..128 {
+            block[i] = 0x11;
+        }
+        for i in 192..208 {
+            block[i] = 0x01;
+        }
+        let acts = vec![1.0f32; 256];
+        let result = q6k_matmul_scalar(&block, 256, &acts);
+        assert!((result - (-7936.0)).abs() < 0.1,
+            "expected -7936.0, got {}", result);
     }
 
     #[test]
