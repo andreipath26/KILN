@@ -464,6 +464,144 @@ pub fn parse_tensor_table(
     Ok((tensors, start_offset + reader.pos))
 }
 
+/// A fully-loaded GGUF file with its data section mapped.
+pub struct GgufFile {
+    pub header: GgufHeader,
+    pub metadata: std::collections::HashMap<String, GgufValue>,
+    pub tensors: Vec<GgufTensorInfo>,
+    pub data_offset: u64,
+    mmap: memmap2::Mmap,
+}
+
+impl std::fmt::Debug for GgufFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GgufFile")
+            .field("header", &self.header)
+            .field("metadata_count", &self.metadata.len())
+            .field("tensor_count", &self.tensors.len())
+            .field("data_offset", &self.data_offset)
+            .field("mmap_len", &self.mmap.len())
+            .finish()
+    }
+}
+
+impl GgufFile {
+    /// Load a GGUF file from disk.
+    pub fn open(path: &Path) -> Result<Self, GgufError> {
+        let file = fs::File::open(path)?;
+        let mmap = unsafe { memmap2::Mmap::map(&file)? };
+        let bytes: &[u8] = &mmap;
+
+        // Parse header.
+        let header = GgufHeader::from_bytes(bytes)?;
+
+        // Parse metadata.
+        let (metadata, after_metadata) =
+            parse_metadata(bytes, GgufHeader::SIZE, header.metadata_kv_count)?;
+
+        // Parse tensor table.
+        let (tensors, after_tensor_table) =
+            parse_tensor_table(bytes, after_metadata, header.tensor_count)?;
+
+        // Read the alignment from metadata. Default 32 if not present.
+        let alignment: u64 = metadata
+            .get("general.alignment")
+            .and_then(|v| v.as_u32())
+            .map(|v| v as u64)
+            .unwrap_or(32);
+
+        if alignment == 0 || (alignment & (alignment - 1)) != 0 {
+            return Err(GgufError::Alignment(format!(
+                "alignment {} is not a power of two",
+                alignment
+            )));
+        }
+
+        // Round the offset up to the alignment boundary.
+        let data_offset = align_up(after_tensor_table as u64, alignment);
+
+        // Verify that every tensor fits within the file.
+        for t in &tensors {
+            let byte_size = t
+                .byte_size()
+                .ok_or_else(|| GgufError::Tensor(format!(
+                    "tensor '{}' has unknown dtype, cannot compute size",
+                    t.name
+                )))?;
+            let end = data_offset
+                .checked_add(t.offset)
+                .and_then(|v| v.checked_add(byte_size))
+                .ok_or_else(|| GgufError::Tensor(format!(
+                    "tensor '{}' offset overflow",
+                    t.name
+                )))?;
+            if end > bytes.len() as u64 {
+                return Err(GgufError::Tensor(format!(
+                    "tensor '{}' extends past end of file (end={}, file={})",
+                    t.name,
+                    end,
+                    bytes.len()
+                )));
+            }
+        }
+
+        Ok(Self {
+            header,
+            metadata,
+            tensors,
+            data_offset,
+            mmap,
+        })
+    }
+
+    /// Look up a tensor by name.
+    pub fn tensor(&self, name: &str) -> Option<&GgufTensorInfo> {
+        self.tensors.iter().find(|t| t.name == name)
+    }
+
+    /// Get the raw bytes of a tensor.
+    pub fn tensor_bytes(&self, name: &str) -> Option<&[u8]> {
+        let t = self.tensor(name)?;
+        let byte_size = t.byte_size()? as usize;
+        let start = (self.data_offset + t.offset) as usize;
+        let end = start + byte_size;
+        self.mmap.get(start..end)
+    }
+
+    /// The total bytes of the file.
+    pub fn file_size(&self) -> u64 {
+        self.mmap.len() as u64
+    }
+
+    /// The number of tensors.
+    pub fn tensor_count(&self) -> usize {
+        self.tensors.len()
+    }
+
+    /// The number of metadata entries.
+    pub fn metadata_count(&self) -> usize {
+        self.metadata.len()
+    }
+
+    /// Get a metadata string by key.
+    pub fn metadata_str(&self, key: &str) -> Option<&str> {
+        self.metadata.get(key).and_then(|v| v.as_str())
+    }
+
+    /// Get a metadata u32 by key.
+    pub fn metadata_u32(&self, key: &str) -> Option<u32> {
+        self.metadata.get(key).and_then(|v| v.as_u32())
+    }
+}
+
+/// Round `value` up to the nearest multiple of `alignment`.
+fn align_up(value: u64, alignment: u64) -> u64 {
+    if alignment == 0 {
+        return value;
+    }
+    (value + alignment - 1) & !(alignment - 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -643,5 +781,76 @@ mod tests {
         buf.extend_from_slice(&16u32.to_le_bytes()); // 16 dims, max is 8
         let result = parse_tensor_table(&buf, 0, 1);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn align_up_basics() {
+        assert_eq!(align_up(0, 32), 0);
+        assert_eq!(align_up(1, 32), 32);
+        assert_eq!(align_up(32, 32), 32);
+        assert_eq!(align_up(33, 32), 64);
+        assert_eq!(align_up(0, 1), 0);
+    }
+
+    /// Build a minimal valid GGUF file in memory and write it to a
+    /// temp path. Returns the path.
+    fn write_minimal_gguf() -> std::path::PathBuf {
+        let mut buf = Vec::new();
+        // Header: magic, version 3, tensor_count=1, metadata_count=1
+        buf.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+        buf.extend_from_slice(&3u32.to_le_bytes());
+        buf.extend_from_slice(&1u64.to_le_bytes());
+        buf.extend_from_slice(&1u64.to_le_bytes());
+        // Metadata: key "general.alignment", type Uint32, value 32
+        let key = b"general.alignment";
+        buf.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        buf.extend_from_slice(key);
+        buf.extend_from_slice(&4u32.to_le_bytes()); // Uint32
+        buf.extend_from_slice(&32u32.to_le_bytes());
+        // Tensor table: 1 tensor "w", 1 dim [10], TQ1_0, offset 0
+        let name = b"w";
+        buf.extend_from_slice(&(name.len() as u64).to_le_bytes());
+        buf.extend_from_slice(name);
+        buf.extend_from_slice(&1u32.to_le_bytes());
+        buf.extend_from_slice(&10u64.to_le_bytes());
+        buf.extend_from_slice(&1000u32.to_le_bytes()); // Tq1_0
+        buf.extend_from_slice(&0u64.to_le_bytes());
+        // Pad to alignment 32
+        while buf.len() % 32 != 0 {
+            buf.push(0);
+        }
+        // Tensor data: 2 bytes for 10 trits
+        buf.extend_from_slice(&[0x11, 0x22]);
+
+        let mut p = std::env::temp_dir();
+        p.push(format!("kiln_gguf_test_{}.gguf", std::process::id()));
+        std::fs::write(&p, &buf).unwrap();
+        p
+    }
+
+    #[test]
+    fn gguf_file_open_and_read_tensor() {
+        let path = write_minimal_gguf();
+        let g = GgufFile::open(&path).unwrap();
+        assert_eq!(g.tensor_count(), 1);
+        assert_eq!(g.metadata_count(), 1);
+        assert_eq!(g.metadata_u32("general.alignment"), Some(32));
+        let t = g.tensor("w").unwrap();
+        assert_eq!(t.dtype, GgufType::Tq1_0);
+        assert_eq!(t.shape, vec![10]);
+        let bytes = g.tensor_bytes("w").unwrap();
+        assert_eq!(bytes.len(), 2);
+        assert_eq!(bytes[0], 0x11);
+        assert_eq!(bytes[1], 0x22);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn gguf_file_missing_tensor_returns_none() {
+        let path = write_minimal_gguf();
+        let g = GgufFile::open(&path).unwrap();
+        assert!(g.tensor("does-not-exist").is_none());
+        assert!(g.tensor_bytes("does-not-exist").is_none());
+        std::fs::remove_file(&path).ok();
     }
 }
