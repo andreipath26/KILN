@@ -347,6 +347,123 @@ pub fn parse_metadata(
     Ok((map, start_offset + reader.pos))
 }
 
+/// The dtype of a GGUF tensor. KILN supports three, rejects the rest.
+///
+/// No explicit discriminants because Unknown(u32) carries data.
+/// The numeric codes are mapped in from_u32.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GgufType {
+    F32,
+    F16,
+    Tq1_0,
+    Unknown(u32),
+}
+
+impl GgufType {
+    pub fn from_u32(v: u32) -> Self {
+        match v {
+            0 => GgufType::F32,
+            1 => GgufType::F16,
+            1000 => GgufType::Tq1_0,
+            other => GgufType::Unknown(other),
+        }
+    }
+
+    /// The byte size of one element of this type.
+    pub fn element_size(&self) -> Option<usize> {
+        match self {
+            GgufType::F32 => Some(4),
+            GgufType::F16 => Some(2),
+            // TQ1_0 packs 5 trits into 1 byte. Element size is fractional,
+            // so we return None and callers compute the byte size from the
+            // shape with the packed formula.
+            GgufType::Tq1_0 => None,
+            GgufType::Unknown(_) => None,
+        }
+    }
+}
+
+/// One tensor in the GGUF file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GgufTensorInfo {
+    pub name: String,
+    pub shape: Vec<u64>,
+    pub dtype: GgufType,
+    pub offset: u64,
+}
+
+impl GgufTensorInfo {
+    /// The number of elements in the tensor.
+    pub fn num_elements(&self) -> u64 {
+        self.shape.iter().product()
+    }
+
+    /// The byte size of the tensor.
+    pub fn byte_size(&self) -> Option<u64> {
+        let n = self.num_elements();
+        match self.dtype {
+            GgufType::F32 => Some(n * 4),
+            GgufType::F16 => Some(n * 2),
+            GgufType::Tq1_0 => Some((n + 4) / 5),
+            GgufType::Unknown(_) => None,
+        }
+    }
+}
+
+/// Parse the tensor table from a byte slice starting at the offset
+/// immediately after the metadata table.
+///
+/// Returns the tensor list and the byte offset where the tensor table
+/// ends and the data section begins.
+pub fn parse_tensor_table(
+    bytes: &[u8],
+    start_offset: usize,
+    tensor_count: u64,
+) -> Result<(Vec<GgufTensorInfo>, usize), GgufError> {
+    let mut reader = Reader::new(&bytes[start_offset..]);
+    let mut tensors = Vec::with_capacity(tensor_count.min(4096) as usize);
+
+    for i in 0..tensor_count {
+        let name = reader.string().map_err(|e| {
+            GgufError::Tensor(format!("tensor {} name read failed: {}", i, e))
+        })?;
+        let dims = reader.u32().map_err(|e| {
+            GgufError::Tensor(format!("tensor '{}' ndims read failed: {}", name, e))
+        })?;
+        if dims > 8 {
+            return Err(GgufError::Tensor(format!(
+                "tensor '{}' has {} dimensions, max is 8",
+                name, dims
+            )));
+        }
+        let mut shape = Vec::with_capacity(dims as usize);
+        for d in 0..dims {
+            let v = reader.u64().map_err(|e| {
+                GgufError::Tensor(format!(
+                    "tensor '{}' dim {} read failed: {}",
+                    name, d, e
+                ))
+            })?;
+            shape.push(v);
+        }
+        let dtype_raw = reader.u32().map_err(|e| {
+            GgufError::Tensor(format!("tensor '{}' dtype read failed: {}", name, e))
+        })?;
+        let dtype = GgufType::from_u32(dtype_raw);
+        let offset = reader.u64().map_err(|e| {
+            GgufError::Tensor(format!("tensor '{}' offset read failed: {}", name, e))
+        })?;
+        tensors.push(GgufTensorInfo {
+            name,
+            shape,
+            dtype,
+            offset,
+        });
+    }
+
+    Ok((tensors, start_offset + reader.pos))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,6 +573,75 @@ mod tests {
         buf.extend_from_slice(b"x");
         buf.extend_from_slice(&99u32.to_le_bytes());
         let result = parse_metadata(&buf, 0, 1);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_tensor_table_single_f32() {
+        // One tensor: name "w", 2 dims [4, 3], dtype F32 (0), offset 0
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&1u64.to_le_bytes());
+        buf.extend_from_slice(b"w");
+        buf.extend_from_slice(&2u32.to_le_bytes()); // ndims
+        buf.extend_from_slice(&4u64.to_le_bytes());
+        buf.extend_from_slice(&3u64.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes()); // F32
+        buf.extend_from_slice(&0u64.to_le_bytes()); // offset
+
+        let (tensors, end) = parse_tensor_table(&buf, 0, 1).unwrap();
+        assert_eq!(end, buf.len());
+        assert_eq!(tensors.len(), 1);
+        let t = &tensors[0];
+        assert_eq!(t.name, "w");
+        assert_eq!(t.shape, vec![4, 3]);
+        assert_eq!(t.dtype, GgufType::F32);
+        assert_eq!(t.offset, 0);
+        assert_eq!(t.num_elements(), 12);
+        assert_eq!(t.byte_size(), Some(48));
+    }
+
+    #[test]
+    fn parse_tensor_table_tq1_0() {
+        // A TQ1_0 tensor with 10 elements -> (10 + 4) / 5 = 2 bytes
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&4u64.to_le_bytes());
+        buf.extend_from_slice(b"tern");
+        buf.extend_from_slice(&1u32.to_le_bytes());
+        buf.extend_from_slice(&10u64.to_le_bytes());
+        buf.extend_from_slice(&1000u32.to_le_bytes()); // Tq1_0
+        buf.extend_from_slice(&0u64.to_le_bytes());
+
+        let (tensors, _) = parse_tensor_table(&buf, 0, 1).unwrap();
+        let t = &tensors[0];
+        assert_eq!(t.dtype, GgufType::Tq1_0);
+        assert_eq!(t.num_elements(), 10);
+        assert_eq!(t.byte_size(), Some(2));
+    }
+
+    #[test]
+    fn parse_tensor_table_unknown_dtype_preserved() {
+        // An unknown dtype should be preserved as Unknown(n), not rejected.
+        // The loader decides what to do with it later.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&1u64.to_le_bytes());
+        buf.extend_from_slice(b"x");
+        buf.extend_from_slice(&1u32.to_le_bytes());
+        buf.extend_from_slice(&8u64.to_le_bytes());
+        buf.extend_from_slice(&9999u32.to_le_bytes());
+        buf.extend_from_slice(&0u64.to_le_bytes());
+
+        let (tensors, _) = parse_tensor_table(&buf, 0, 1).unwrap();
+        assert_eq!(tensors[0].dtype, GgufType::Unknown(9999));
+        assert_eq!(tensors[0].byte_size(), None);
+    }
+
+    #[test]
+    fn parse_tensor_table_rejects_too_many_dims() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&1u64.to_le_bytes());
+        buf.extend_from_slice(b"x");
+        buf.extend_from_slice(&16u32.to_le_bytes()); // 16 dims, max is 8
+        let result = parse_tensor_table(&buf, 0, 1);
         assert!(result.is_err());
     }
 }
