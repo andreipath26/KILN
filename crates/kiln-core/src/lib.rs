@@ -12,6 +12,7 @@ pub mod revision;
 pub mod error;
 pub mod monitor;
 pub mod selector;
+pub mod scheduler;
 
 pub use plan::{ExecutionPlan, Node, Edge, TensorRef, NodeId};
 pub use revision::{PlanRevision, RevisionReason};
@@ -22,4 +23,7 @@ pub use monitor::{
 };
 pub use selector::{
     ModeSelector, DefaultSelector, SelectionOutcome, LadderRung, AlgorithmReason,
+};
+pub use scheduler::{
+    Scheduler, DefaultScheduler, MonitoredScheduler, StepOutcome,
 };
