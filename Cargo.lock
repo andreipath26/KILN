@@ -356,6 +356,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "kiln-bench"
+version = "0.0.1"
+dependencies = [
+ "clap",
+ "kiln-core",
+ "kiln-hal",
+ "kiln-io",
+ "kiln-mem",
+ "kiln-models",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "kiln-cli"
 version = "0.0.1"
 dependencies = [

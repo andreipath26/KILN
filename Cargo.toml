@@ -8,6 +8,7 @@ members = [
     "crates/kiln-core",
     "crates/kiln-api",
     "crates/kiln-cli",
+    "crates/kiln-bench",
 ]
 
 [workspace.package]
