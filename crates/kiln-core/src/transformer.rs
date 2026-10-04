@@ -39,6 +39,7 @@ impl From<WeightError> for TransformerError {
 pub struct Transformer {
     config: TransformerConfig,
     weights: TransformerWeights,
+    cache: crate::kv_cache::KvCache,
 }
 
 fn decode_f32(bytes: &[u8], count: usize) -> Vec<f32> {
@@ -118,7 +119,10 @@ impl Transformer {
     pub fn from_gguf(file: &Arc<GgufFile>) -> Result<Self, TransformerError> {
         let weights = TransformerWeights::from_gguf(file)?;
         let config = weights.config.clone();
-        Ok(Self { config, weights })
+        let kv_dim = config.num_kv_heads * config.head_dim();
+        let max_len = config.context_length.min(4096);
+        let cache = crate::kv_cache::KvCache::new(config.num_layers, kv_dim, max_len);
+        Ok(Self { config, weights, cache })
     }
 
     pub fn config_ref(&self) -> &TransformerConfig { &self.config }
@@ -193,11 +197,11 @@ impl Transformer {
     /// convention. The pairs are (d, d + head_dim/2), NOT (2d, 2d+1).
     /// Using the interleaved convention produces plausible but wrong
     /// attention scores, which is what we observed before this fix.
-    fn apply_rope(&self, x: &mut [f32], seq_len: usize, num_heads: usize, head_dim: usize) {
+    fn apply_rope(&self, x: &mut [f32], pos_offset: usize, seq_len: usize, num_heads: usize, head_dim: usize) {
         let base = self.config.rope_theta;
         let half = head_dim / 2;
         for t in 0..seq_len {
-            let pos = t as f32;
+            let pos = (pos_offset + t) as f32;
             for h in 0..num_heads {
                 let head_off = (t * num_heads + h) * head_dim;
                 for d in 0..half {
@@ -215,8 +219,7 @@ impl Transformer {
         }
     }
 
-    pub fn forward_tokens(&self, tokens: &[u32]) -> Vec<f32> {
-        let debug = std::env::var("KILN_DEBUG_TRANSFORMER").is_ok();
+    pub fn forward_tokens(&mut self, tokens: &[u32]) -> Vec<f32> {
         let hidden = self.config.hidden_size;
         let vocab = self.config.vocab_size;
         let inter = self.config.intermediate_size;
@@ -226,147 +229,146 @@ impl Transformer {
         let q_dim = num_heads * head_dim;
         let kv_dim = num_kv_heads * head_dim;
         let eps = self.config.rms_norm_eps;
-        let seq_len = tokens.len();
 
-        if seq_len == 0 { return vec![0.0; vocab]; }
+        if tokens.is_empty() { return vec![0.0; vocab]; }
 
-        // Embed all tokens: [seq_len, hidden]
-        let mut h = vec![0.0f32; seq_len * hidden];
-        for (t, &tok) in tokens.iter().enumerate() {
+        // Determine which tokens are new. If the caller's sequence starts
+        // with what is already cached, only process the tail. Otherwise
+        // reset and process everything.
+        let cached = self.cache.len();
+        let reuse = cached > 0
+            && tokens.len() >= cached
+            && tokens[..cached] == self.cache.cached_tokens[..];
+        if !reuse { self.cache.clear(); }
+        let pos_offset = if reuse { cached } else { 0 };
+        let new_tokens = &tokens[pos_offset..];
+        let n_new = new_tokens.len();
+        if n_new == 0 {
+            // Nothing to do. Re-run the last position's output projection
+            // by reprocessing the final token alone.
+            let last = *tokens.last().unwrap();
+            self.cache.clear();
+            return self.forward_tokens(&[last]);
+        }
+        if !self.cache.can_append(n_new) {
+            panic!("KV cache overflow: cached {} + new {} > max {}",
+                cached, n_new, self.cache.max_len);
+        }
+
+        // Embed only the new tokens: [n_new, hidden]
+        let mut h = vec![0.0f32; n_new * hidden];
+        for (t, &tok) in new_tokens.iter().enumerate() {
             let e = self.embed_token(tok);
             h[t * hidden..(t + 1) * hidden].copy_from_slice(&e);
-        }
-        if debug {
-            eprintln!("[dbg] embedding token 0 first 8: {:?}", &h[0..8]);
-            eprintln!("[dbg] embedding token 0 sum: {}", h[0..hidden].iter().sum::<f32>());
-            eprintln!("[dbg] embedding token 0 max abs: {}", h[0..hidden].iter().map(|v| v.abs()).fold(0.0f32, f32::max));
         }
 
         let group = num_heads / num_kv_heads;
         let scale = 1.0 / (head_dim as f32).sqrt();
 
-        for layer in &self.weights.layers {
-            // Pre-attention norm on every position
+        for (li, layer) in self.weights.layers.iter().enumerate() {
+            // Pre-attention norm on new positions
             let attn_norm_w = decode_f32(&layer.attn_norm, hidden);
-            let mut normed = vec![0.0f32; seq_len * hidden];
-            for t in 0..seq_len {
+            let mut normed = vec![0.0f32; n_new * hidden];
+            for t in 0..n_new {
                 let n = rms_norm(&h[t * hidden..(t + 1) * hidden], &attn_norm_w, eps);
                 normed[t * hidden..(t + 1) * hidden].copy_from_slice(&n);
             }
-            if debug && std::sync::atomic::AtomicBool::new(true).load(std::sync::atomic::Ordering::Relaxed) {
-                eprintln!("[dbg] attn_norm_w first 8: {:?}", &attn_norm_w[0..8]);
-                eprintln!("[dbg] normed first 8: {:?}", &normed[0..8]);
-            }
 
-            // Q, K, V projections for all positions
-            let mut q = self.proj_seq(&layer.attn_q, q_dim, hidden, &normed, seq_len);
-            let mut k = self.proj_seq(&layer.attn_k, kv_dim, hidden, &normed, seq_len);
-            let mut v = self.proj_seq(&layer.attn_v, kv_dim, hidden, &normed, seq_len);
+            // Q, K, V projections for new positions only
+            let mut q = self.proj_seq(&layer.attn_q, q_dim, hidden, &normed, n_new);
+            let mut k = self.proj_seq(&layer.attn_k, kv_dim, hidden, &normed, n_new);
+            let mut v = self.proj_seq(&layer.attn_v, kv_dim, hidden, &normed, n_new);
 
-            // Add Q, K, V biases if present. Qwen2.5 uses them.
-            // Without the biases, every attention score is offset by a
-            // constant, which shifts the softmax and destroys attention.
             if !layer.attn_q_bias.is_empty() {
                 let b = decode_f32(&layer.attn_q_bias, q_dim);
-                for t in 0..seq_len {
-                    let off = t * q_dim;
-                    for i in 0..q_dim {
-                        q[off + i] += b[i];
-                    }
-                }
+                for t in 0..n_new { let off = t * q_dim;
+                    for i in 0..q_dim { q[off + i] += b[i]; } }
             }
             if !layer.attn_k_bias.is_empty() {
                 let b = decode_f32(&layer.attn_k_bias, kv_dim);
-                for t in 0..seq_len {
-                    let off = t * kv_dim;
-                    for i in 0..kv_dim {
-                        k[off + i] += b[i];
-                    }
-                }
+                for t in 0..n_new { let off = t * kv_dim;
+                    for i in 0..kv_dim { k[off + i] += b[i]; } }
             }
             if !layer.attn_v_bias.is_empty() {
                 let b = decode_f32(&layer.attn_v_bias, kv_dim);
-                for t in 0..seq_len {
-                    let off = t * kv_dim;
-                    for i in 0..kv_dim {
-                        v[off + i] += b[i];
-                    }
-                }
+                for t in 0..n_new { let off = t * kv_dim;
+                    for i in 0..kv_dim { v[off + i] += b[i]; } }
             }
 
-            // Apply RoPE to Q and K
-            self.apply_rope(&mut q, seq_len, num_heads, head_dim);
-            self.apply_rope(&mut k, seq_len, num_kv_heads, head_dim);
+            // RoPE with absolute positions
+            self.apply_rope(&mut q, pos_offset, n_new, num_heads, head_dim);
+            self.apply_rope(&mut k, pos_offset, n_new, num_kv_heads, head_dim);
 
-            // Attention output: [seq_len, q_dim]
-            let mut attn_out = vec![0.0f32; seq_len * q_dim];
+            // Append fresh K, V to the cache
+            for t in 0..n_new {
+                let ko = t * kv_dim;
+                let vo = t * kv_dim;
+                self.cache.layers[li].push(&k[ko..ko + kv_dim], &v[vo..vo + kv_dim]);
+            }
+
+            let total_len = pos_offset + n_new;
+
+            // Attention: query i (absolute pos = pos_offset + i) attends
+            // to all cached positions 0..=pos_offset+i.
+            let mut attn_out = vec![0.0f32; n_new * q_dim];
             for hq in 0..num_heads {
                 let kvh = hq / group;
-                for i in 0..seq_len {
-                    // Compute scores against all j <= i
-                    let mut scores = vec![0.0f32; i + 1];
+                for i in 0..n_new {
+                    let abs_i = pos_offset + i;
                     let q_off = (i * num_heads + hq) * head_dim;
-                    for j in 0..=i {
-                        let k_off = (j * num_kv_heads + kvh) * head_dim;
+                    let mut scores = vec![0.0f32; abs_i + 1];
+                    for j in 0..=abs_i {
+                        let k_row = self.cache.k_row(li, j);
+                        let k_off = kvh * head_dim;
                         let mut dot = 0.0f32;
                         for d in 0..head_dim {
-                            dot += q[q_off + d] * k[k_off + d];
+                            dot += q[q_off + d] * k_row[k_off + d];
                         }
                         scores[j] = dot * scale;
                     }
-                    // Softmax over scores[0..i+1]
                     let max = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
                     let mut exps: Vec<f32> = scores.iter().map(|&s| (s - max).exp()).collect();
                     let sum: f32 = exps.iter().sum();
                     if sum > 0.0 { for e in exps.iter_mut() { *e /= sum; } }
-                    // Weighted sum of V
                     let out_off = (i * num_heads + hq) * head_dim;
-                    for j in 0..=i {
-                        let v_off = (j * num_kv_heads + kvh) * head_dim;
+                    for j in 0..=abs_i {
+                        let v_row = self.cache.v_row(li, j);
+                        let v_off = kvh * head_dim;
                         let w = exps[j];
                         for d in 0..head_dim {
-                            attn_out[out_off + d] += w * v[v_off + d];
+                            attn_out[out_off + d] += w * v_row[v_off + d];
                         }
                     }
                 }
             }
 
-            // Output projection: [seq_len, hidden]
-            let attn_proj = self.proj_seq(&layer.attn_output, hidden, q_dim, &attn_out, seq_len);
+            // Output projection on new positions only
+            let attn_proj = self.proj_seq(&layer.attn_output, hidden, q_dim, &attn_out, n_new);
+            for i in 0..n_new * hidden { h[i] += attn_proj[i]; }
 
-            // Residual
-            for i in 0..seq_len * hidden {
-                h[i] += attn_proj[i];
-            }
-
-            // FFN norm
+            // FFN on new positions
             let ffn_norm_w = decode_f32(&layer.ffn_norm, hidden);
-            let mut ffn_normed = vec![0.0f32; seq_len * hidden];
-            for t in 0..seq_len {
+            let mut ffn_normed = vec![0.0f32; n_new * hidden];
+            for t in 0..n_new {
                 let n = rms_norm(&h[t * hidden..(t + 1) * hidden], &ffn_norm_w, eps);
                 ffn_normed[t * hidden..(t + 1) * hidden].copy_from_slice(&n);
             }
+            let gate = self.proj_seq(&layer.ffn_gate, inter, hidden, &ffn_normed, n_new);
+            let up = self.proj_seq(&layer.ffn_up, inter, hidden, &ffn_normed, n_new);
+            let mut act = vec![0.0f32; n_new * inter];
+            for i in 0..n_new * inter { act[i] = silu(gate[i]) * up[i]; }
+            let ffn_out = self.proj_seq(&layer.ffn_down, hidden, inter, &act, n_new);
+            for i in 0..n_new * hidden { h[i] += ffn_out[i]; }
 
-            // Gate and up projections
-            let gate = self.proj_seq(&layer.ffn_gate, inter, hidden, &ffn_normed, seq_len);
-            let up = self.proj_seq(&layer.ffn_up, inter, hidden, &ffn_normed, seq_len);
-            let mut act = vec![0.0f32; seq_len * inter];
-            for i in 0..seq_len * inter {
-                act[i] = silu(gate[i]) * up[i];
-            }
-
-            // Down projection
-            let ffn_out = self.proj_seq(&layer.ffn_down, hidden, inter, &act, seq_len);
-
-            // Residual
-            for i in 0..seq_len * hidden {
-                h[i] += ffn_out[i];
-            }
+            let _ = total_len;
         }
 
-        // Final norm on the last position only
+        // Record the new tokens
+        self.cache.append_tokens(new_tokens);
+
+        // Final norm on the last new position only
         let out_norm_w = decode_f32(&self.weights.output_norm, hidden);
-        let last = &h[(seq_len - 1) * hidden..seq_len * hidden];
+        let last = &h[(n_new - 1) * hidden..n_new * hidden];
         let h_last = rms_norm(last, &out_norm_w, eps);
 
         // Output projection: [vocab, hidden] -> logits

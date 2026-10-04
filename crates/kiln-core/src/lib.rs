@@ -18,6 +18,7 @@ pub mod chat;
 pub mod transformer_config;
 pub mod transformer_weights;
 pub mod transformer;
+pub mod kv_cache;
 
 pub use plan::{ExecutionPlan, Node, Edge, TensorRef, NodeId};
 pub use revision::{PlanRevision, RevisionReason};
@@ -42,3 +43,4 @@ pub use transformer_config::{TransformerConfig, ConfigError};
 pub use transformer_weights::{TransformerWeights, LayerWeights, WeightError};
 
 pub use transformer::{Transformer, TransformerError};
+pub use kv_cache::{KvCache, LayerKv};

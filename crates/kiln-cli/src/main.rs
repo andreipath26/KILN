@@ -395,9 +395,19 @@ async fn main() {
                 if prompt.is_empty() {
                     continue;
                 }
-                match session.generate(prompt) {
-                    Ok(response) => {
-                        println!("{}", response);
+                let t0 = std::time::Instant::now();
+                let mut n_tokens = 0usize;
+                let result = session.generate_streaming(prompt, &mut |s| {
+                    n_tokens += 1;
+                    let piece = s.replace('\u{0120}', " ").replace('\u{010A}', "\n");
+                    print!("{}", piece);
+                    std::io::stdout().flush().ok();
+                });
+                println!();
+                match result {
+                    Ok(()) => {
+                        let dt = t0.elapsed().as_secs_f64().max(1e-6);
+                        eprintln!("[{:.2}s, {:.2} tok/s, {} tokens]", dt, n_tokens as f64 / dt, n_tokens);
                     }
                     Err(e) => {
                         eprintln!("chat error: {}", e);
