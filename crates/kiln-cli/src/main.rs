@@ -397,7 +397,8 @@ async fn main() {
                 }
                 let t0 = std::time::Instant::now();
                 let mut n_tokens = 0usize;
-                let result = session.generate_streaming(prompt, &mut |s| {
+                let templated = format!("<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n", prompt);
+                let result = session.generate_streaming(&templated, &mut |s| {
                     n_tokens += 1;
                     let piece = s.replace('\u{0120}', " ").replace('\u{010A}', "\n");
                     print!("{}", piece);

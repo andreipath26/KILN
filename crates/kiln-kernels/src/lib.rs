@@ -11,6 +11,7 @@ extern "C" {
     fn kiln_tq1_0_unpack(src: *const u8, n: usize, dst: *mut c_float) -> c_int;
     fn kiln_tq1_0_unpack_table(src: *const u8, n: usize, dst: *mut c_float) -> c_int;
     fn kiln_q4k_dequant_block(src: *const u8, dst: *mut c_float) -> c_int;
+    fn kiln_q4k_dequant_block_avx2(src: *const u8, dst: *mut c_float) -> c_int;
     fn kiln_q4k_matmul_scalar(
         weights: *const u8,
         num_weights: usize,
@@ -348,6 +349,54 @@ pub fn q4k_dequant_block(src: &[u8]) -> [f32; 256] {
         panic!("kiln_kernels::q4k_dequant_block: C kernel returned error code {}", rc);
     }
     out
+}
+
+/// Dequantize one Q4_K super-block using the AVX2 path.
+/// Panics on non-x86_64, and on x86_64 if the CPU lacks AVX2.
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+pub fn q4k_dequant_block_avx2(src: &[u8]) -> [f32; 256] {
+    if src.len() < 144 {
+        panic!(
+            "kiln_kernels::q4k_dequant_block_avx2: need 144 bytes, got {}",
+            src.len()
+        );
+    }
+    let mut out = [0.0f32; 256];
+    let rc = unsafe { kiln_q4k_dequant_block_avx2(src.as_ptr(), out.as_mut_ptr()) };
+    if rc != 0 {
+        panic!("kiln_kernels::q4k_dequant_block_avx2: C kernel returned error code {}", rc);
+    }
+    out
+}
+
+/// Fused Q4_K matmul using the AVX2 dequant path when available.
+/// Falls back to the scalar C kernel if the AVX2 wrapper is not
+/// compiled for this target, or if the runtime CPU lacks AVX2.
+pub fn q4k_matmul_fast(weights: &[u8], num_weights: usize, x: &[f32]) -> f32 {
+    if num_weights == 0 { return 0.0; }
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    {
+        if is_x86_feature_detected!("avx2") {
+            let num_blocks = (num_weights + 255) / 256;
+            let required = num_blocks * 144;
+            if weights.len() >= required && x.len() >= num_weights {
+                let mut acc = 0.0f32;
+                let mut base = 0usize;
+                while base < num_weights {
+                    let block_start = (base / 256) * 144;
+                    let block = &weights[block_start..block_start + 144];
+                    let w = q4k_dequant_block_avx2(block);
+                    let count = (num_weights - base).min(256);
+                    for i in 0..count {
+                        acc += w[i] * x[base + i];
+                    }
+                    base += 256;
+                }
+                return acc;
+            }
+        }
+    }
+    q4k_matmul_scalar(weights, num_weights, x)
 }
 
 /// Fused Q4_K matmul. Dot product of a packed Q4_K weight row against
@@ -910,6 +959,63 @@ mod tests {
         let out = q6k_dequant_block(block);
         for k in 0..32 {
             println!("q6k[{}] = {:.8}", k, out[k]);
+        }
+    }
+
+    #[test]
+    fn q4k_avx2_matches_scalar_on_constant_block() {
+        #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+        {
+            // Same constant block as q4k_dequant_simple_constant:
+            // d=1.0, all 8 scales=1, all 8 mins=0, all nibbles=1.
+            // Expected output: all values 1.0.
+            let mut block = [0u8; 144];
+            block[1] = 0x3C; // d = 1.0
+            block[4] = 0x01;
+            block[5] = 0x01;
+            block[6] = 0x01;
+            block[7] = 0x01;
+            block[12] = 0x01;
+            block[13] = 0x01;
+            block[14] = 0x01;
+            block[15] = 0x01;
+            for i in 16..144 { block[i] = 0x11; }
+
+            let scalar = q4k_dequant_block(&block);
+            let avx2 = q4k_dequant_block_avx2(&block);
+            for i in 0..256 {
+                assert!((scalar[i] - avx2[i]).abs() < 1e-6,
+                    "index {}: scalar={} avx2={}", i, scalar[i], avx2[i]);
+            }
+        }
+    }
+
+    #[test]
+    fn q4k_avx2_matches_scalar_on_real_block() {
+        #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+        {
+            let path = "/home/andreipath/Desktop/KILN/models/tiny/qwen25-1.5b.gguf";
+            let data = match std::fs::read(path) {
+                Ok(d) => d,
+                Err(_) => { eprintln!("skipping: model not present"); return; }
+            };
+            // The q4k_real_block_check test uses this offset.
+            let file_pos = 5950976 + 219779584;
+            if file_pos + 144 > data.len() {
+                eprintln!("skipping: offset out of range");
+                return;
+            }
+            let block = &data[file_pos..file_pos + 144];
+            let scalar = q4k_dequant_block(block);
+            let avx2 = q4k_dequant_block_avx2(block);
+            let mut max_diff = 0.0f32;
+            for i in 0..256 {
+                let d = (scalar[i] - avx2[i]).abs();
+                if d > max_diff { max_diff = d; }
+            }
+            eprintln!("q4k avx2 vs scalar max diff: {}", max_diff);
+            assert!(max_diff < 1e-5,
+                "max diff {} exceeds 1e-5", max_diff);
         }
     }
 

@@ -137,6 +137,9 @@ pub struct BpeTokenizer {
     pub add_bos_token: bool,
     /// Whether to add EOS at the end of encode.
     pub add_eos_token: bool,
+    /// Special tokens (control + user-defined), sorted longest-first so
+    /// that overlapping prefixes match the longer token.
+    special_tokens: Vec<(String, u32)>,
 }
 
 impl BpeTokenizer {
@@ -209,6 +212,30 @@ impl BpeTokenizer {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
+        // Load special tokens from the token_type array. Types 3
+        // (CONTROL) and 4 (USER_DEFINED) are matched atomically before
+        // BPE. Types 1 (NORMAL), 2 (UNKNOWN), 5 (UNUSED), 6 (BYTE) are
+        // not.
+        let mut special_tokens: Vec<(String, u32)> = Vec::new();
+        if let Some(GgufValue::Array { values, .. }) =
+            file.metadata.get("tokenizer.ggml.token_type")
+        {
+            for (i, val) in values.iter().enumerate() {
+                let ty = match val {
+                    GgufValue::Int32(v) => *v,
+                    GgufValue::Uint32(v) => *v as i32,
+                    _ => continue,
+                };
+                if ty == 3 || ty == 4 {
+                    if let Some(name) = inverse_vocab.get(i) {
+                        special_tokens.push((name.clone(), i as u32));
+                    }
+                }
+            }
+        }
+        // Longest string first, so "<|im_start|>" matches before "<|im_".
+        special_tokens.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+
         Ok(Self {
             vocab,
             merges,
@@ -218,12 +245,65 @@ impl BpeTokenizer {
             padding_token_id,
             add_bos_token,
             add_eos_token,
+            special_tokens,
         })
     }
 
     /// Encode text to token IDs. Uses the naive O(n^2) algorithm.
     /// Suitable for inputs under 1000 characters.
     pub fn encode(&self, text: &str) -> Vec<u32> {
+        // If there are no special tokens, or none appear in the input,
+        // fall straight through to BPE. Otherwise split the input at
+        // each special-token match and BPE the ordinary chunks.
+        if !self.special_tokens.is_empty() && self.find_first_special(text).is_some() {
+            return self.encode_with_specials(text);
+        }
+        self.encode_bpe_only(text)
+    }
+
+    /// True if any special token string occurs in `text`.
+    fn find_first_special(&self, text: &str) -> Option<(usize, usize, u32)> {
+        let mut best: Option<(usize, usize, u32)> = None;
+        for (name, id) in &self.special_tokens {
+            if let Some(pos) = text.find(name.as_str()) {
+                match best {
+                    None => best = Some((pos, name.len(), *id)),
+                    Some((bp, bl, _)) if pos < bp
+                        || (pos == bp && name.len() > bl) => {
+                        best = Some((pos, name.len(), *id));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        best
+    }
+
+    /// Encode by splitting at every special-token occurrence.
+    fn encode_with_specials(&self, text: &str) -> Vec<u32> {
+        let mut ids = Vec::new();
+        let mut rest = text;
+        loop {
+            match self.find_first_special(rest) {
+                None => {
+                    ids.extend(self.encode_bpe_only(rest));
+                    break;
+                }
+                Some((pos, len, id)) => {
+                    if pos > 0 {
+                        ids.extend(self.encode_bpe_only(&rest[..pos]));
+                    }
+                    ids.push(id);
+                    rest = &rest[pos + len..];
+                    if rest.is_empty() { break; }
+                }
+            }
+        }
+        ids
+    }
+
+    /// The original BPE path, unchanged. Called for ordinary chunks.
+    fn encode_bpe_only(&self, text: &str) -> Vec<u32> {
         // Pretokenize: convert every byte of the UTF-8 encoding to its
         // GPT-2 unicode representation. This is what makes space work.
         // Space (0x20) becomes the character U+0120 (Ġ).
@@ -374,6 +454,7 @@ impl BpeTokenizer {
             padding_token_id: None,
             add_bos_token: false,
             add_eos_token: false,
+            special_tokens: Vec::new(),
         }
     }
 }
