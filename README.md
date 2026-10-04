@@ -6,11 +6,15 @@ in Sydney. No cloud. No GPU required. No compromise on accuracy.
 
 ## Status
 
-Phase 1 core engine complete. The runtime loads real GGUF files, parses
-the tokenizer metadata, runs the pipeline through the real Selector and
-Scheduler, and holds a chat session with deterministic sampling. The
-output is currently produced by a synthetic forward pass because the
-real transformer has not been wired yet.
+Phase 1 in progress. The runtime loads real GGUF files, parses the
+tokenizer metadata, runs a **real transformer forward pass** (RoPE,
+GQA, RMSNorm, fused Q4_K / Q6_K / TQ1.0 matmul), keeps a per-layer
+KV cache, and holds a streaming chat session.
+
+First honest throughput on the acceptance-test hardware, Dell Latitude
+7490, i7-8650U, 16 GB DDR4-2400, no GPU, Qwen2.5-1.5B-Instruct Q4_K_M
+(986 MB): **0.41 tok/s on a 20-token reply, correct top-1 on a factual
+prompt**. The floor is the scalar fused matmul. AVX2 is next.
 
 Gate 0A: CONDITIONALLY PASSED. Seven of eight research items confirmed.
 Item 8 (thermal envelope measurement) requires an AC-powered 30-minute
@@ -30,8 +34,13 @@ engine.
 - docs/kernels-design.md — TQ1.0 ternary format, C ABI, build process
 - docs/fused-kernel-design.md — LUT-based matmul design and why it failed
 - docs/pipeline-design.md — end-to-end pipeline
-- docs/gguf-design.md — partial GGUF loader specification
+- docs/gguf-design.md — GGUF loader specification
+- docs/tokenizer-design.md — BPE tokenizer
 - docs/chat-loop-design.md — generation loop
+- docs/transformer-design.md — forward pass
+- docs/quantization-policy.md — Rule KILN-E35, supported formats
+- docs/kv-cache-design.md — per-layer K/V cache
+- docs/avx2-matmul-design.md — next unit of work
 
 ## Principles
 

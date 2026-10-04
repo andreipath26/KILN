@@ -156,6 +156,65 @@ Nine crates. Forty-two commits. All compiling.
 Those are Phase 1 late and Phase 2.
 
 
+## [Unreleased] — Phase 1: transformer works, KV cache in
+
+### Added
+
+- **KV cache** in `crates/kiln-core/src/kv_cache.rs`:
+  - `LayerKv` per transformer layer, K and V stored post-bias post-RoPE.
+  - `KvCache` owning one `LayerKv` per layer, plus `cached_tokens`.
+  - `can_append`, `append_tokens`, `k_row`, `v_row` accessors.
+- **docs/kv-cache-design.md** — full design, algorithm, tests, anti-patterns.
+- **docs/avx2-matmul-design.md** — next unit of work.
+
+### Changed
+
+- **`Transformer::apply_rope`** now takes a `pos_offset` so cached K is
+  not re-rotated. Absolute positions are required for correctness.
+- **`Transformer::forward_tokens`** now takes `&mut self`, reuses the
+  cache when the caller's token sequence starts with the cached prefix,
+  resets when it does not, and processes only the new positions.
+- **`kiln chat`** now streams tokens as they are produced and prints a
+  `[Xs, Y tok/s, N tokens]` line at the end of each response. Replaces
+  the previous behavior of buffering the entire reply before printing.
+
+### Fixed
+
+- **Q4_K byte layout** in `cpp/kernels/q4k.c`. The 128 weight bytes were
+  being decoded as 8 chunks of 16 bytes with one scale each. The ggml
+  layout is 4 groups of 32 bytes; within each group, the low nibbles and
+  high nibbles map to different output regions with different scales.
+  Every Q4_K linear layer was reading a permuted weight matrix. Top-1
+  for "The capital of France is" went from token 99222 ("太", garbage)
+  to 12095 (" Paris", correct).
+- **Streaming UTF-8 display.** BPE space markers (`Ġ`) and newline
+  markers (`Ċ`) were being printed raw. Now converted to `" "` and `"\n"`
+  in the stream closure.
+
+### Verified
+
+- **Q6_K dequant** checked line by line against ggml's
+  `dequantize_row_q6_K`. Already correct. No fix needed.
+- **Chat output is bit-identical** to the pre-cache path with the same
+  prompt, seed, and max tokens. Cache correctness is anchored.
+- **First honest Tier 0 numbers.** Dell Latitude 7490, i7-8650U,
+  16 GB DDR4-2400, no GPU, Qwen2.5-1.5B Q4_K_M (986 MB):
+  - 5-token prompt forward pass: 9.32 s
+  - 20-token reply, cached: 48.31 s
+  - Throughput: 0.41 tok/s
+  - Top-1 for "The capital of France is": " Paris" (correct)
+
+### Known Issues
+
+- No chat template. Qwen2.5 expects ChatML. Quality is off without it.
+- KV cache overflow panics instead of returning an error. Needs a new
+  error channel through the `Forward` trait.
+- No differential test against ggml reference blocks. This is the
+  missing anchor that would have caught the Q4_K bug.
+- `clippy` is not installed. No lint gate.
+- `monitor_sample` re-parses `/proc/cpuinfo` fully. 99–185 ms per call.
+- `throughput_fraction` baseline is fragile.
+
 ## [Released]
 
 None yet.
