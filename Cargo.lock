@@ -398,6 +398,7 @@ dependencies = [
  "kiln-core",
  "kiln-hal",
  "kiln-models",
+ "kiln-runtime",
  "serde",
  "serde_json",
  "tokio",

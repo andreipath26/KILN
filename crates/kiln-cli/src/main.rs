@@ -16,6 +16,8 @@ use kiln_models::tokenizer::BpeTokenizer;
 use kiln_models::gguf::GgufFile;
 use kiln_api::serve;
 
+mod llama_forward;
+
 /// KILN. The fastest local LLM runtime on Earth.
 #[derive(Parser, Debug)]
 #[command(name = "kiln", version, about = "Fastest local LLM runtime")]
@@ -225,24 +227,34 @@ async fn main() {
             }
         }
         Commands::Debug { model, prompt, top } => {
-            let g = match GgufFile::open(std::path::Path::new(&model)) { Ok(g) => std::sync::Arc::new(g), Err(e) => { eprintln!("open: {}", e); std::process::exit(1); } };
-            let tok = match BpeTokenizer::from_gguf(&g) { Ok(t) => t, Err(e) => { eprintln!("tok: {}", e); std::process::exit(1); } };
-            let mut tr = match Transformer::from_gguf(&g) { Ok(t) => t, Err(e) => { eprintln!("transformer: {}", e); std::process::exit(1); } };
-            let ids = tok.encode(&prompt);
+            let path = std::path::PathBuf::from(&model);
+            let mut ctx = match kiln_runtime::LlamaContext::load(&path) {
+                Ok(c) => c,
+                Err(e) => { eprintln!("load: {}", e); std::process::exit(1); }
+            };
             println!("prompt: {:?}", prompt);
+            let ids = match ctx.tokenize(&prompt) {
+                Ok(t) => t,
+                Err(e) => { eprintln!("tokenize: {}", e); std::process::exit(1); }
+            };
             println!("tokens: {:?}", ids);
             let t0 = std::time::Instant::now();
-            let logits = kiln_core::chat::Forward::forward(&mut tr, &ids);
-            println!("forward: {:.2}s", t0.elapsed().as_secs_f64());
+            let logits = match ctx.forward(&ids) {
+                Ok(l) => l,
+                Err(e) => { eprintln!("forward: {}", e); std::process::exit(1); }
+            };
+            let dt = t0.elapsed().as_secs_f64();
+            println!("forward: {:.4}s", dt);
             let mut idx: Vec<usize> = (0..logits.len()).collect();
-            idx.sort_by(|&a,&b| logits[b].partial_cmp(&logits[a]).unwrap());
+            idx.sort_by(|&a, &b| logits[b].partial_cmp(&logits[a]).unwrap_or(std::cmp::Ordering::Equal));
             println!("top {}:", top);
             for k in 0..top.min(idx.len()) {
                 let i = idx[k];
-                let s = tok.token_to_str(i as u32).unwrap_or("?");
+                let s = ctx.token_to_str(i as i32);
                 println!("  {:>6}  {:>10.4}  {:?}", i, logits[i], s);
             }
         }
+
         Commands::Tokenize { model, text, roundtrip } => {
             let path_buf = std::path::PathBuf::from(&model);
             let g = match GgufFile::open(&path_buf) {
@@ -340,38 +352,26 @@ async fn main() {
             }
         }
         Commands::Chat { model, seed, max_tokens, strategy } => {
-            // Load the GGUF file.
-            let path_buf = std::path::PathBuf::from(&model);
-            let g = match GgufFile::open(&path_buf) {
-                Ok(g) => g,
-                Err(e) => {
-                    eprintln!("failed to open {}: {}", model, e);
-                    std::process::exit(1);
-                }
-            };
+            use kiln_core::chat::{Sampler, SamplingStrategy};
 
-            // Build the tokenizer from the GGUF metadata.
-            let g_arc = std::sync::Arc::new(g);
-            let tokenizer = match BpeTokenizer::from_gguf(&g_arc) {
-                Ok(t) => t,
-                Err(e) => {
-                    eprintln!("failed to build tokenizer: {}", e);
-                    std::process::exit(1);
-                }
+            let path = std::path::PathBuf::from(&model);
+            let mut ctx = match kiln_runtime::LlamaContext::load(&path) {
+                Ok(c) => c,
+                Err(e) => { eprintln!("load: {}", e); std::process::exit(1); }
             };
-
-            let vocab_size = tokenizer.vocab_size();
-            println!("KILN chat session");
-            println!("  model:     {}", model);
-            println!("  vocab:     {} tokens", vocab_size);
-            println!("  seed:      {}", seed);
+            let vocab_size = ctx.n_vocab();
+            println!("KILN chat session (Phase 2.2, single-turn)");
+            println!("  model:      {}", model);
+            println!("  vocab:      {} tokens", vocab_size);
+            println!("  seed:       {}", seed);
             println!("  max_tokens: {}", max_tokens);
-            println!("  strategy:  {}", strategy);
+            println!("  strategy:   {}", strategy);
+            println!("  runtime:    llama.cpp via kiln-runtime");
             println!();
             println!("Type a message and press Enter. Ctrl-D to exit.");
+            println!("Note: single-turn only in 2.2. Multi-turn is 2.3.");
             println!();
 
-            // Build the sampling strategy.
             let strat = match strategy.as_str() {
                 "greedy" => SamplingStrategy::Greedy,
                 "topk" => SamplingStrategy::TopK { k: 40, temperature: 0.8 },
@@ -381,25 +381,8 @@ async fn main() {
                     std::process::exit(2);
                 }
             };
+            let mut sampler = Sampler::new(strat, seed);
 
-            // Load the real transformer. The weights come from the
-            // GGUF file the user provided.
-            let forward: Box<dyn kiln_core::chat::Forward> = match Transformer::from_gguf(&g_arc) {
-                Ok(t) => {
-                    println!("  forward:   real transformer loaded ({} layers)",
-                        t.config_ref().num_layers);
-                    Box::new(t)
-                }
-                Err(e) => {
-                    eprintln!("failed to load transformer: {}", e);
-                    std::process::exit(1);
-                }
-            };
-            let sampler = Sampler::new(strat, seed);
-            let eos = tokenizer.eos_token_id;
-            let mut session = ChatSession::new(tokenizer, forward, sampler, max_tokens, eos);
-
-            // Read lines from stdin and generate responses.
             let stdin = std::io::stdin();
             let mut line = String::new();
             loop {
@@ -410,34 +393,47 @@ async fn main() {
                 match stdin.read_line(&mut line) {
                     Ok(0) => break,
                     Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("input error: {}", e);
-                        break;
-                    }
+                    Err(e) => { eprintln!("input error: {}", e); break; }
                 }
                 let prompt = line.trim_end();
-                if prompt.is_empty() {
-                    continue;
-                }
+                if prompt.is_empty() { continue; }
+
+                let templated = format!(
+                    "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n\
+                     <|im_start|>user\n{}<|im_end|>\n\
+                     <|im_start|>assistant\n",
+                    prompt
+                );
+
                 let t0 = std::time::Instant::now();
-                let mut n_tokens = 0usize;
-                let templated = format!("<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n", prompt);
-                let result = session.generate_streaming(&templated, &mut |s| {
-                    n_tokens += 1;
-                    let piece = s.replace('\u{0120}', " ").replace('\u{010A}', "\n");
+                let prompt_ids = match ctx.tokenize(&templated) {
+                    Ok(t) => t,
+                    Err(e) => { eprintln!("tokenize: {}", e); continue; }
+                };
+                let mut next_logits = match ctx.forward(&prompt_ids) {
+                    Ok(l) => l,
+                    Err(e) => { eprintln!("forward: {}", e); continue; }
+                };
+
+                let mut n_gen = 0usize;
+                for _ in 0..max_tokens {
+                    let token = match sampler.sample(&next_logits) {
+                        Some(t) => t,
+                        None => break,
+                    };
+                    let piece = ctx.token_to_str(token as i32);
+                    if piece.contains("<|im_end|>") { break; }
                     print!("{}", piece);
                     std::io::stdout().flush().ok();
-                });
-                println!();
-                match result {
-                    Ok(()) => {
-                        let dt = t0.elapsed().as_secs_f64().max(1e-6);
-                        eprintln!("[{:.2}s, {:.2} tok/s, {} tokens]", dt, n_tokens as f64 / dt, n_tokens);
-                    }
-                    Err(e) => {
-                        eprintln!("chat error: {}", e);
+                    n_gen += 1;
+                    match ctx.forward(&[token as i32]) {
+                        Ok(l) => next_logits = l,
+                        Err(e) => { eprintln!("\nforward: {}", e); break; }
                     }
                 }
+                println!();
+                let dt = t0.elapsed().as_secs_f64().max(1e-6);
+                eprintln!("[{:.2}s, {:.2} tok/s, {} tokens]", dt, n_gen as f64 / dt, n_gen);
             }
         }
         Commands::Pipeline { path, json } => {

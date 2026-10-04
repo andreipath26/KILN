@@ -20,3 +20,4 @@ kiln-hal = { path = "../kiln-hal" }
 kiln-models = { path = "../kiln-models" }
 kiln-core = { path = "../kiln-core" }
 kiln-api = { path = "../kiln-api" }
+kiln-runtime = { path = "../kiln-runtime" }
