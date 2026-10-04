@@ -6,33 +6,44 @@ in Sydney. No cloud. No GPU required. No compromise on accuracy.
 
 ## Status
 
-**Phase 2 — Beat Ollama on the dense path. In progress.**
+**KILN is a layer on llama.cpp, not a from-scratch runtime.**
 
-Ollama on this laptop, Qwen2.5-1.5B Q4_K, `hi there`:
-464 ms total, 24.44 tok/s, 30/31 prompt tokens cached.
+Measured on this laptop, Qwen2.5-1.5B Q4_K, `hi there`:
 
-KILN on the same: 58,980 ms, 0.15 tok/s. **The gap is 127x.**
+- Ollama (wraps llama.cpp): **464 ms**, 24.44 tok/s
+- KILN from-scratch runtime: **58,980 ms**, 0.15 tok/s
+- Gap: **127x**
 
-Phase 2 exists to close it. Four units, each a measured commit:
+llama.cpp is MIT licensed. Ollama wraps it. Every technique Ollama
+uses is readable source code. The 127x gap is not a problem to solve
+from scratch — it is a problem to delete by using the code that
+already solved it.
 
-- **2.1 Multithread the row loops.** 4 cores. Expect 3-4x. Target
-  under 20 s.
-- **2.2 Fused Q4_K matmul.** Dequant and dot in one C function,
-  int8 activations, vectorized nibble unpack. Expect 2-3x. Target
-  under 10 s.
-- **2.3 KV cache prefix reuse.** Keep the ChatML system prompt's
-  K/V resident across turns. Expect 2x. Target under 6 s.
-- **2.4 Decode/prefill split.** Different kernels for GEMV and GEMM.
+**Roadmap v7.0 is the source of truth.** The current phase is
+**Phase 2 — Fork and Wire:**
 
-**Gate 2:** `echo "hi there" | kiln chat --model
-models/tiny/qwen25-1.5b.gguf` completes in under 6 seconds total
-wall clock.
+- 2.0 Add llama.cpp as `vendor/llama.cpp`, pinned to a tagged release
+- 2.1 Create `crates/kiln-runtime`, wrapping llama.cpp's C API
+- 2.2 Wire `kiln debug` to call the new runtime
+- Gate: `kiln debug "The capital of France is" --top 3` prints
+  ` Paris` in under 100 ms
 
-Phases 1 and 1.5 complete. The dispatch seam (Rule KILN-E36) is in
-and byte-identical. Ternary moves to Phase 3 (size, not speed).
-MoE streaming is Phase 4 — the mission phase.
+**What KILN keeps** from its own code: the dispatcher (Rule
+KILN-E36), `QuantKind::row_bytes`, `kiln convert`, the rules, the
+roadmap.
 
-## What this is## What this is
+**What KILN adds on top:** predictive MoE prerouter, FlashMoE cache
+policy, UMF container format, diffusion decode path, adaptive
+performance management.
+
+**What KILN deletes:** every from-scratch kernel, loader, tokenizer,
+and transformer. Deprecated, not removed. They are the reference for
+KILN-specific tests.
+
+The mission is unchanged: **70B-A4B MoE at 4+ tok/s on Tier 0.**
+MoE streaming is Phase 5. Everything before it is scaffolding.
+
+## What this is## What this is## What this is
 
 KILN is a per-layer dispatcher over a unified memory hierarchy. It
 schedules computations across CPU, iGPU, dGPU, NPU, RAM, NVMe SSD, and

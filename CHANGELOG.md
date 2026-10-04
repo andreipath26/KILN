@@ -295,6 +295,56 @@ tested. The dispatcher picks it when weights are TQ1.0. No change to
 - Phase 3: ternary. Not started.
 - Phase 4: MoE streaming. Not started. This is the mission phase.
 
+## [Unreleased] — Roadmap v7.0: fork llama.cpp
+
+### The decision
+
+**KILN is a layer on llama.cpp, not a from-scratch runtime.**
+
+Measured today: Ollama 464 ms, KILN from-scratch 58,980 ms. 127x.
+llama.cpp is MIT. Ollama wraps it. Every technique Ollama uses is
+readable source. The gap is deleted by using the base, not solved.
+
+### Added
+
+- **Rule KILN-E41** — search before you build. Before writing any
+  component, search for an existing implementation. If one exists
+  and is licensed permissively, use it. The exception is KILN's
+  differentiators: dispatcher, prerouter, UMF format, MoE streaming,
+  FlashMoE, diffusion backend, adaptive management.
+
+- **`docs/`** — the roadmap v7.0 lives at
+  `~/KILN-MASTER-ROADMAP-AND-RULES-SET.md` and in the project folder.
+  506 lines.
+
+### Changed
+
+- **Phase 2 is now "Fork and Wire."** Add llama.cpp as
+  `vendor/llama.cpp`, pinned to a tagged release. Create
+  `crates/kiln-runtime` wrapping its C API. Wire `kiln debug` to
+  call it. Gate: ` Paris` top-1 in under 100 ms.
+
+- **Phase 3** is dispatcher wired into the fork.
+- **Phase 4** is ternary in the fork, using llama.cpp's BitNet path.
+- **Phase 5** is MoE expert streaming. The mission phase.
+- **Phase 6** is diffusion.
+- **Phase 7** is hardware abstraction, using llama.cpp's backends.
+
+### Deprecated
+
+The from-scratch runtime. `kiln-kernels` and its C sources,
+`transformer.rs`, `transformer_weights.rs`, `transformer_config.rs`,
+`tokenizer.rs`, `chat.rs`, `kv_cache.rs`. They stay in the tree.
+They are the reference for KILN-specific tests. They are no longer
+developed.
+
+### Kept from KILN
+
+- `dispatch.rs` and the `Backend` trait (Rule KILN-E36)
+- `QuantKind::row_bytes` and `QuantKind::detect`
+- `kiln convert` (GGUF writer, TQ1.0 converter)
+- The rules and the roadmap
+
 ## [Released]
 
 None yet.
