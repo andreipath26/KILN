@@ -6,6 +6,47 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Phase 2.2 — KILN runs on llama.cpp
+
+**First measured win of the project.**
+
+- C++ shim at `cpp/llama_shim/kiln_llama_shim.cpp`. Includes the
+  real `llama.h` and exposes a stable `extern "C"` ABI. Rust never
+  sees llama.cpp structs.
+- `crates/kiln-runtime` wraps the shim. `LlamaContext` loads a model,
+  tokenizes, decodes, reads logits, decodes tokens to strings.
+- `crates/kiln-runtime/build.rs` compiles the shim as C++17 with
+  `cc::Build` and links against `/home/andreipath/llama.cpp/build/bin`.
+- Feature flags: `linked-llama` (default, dev) and `dynamic-llama`
+  (shipping, dlopen via `libloading`).
+- `docs/runtime-loading-design.md` specifies the shipping path:
+  KILN does not ship llama.cpp; the user downloads it on first run.
+
+**Numbers, Tier 0, Qwen2.5-1.5B Q4_K_M, prompt "The capital of France is":**
+
+| | From-scratch | On llama.cpp | Speedup |
+|---|---|---|---|
+| 5-token prefill | 10.12 s | **0.143 s** | **71x** |
+| Top-1 | ` Paris` | ` Paris` | identical |
+
+Two bugs found and fixed during the wiring:
+
+1. `llama_model_params` is a C++ struct. The shim must be compiled
+   as C++, not C, or the struct is truncated and `llama_model`'s
+   constructor reads past it.
+2. `llama_batch` changed. It now has `n_seq_id[]` and `seq_id[][]`.
+   The shim must write into the existing per-token arrays created by
+   `llama_batch_init`. Replacing the pointers crashes
+   `llama_batch_free`.
+
+### Not yet done
+
+- `kiln debug` still uses the from-scratch runtime. Wiring it to
+  `kiln-runtime` is Phase 2.3.
+- `kiln chat` is still on the from-scratch path. Phase 2.3.
+- The measurement is prefill-only. Full generation timing is
+  Phase 2.3.
+
 ### Roadmap v7.0 — fork llama.cpp
 
 ### The decision

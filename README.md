@@ -6,27 +6,27 @@ in Sydney. No cloud. No GPU required. No compromise on accuracy.
 
 ## Status
 
-**KILN is a layer on llama.cpp, not a from-scratch runtime.**
+**KILN is a layer on llama.cpp.** Phase 2.2 is complete: KILN runs
+on llama.cpp's inference engine via a C++ shim.
 
-Measured on this laptop, Qwen2.5-1.5B Q4_K, `hi there`:
+**First measured win of the project.** Same model, same prompt,
+same hardware, Tier 0 (Dell 7490):
 
-- Ollama (wraps llama.cpp): **464 ms**, 24.44 tok/s
-- KILN from-scratch runtime: **58,980 ms**, 0.15 tok/s
-- Gap: **127x**
+| | From-scratch | On llama.cpp | Speedup |
+|---|---|---|---|
+| 5-token prefill | 10.12 s | **0.143 s** | **71x** |
+| Top-1 for "The capital of France is" | ` Paris` | ` Paris` | identical |
 
-llama.cpp is MIT licensed. Ollama wraps it. Every technique Ollama
-uses is readable source code. The 127x gap is not a problem to solve
-from scratch — it is a problem to delete by using the code that
-already solved it.
-
-**Roadmap v7.0 is the source of truth.** The current phase is
+**Roadmap v7.0 is the source of truth.** Current phase is
 **Phase 2 — Fork and Wire:**
 
-- 2.0 Add llama.cpp as `vendor/llama.cpp`, pinned to a tagged release
-- 2.1 Create `crates/kiln-runtime`, wrapping llama.cpp's C API
-- 2.2 Wire `kiln debug` to call the new runtime
-- Gate: `kiln debug "The capital of France is" --top 3` prints
-  ` Paris` in under 100 ms
+- 2.0 llama.cpp linked from `/home/andreipath/llama.cpp`. **Done.**
+- 2.1 `crates/kiln-runtime` wraps llama.cpp's C API. **Done.**
+- 2.2 Smoke test: load, tokenize, decode, ` Paris`. **Done.**
+- 2.3 Wire `kiln debug` and `kiln chat` to `kiln-runtime`. Next.
+
+**KILN does not ship llama.cpp.** The end user downloads it on first
+run. See `docs/runtime-loading-design.md`.
 
 **What KILN keeps** from its own code: the dispatcher (Rule
 KILN-E36), `QuantKind::row_bytes`, `kiln convert`, the rules, the
@@ -36,14 +36,10 @@ roadmap.
 policy, UMF container format, diffusion decode path, adaptive
 performance management.
 
-**What KILN deletes:** every from-scratch kernel, loader, tokenizer,
-and transformer. Deprecated, not removed. They are the reference for
-KILN-specific tests.
-
 The mission is unchanged: **70B-A4B MoE at 4+ tok/s on Tier 0.**
-MoE streaming is Phase 5. Everything before it is scaffolding.
+MoE streaming is Phase 5.
 
-## What this is## What this is## What this is
+## What this is## What this is## What this is## What this is
 
 KILN is a per-layer dispatcher over a unified memory hierarchy. It
 schedules computations across CPU, iGPU, dGPU, NPU, RAM, NVMe SSD, and
