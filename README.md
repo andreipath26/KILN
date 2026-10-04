@@ -6,38 +6,33 @@ in Sydney. No cloud. No GPU required. No compromise on accuracy.
 
 ## Status
 
-**KILN is a layer on llama.cpp.** Phase 2.2 is complete: KILN runs
-on llama.cpp's inference engine via a C++ shim.
+**Phase 2.2 complete. KILN runs on llama.cpp.**
 
-**First measured win of the project.** Same model, same prompt,
-same hardware, Tier 0 (Dell 7490):
+KILN wraps llama.cpp via a C++ shim (`cpp/llama_shim/`). The CLI's
+`kiln debug` and `kiln chat` now call llama.cpp's tokenizer and
+forward pass through `crates/kiln-runtime`, not the deprecated
+from-scratch transformer.
 
-| | From-scratch | On llama.cpp | Speedup |
-|---|---|---|---|
-| 5-token prefill | 10.12 s | **0.143 s** | **71x** |
-| Top-1 for "The capital of France is" | ` Paris` | ` Paris` | identical |
+Measured on Qwen2.5-1.5B Q4_K, Dell Latitude 7490 (Tier 0):
 
-**Roadmap v7.0 is the source of truth.** Current phase is
-**Phase 2 — Fork and Wire:**
+- `kiln debug "The capital of France is" --top 3` -> top-1 ` Paris`.
+  Warm forward **0.164 s**.
+- `kiln chat` `hi there` -> `Hello! How can I help you today?`
+  9 tokens in **1.64 s, 5.49 tok/s**.
+- From-scratch runtime on the same prompt: 58.98 s, 0.15 tok/s.
+  **36x faster.**
 
-- 2.0 llama.cpp linked from `/home/andreipath/llama.cpp`. **Done.**
-- 2.1 `crates/kiln-runtime` wraps llama.cpp's C API. **Done.**
-- 2.2 Smoke test: load, tokenize, decode, ` Paris`. **Done.**
-- 2.3 Wire `kiln debug` and `kiln chat` to `kiln-runtime`. Next.
+Phase 1 (correctness reference), Phase 1.5 (dispatch seam),
+Phase 2.0 (runtime loading design), and Phase 2.1 (`kiln-runtime`)
+are complete. **Phase 2.3** is next: system profile, multi-turn
+chat, KV reset, EOS id.
 
-**KILN does not ship llama.cpp.** The end user downloads it on first
-run. See `docs/runtime-loading-design.md`.
+The product claim: **KILN runs models larger than your machine's
+memory.** Phase 5 is the mission phase (MoE expert streaming).
 
-**What KILN keeps** from its own code: the dispatcher (Rule
-KILN-E36), `QuantKind::row_bytes`, `kiln convert`, the rules, the
-roadmap.
-
-**What KILN adds on top:** predictive MoE prerouter, FlashMoE cache
-policy, UMF container format, diffusion decode path, adaptive
-performance management.
-
-The mission is unchanged: **70B-A4B MoE at 4+ tok/s on Tier 0.**
-MoE streaming is Phase 5.
+Known: the release binary needs
+`LD_LIBRARY_PATH=/home/andreipath/llama.cpp/build/bin` at runtime.
+RPATH fix is Phase 2.0 shipping-half.
 
 ## What this is## What this is## What this is## What this is
 
