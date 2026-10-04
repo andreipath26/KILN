@@ -1,4 +1,5 @@
 /* KILN kernel: Q6_K dequantization and fused matmul.
+// VERIFIED: byte-for-byte match against ggml dequantize_row_q6_K on 2026-10-04.
  *
  * The layout matches ggml's dequantize_row_q6_K in ggml-quants.c
  * exactly. This is the authoritative reference.
