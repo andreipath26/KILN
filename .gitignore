@@ -22,3 +22,5 @@ tests/perf/*.log
 
 # Internal roadmap and rules. Never to be published.
 KILN MASTER ROADMAP AND RULES SET.md
+KILN MASTER ROADMAP AND RULES SET.md.archive-*
+docs/session-logs/
