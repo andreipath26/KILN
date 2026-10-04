@@ -8,6 +8,7 @@ members = [
     "crates/kiln-core",
     "crates/kiln-api",
     "crates/kiln-cli",
+    "crates/kiln-runtime",
     "crates/kiln-bench",
     "crates/kiln-kernels",
 ]

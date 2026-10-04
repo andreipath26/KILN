@@ -1,0 +1,22 @@
+[package]
+name = "kiln-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+default = ["linked-llama"]
+linked-llama = []
+dynamic-llama = ["dep:libloading"]
+
+[build-dependencies]
+cc = "1"
+
+[dependencies]
+kiln-core = { path = "../kiln-core" }
+libloading = { version = "0.8", optional = true }
+
+[lib]
+name = "kiln_runtime"
+crate-type = ["rlib"]
