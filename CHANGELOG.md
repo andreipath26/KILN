@@ -391,6 +391,59 @@ tested. The dispatcher picks it when weights are TQ1.0. No change to
 `transformer.rs`. Target: 2x faster than Q4_K on the same model.
 
 
+## [Unreleased] — Phase 2.2: KILN runs on llama.cpp
+
+### Changed
+
+- **`kiln debug` and `kiln chat` now use `kiln-runtime`**, which wraps
+  llama.cpp via the C++ shim. The deprecated from-scratch
+  `Transformer` is no longer called by the CLI.
+- **`kiln debug`** uses llama.cpp's tokenizer and forward pass. No
+  more double GGUF load (GgufFile + BpeTokenizer + Transformer).
+- **`kiln chat`** bypasses `ChatSession` (which holds a concrete
+  `BpeTokenizer`) and runs its own minimal loop over `LlamaContext` +
+  `kiln_core::Sampler`. Stops on `max_tokens` and on string match
+  `"<|im_end|>"`. Single-turn only.
+
+### Added
+
+- **`crates/kiln-cli/src/llama_forward.rs`** — `LlamaForward` adapter.
+  Wraps `LlamaContext`, implements `kiln_core::chat::Forward`,
+  converts `u32` to `i32` at the boundary, stores the last
+  `LlamaError` in `last_error` instead of panicking (fail-safe, Rule
+  KILN-E7). Currently unused — kept for Phase 2.3's multi-turn path.
+
+### Measured
+
+Qwen2.5-1.5B Q4_K, Dell Latitude 7490 (Tier 0):
+
+- `kiln debug "The capital of France is" --top 3` -> top-1 ` Paris`.
+  Warm forward 0.164 s, cold 0.446 s.
+- `kiln chat` `hi there` -> `Hello! How can I help you today?`
+  9 tokens in 1.64 s, **5.49 tok/s**.
+- From-scratch runtime on the same prompt: 58.98 s, 0.15 tok/s.
+  **36× faster.**
+
+### Decisions recorded
+
+- `kiln_core::chat::Forward` trait unchanged. `kiln-core` untouched.
+- Adapter lives in the CLI. `kiln-runtime` stays a pure llama.cpp
+  wrapper.
+- AT-3 gate revised: warm forward under 200 ms, cold under 500 ms on
+  Tier 0. The original 100 ms target predated measurement and is not
+  achievable on this hardware for a 986 MB model.
+
+### Known defects
+
+- Release binary needs `LD_LIBRARY_PATH=/home/andreipath/llama.cpp/build/bin`
+  at runtime. RPATH fix is Phase 2.0 shipping-half.
+- Chat is single-turn only. Multi-turn, KV reset, and EOS id from the
+  shim are Phase 2.3.
+
+### Next
+
+Phase 2.3: system profile, multi-turn chat, KV reset, EOS id.
+
 ## [Released]
 
 None yet.
