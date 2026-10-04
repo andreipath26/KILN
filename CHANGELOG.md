@@ -215,6 +215,49 @@ Those are Phase 1 late and Phase 2.
 - `monitor_sample` re-parses `/proc/cpuinfo` fully. 99–185 ms per call.
 - `throughput_fraction` baseline is fragile.
 
+## [Unreleased] — Phase 1.5: dispatch seam (Gate PASSED)
+
+### Added
+
+- **`crates/kiln-core/src/dispatch.rs`** — `Operation`, `Backend`,
+  `ExecContext`, `Scratch`, `Dispatcher`, `DispatchError`. Rule
+  KILN-E36 in code.
+- **`crates/kiln-core/src/backends/cpu_scalar.rs`** — the single
+  backend registered in Phase 1.5.
+- **`docs/dispatch-integration-design.md`** — Phase 1.5 design.
+
+### Changed
+
+- **`Transformer`** owns a `Dispatcher`. One backend registered:
+  `cpu_scalar`.
+- **`dot_packed`** builds an `Operation::Matmul`, an `ExecContext`,
+  and dispatches. No kernel is called directly from the transformer.
+- **`ExecContext`** carries `weight_bytes: &[u8]` and `quant:
+  QuantKind` directly. No HashMap lookup, no clone. This is the fix
+  for the 1.55x regression seen mid-session.
+
+### Verified
+
+- **Byte-identical output.** `hi there` → `Hello! How can I help you
+  today?` at greedy, seed 42, max 9 tokens. Same as c75225d.
+- **0.25% overhead.** 58.98s vs 58.83s for the 9-token reply. Gate
+  is within 5%.
+- **Zero direct kernel calls in `transformer.rs`** outside the
+  `#[allow(dead_code)]` legacy function.
+
+### Gate 1.5: PASSED
+
+Correctness: byte-identical.
+Performance: within 0.25%.
+Architecture: every operation goes through the dispatcher.
+
+### Next
+
+Phase 2 — ternary in the shipping path. Register
+`cpu_ternary_tq1_0` as a second backend. The kernel exists and is
+tested. The dispatcher picks it when weights are TQ1.0. No change to
+`transformer.rs`. Target: 2x faster than Q4_K on the same model.
+
 ## [Released]
 
 None yet.
