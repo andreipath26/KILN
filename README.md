@@ -6,15 +6,24 @@ in Sydney. No cloud. No GPU required. No compromise on accuracy.
 
 ## Status
 
-Phase 1 in progress. The runtime loads real GGUF files, parses the
-tokenizer metadata, runs a **real transformer forward pass** (RoPE,
-GQA, RMSNorm, fused Q4_K / Q6_K / TQ1.0 matmul), keeps a per-layer
-KV cache, and holds a streaming chat session.
+Phase 1 in progress. **KILN holds a working conversation.** The
+runtime loads real GGUF files, parses the tokenizer (including
+special tokens from `tokenizer.ggml.token_type`), runs a real
+transformer forward pass (RoPE, GQA, RMSNorm, fused Q4_K / Q6_K
+matmul), keeps a per-layer KV cache, wraps user input in the model's
+chat template (ChatML for Qwen2.5), and stops on the model's EOS.
 
-First honest throughput on the acceptance-test hardware, Dell Latitude
-7490, i7-8650U, 16 GB DDR4-2400, no GPU, Qwen2.5-1.5B-Instruct Q4_K_M
-(986 MB): **0.41 tok/s on a 20-token reply, correct top-1 on a factual
-prompt**. The floor is the scalar fused matmul. AVX2 is next.
+Verified on the acceptance-test hardware, Dell Latitude 7490,
+i7-8650U, 16 GB DDR4-2400, no GPU, Qwen2.5-1.5B-Instruct Q4_K_M
+(986 MB):
+
+- `hi there` → `Hello! How can I help you today?` (9 tokens, stops on EOS)
+- Prefill + 9-token reply: 58.8 s, 0.15 tok/s
+- Top-1 for `The capital of France is`: ` Paris` (correct)
+
+The floor is the scalar fused matmul. Fused AVX2 is next. Split
+AVX2 (dequant in C, dot in Rust) was measured at 6.8x slower and is
+not wired.
 
 Gate 0A: CONDITIONALLY PASSED. Seven of eight research items confirmed.
 Item 8 (thermal envelope measurement) requires an AC-powered 30-minute
