@@ -18,6 +18,8 @@ pub mod chat;
 pub mod transformer_config;
 pub mod transformer_weights;
 pub mod transformer;
+pub mod dispatch;
+pub mod backends;
 pub mod kv_cache;
 
 pub use plan::{ExecutionPlan, Node, Edge, TensorRef, NodeId};
@@ -43,4 +45,5 @@ pub use transformer_config::{TransformerConfig, ConfigError};
 pub use transformer_weights::{TransformerWeights, LayerWeights, WeightError};
 
 pub use transformer::{Transformer, TransformerError};
+pub use dispatch::{Dispatcher, Operation, Backend, ExecContext, DispatchError, Scratch, TensorId};
 pub use kv_cache::{KvCache, LayerKv};

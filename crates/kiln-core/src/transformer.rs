@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use kiln_kernels::{q4k_matmul_scalar, q6k_matmul_scalar};
+use crate::dispatch::{Dispatcher, Operation, ExecContext, Scratch, QuantKind, TensorId};
 use kiln_models::gguf::GgufFile;
 
 use crate::chat::Forward;
@@ -40,6 +40,7 @@ pub struct Transformer {
     config: TransformerConfig,
     weights: TransformerWeights,
     cache: crate::kv_cache::KvCache,
+    dispatcher: crate::dispatch::Dispatcher,
 }
 
 fn decode_f32(bytes: &[u8], count: usize) -> Vec<f32> {
@@ -87,16 +88,49 @@ fn f16_to_f32(h: u16) -> f32 {
     f32::from_bits(bits)
 }
 
-fn dot_packed(weights: &[u8], num_weights: usize, x: &[f32]) -> f32 {
+fn dot_packed(dispatcher: &Dispatcher, weights: &[u8], num_weights: usize, x: &[f32]) -> f32 {
+    let num_blocks = (num_weights + 255) / 256;
+    let q4k_len = num_blocks * 144;
+    let q6k_len = num_blocks * 210;
+    let f32_len = num_weights * 4;
+    let f16_len = num_weights * 2;
+    let kind = if weights.len() == q4k_len { QuantKind::Q4K }
+        else if weights.len() == q6k_len { QuantKind::Q6K }
+        else if weights.len() == f32_len { QuantKind::F32 }
+        else if weights.len() == f16_len { QuantKind::F16 }
+        else { return 0.0; };
+    let op = Operation::Matmul {
+        weights: String::new(),
+        quant: kind,
+        out_features: 1,
+        in_features: num_weights,
+    };
+    let mut scratch = Scratch::new();
+    let mut out = [0.0f32; 1];
+    let mut ctx = ExecContext {
+        weight_bytes: weights,
+        quant: kind,
+        scratch: &mut scratch,
+        out: &mut out,
+        activations: x,
+        seq_len: 1,
+        position_offset: 0,
+    };
+    if dispatcher.dispatch(&op, &mut ctx).is_err() { return 0.0; }
+    out[0]
+}
+
+#[allow(dead_code)]
+fn dot_packed_legacy(weights: &[u8], num_weights: usize, x: &[f32]) -> f32 {
     let num_blocks = (num_weights + 255) / 256;
     let q4k_len = num_blocks * 144;
     let q6k_len = num_blocks * 210;
     let f32_len = num_weights * 4;
     let f16_len = num_weights * 2;
     if weights.len() == q4k_len {
-        q4k_matmul_scalar(weights, num_weights, x)
+        kiln_kernels::q4k_matmul_scalar(weights, num_weights, x)
     } else if weights.len() == q6k_len {
-        q6k_matmul_scalar(weights, num_weights, x)
+        kiln_kernels::q6k_matmul_scalar(weights, num_weights, x)
     } else if weights.len() == f32_len {
         let w = decode_f32(weights, num_weights);
         let mut acc = 0.0f32;
@@ -122,14 +156,16 @@ impl Transformer {
         let kv_dim = config.num_kv_heads * config.head_dim();
         let max_len = config.context_length.min(4096);
         let cache = crate::kv_cache::KvCache::new(config.num_layers, kv_dim, max_len);
-        Ok(Self { config, weights, cache })
+        let mut dispatcher = crate::dispatch::Dispatcher::new();
+        dispatcher.register(Box::new(crate::backends::cpu_scalar::CpuScalarBackend::new()));
+        Ok(Self { config, weights, cache, dispatcher })
     }
 
     pub fn config_ref(&self) -> &TransformerConfig { &self.config }
 
     /// Project a single vector x through a packed weight matrix.
     /// Returns a vector of num_rows floats.
-    fn proj(&self, weights: &[u8], num_rows: usize, num_cols: usize, x: &[f32]) -> Vec<f32> {
+    fn proj(&self, dispatcher: &Dispatcher, weights: &[u8], num_rows: usize, num_cols: usize, x: &[f32]) -> Vec<f32> {
         if num_rows == 0 || weights.is_empty() { return Vec::new(); }
         let bytes_per_row = weights.len() / num_rows;
         let mut out = Vec::with_capacity(num_rows);
@@ -137,17 +173,17 @@ impl Transformer {
             let start = r * bytes_per_row;
             let end = start + bytes_per_row;
             if end > weights.len() { break; }
-            out.push(dot_packed(&weights[start..end], num_cols, x));
+            out.push(dot_packed(dispatcher, &weights[start..end], num_cols, x));
         }
         out
     }
 
     /// Project a full sequence: shape [seq_len, in_dim] -> [seq_len, out_dim].
-    fn proj_seq(&self, weights: &[u8], num_rows: usize, num_cols: usize, x: &[f32], seq_len: usize) -> Vec<f32> {
+    fn proj_seq(&self, dispatcher: &Dispatcher, weights: &[u8], num_rows: usize, num_cols: usize, x: &[f32], seq_len: usize) -> Vec<f32> {
         let mut out = Vec::with_capacity(seq_len * num_rows);
         for t in 0..seq_len {
             let x_t = &x[t * num_cols..(t + 1) * num_cols];
-            let y_t = self.proj(weights, num_rows, num_cols, x_t);
+            let y_t = self.proj(dispatcher, weights, num_rows, num_cols, x_t);
             out.extend_from_slice(&y_t);
         }
         out
@@ -275,9 +311,9 @@ impl Transformer {
             }
 
             // Q, K, V projections for new positions only
-            let mut q = self.proj_seq(&layer.attn_q, q_dim, hidden, &normed, n_new);
-            let mut k = self.proj_seq(&layer.attn_k, kv_dim, hidden, &normed, n_new);
-            let mut v = self.proj_seq(&layer.attn_v, kv_dim, hidden, &normed, n_new);
+            let mut q = self.proj_seq(&self.dispatcher, &layer.attn_q, q_dim, hidden, &normed, n_new);
+            let mut k = self.proj_seq(&self.dispatcher, &layer.attn_k, kv_dim, hidden, &normed, n_new);
+            let mut v = self.proj_seq(&self.dispatcher, &layer.attn_v, kv_dim, hidden, &normed, n_new);
 
             if !layer.attn_q_bias.is_empty() {
                 let b = decode_f32(&layer.attn_q_bias, q_dim);
@@ -343,7 +379,7 @@ impl Transformer {
             }
 
             // Output projection on new positions only
-            let attn_proj = self.proj_seq(&layer.attn_output, hidden, q_dim, &attn_out, n_new);
+            let attn_proj = self.proj_seq(&self.dispatcher, &layer.attn_output, hidden, q_dim, &attn_out, n_new);
             for i in 0..n_new * hidden { h[i] += attn_proj[i]; }
 
             // FFN on new positions
@@ -353,11 +389,11 @@ impl Transformer {
                 let n = rms_norm(&h[t * hidden..(t + 1) * hidden], &ffn_norm_w, eps);
                 ffn_normed[t * hidden..(t + 1) * hidden].copy_from_slice(&n);
             }
-            let gate = self.proj_seq(&layer.ffn_gate, inter, hidden, &ffn_normed, n_new);
-            let up = self.proj_seq(&layer.ffn_up, inter, hidden, &ffn_normed, n_new);
+            let gate = self.proj_seq(&self.dispatcher, &layer.ffn_gate, inter, hidden, &ffn_normed, n_new);
+            let up = self.proj_seq(&self.dispatcher, &layer.ffn_up, inter, hidden, &ffn_normed, n_new);
             let mut act = vec![0.0f32; n_new * inter];
             for i in 0..n_new * inter { act[i] = silu(gate[i]) * up[i]; }
-            let ffn_out = self.proj_seq(&layer.ffn_down, hidden, inter, &act, n_new);
+            let ffn_out = self.proj_seq(&self.dispatcher, &layer.ffn_down, hidden, inter, &act, n_new);
             for i in 0..n_new * hidden { h[i] += ffn_out[i]; }
 
             let _ = total_len;
@@ -381,7 +417,7 @@ impl Transformer {
             let start = t * bpr;
             let end = start + bpr;
             if end > output.len() { break; }
-            logits[t] = dot_packed(&output[start..end], hidden, &h_last);
+            logits[t] = dot_packed(&self.dispatcher, &output[start..end], hidden, &h_last);
         }
         logits
     }
