@@ -24,3 +24,4 @@ tests/perf/*.log
 KILN MASTER ROADMAP AND RULES SET.md
 KILN MASTER ROADMAP AND RULES SET.md.archive-*
 docs/session-logs/
+logs/
