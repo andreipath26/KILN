@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use crate::dispatch::{Dispatcher, Operation, ExecContext, Scratch, QuantKind, TensorId};
+use crate::dispatch::{Dispatcher, Operation, ExecContext, Scratch, QuantKind};
 use kiln_models::gguf::GgufFile;
 
 use crate::chat::Forward;

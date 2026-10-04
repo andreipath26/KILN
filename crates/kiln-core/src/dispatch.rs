@@ -1,7 +1,6 @@
 //! Dispatch seam. See docs/dispatch-integration-design.md.
 //! Rule KILN-E36: every operation goes through the registry.
 
-use std::collections::HashMap;
 /// The quantization formats the runtime understands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum QuantKind {
