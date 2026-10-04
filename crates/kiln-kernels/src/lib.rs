@@ -1020,6 +1020,91 @@ mod tests {
     }
 
     #[test]
+    fn q4k_fused_avx2_matches_scalar_on_real_block() {
+        #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+        {
+            let path = "/home/andreipath/Desktop/KILN/models/tiny/qwen25-1.5b.gguf";
+            let data = match std::fs::read(path) {
+                Ok(d) => d,
+                Err(_) => { eprintln!("skipping: model not present"); return; }
+            };
+            let file_pos = 5950976 + 219779584;
+            if file_pos + 144 > data.len() {
+                eprintln!("skipping: offset out of range");
+                return;
+            }
+            let block = &data[file_pos..file_pos + 144];
+
+            // Deterministic activation vector, 256 elements.
+            let x: Vec<f32> = (0..256)
+                .map(|i| ((i as f32) * 0.01) - 1.28)
+                .collect();
+
+            // Warm up.
+            for _ in 0..1000 { let _ = q4k_matmul_scalar(block, 256, &x); }
+            for _ in 0..1000 { let _ = q4k_matmul_fast(block, 256, &x); }
+
+            let t0 = std::time::Instant::now();
+            for _ in 0..10_000 { let _ = q4k_matmul_scalar(block, 256, &x); }
+            let scalar_ns = t0.elapsed().as_nanos() as f64 / 10_000.0;
+
+            let t1 = std::time::Instant::now();
+            for _ in 0..10_000 { let _ = q4k_matmul_fast(block, 256, &x); }
+            let fast_ns = t1.elapsed().as_nanos() as f64 / 10_000.0;
+
+            eprintln!("TIMING: scalar={:.1} ns  fast={:.1} ns  speedup={:.2}x",
+                scalar_ns, fast_ns, scalar_ns / fast_ns);
+            eprintln!("avx2 detected by std: {}", is_x86_feature_detected!("avx2"));
+
+            let scalar = q4k_matmul_scalar(block, 256, &x);
+            let fast = q4k_matmul_fast(block, 256, &x);
+            let diff = (scalar - fast).abs();
+            let rel = if scalar.abs() > 1e-6 { diff / scalar.abs() } else { diff };
+            eprintln!("CORRECTNESS: scalar={} fast={} rel_diff={}", scalar, fast, rel);
+            assert!(rel < 1e-5,
+                "fused avx2 differs from scalar: scalar={} fast={} rel={}",
+                scalar, fast, rel);
+        }
+    }
+
+    #[test]
+    fn q4k_fused_avx2_matches_scalar_random_inputs() {
+        #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+        {
+            let path = "/home/andreipath/Desktop/KILN/models/tiny/qwen25-1.5b.gguf";
+            let data = match std::fs::read(path) {
+                Ok(d) => d,
+                Err(_) => { eprintln!("skipping: model not present"); return; }
+            };
+            let file_pos = 5950976 + 219779584;
+            if file_pos + 144 > data.len() {
+                eprintln!("skipping: offset out of range");
+                return;
+            }
+            let block = &data[file_pos..file_pos + 144];
+
+            // Multiple pseudo-random activation vectors. Deterministic
+            // via a simple LCG so the test is reproducible.
+            for trial in 0..5 {
+                let mut state: u64 = 0x9E3779B97F4A7C15u64.wrapping_add(trial as u64);
+                let x: Vec<f32> = (0..256).map(|_| {
+                    state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                    ((state >> 33) as f32 / u32::MAX as f32) * 4.0 - 2.0
+                }).collect();
+
+                let scalar = q4k_matmul_scalar(block, 256, &x);
+                let fast = q4k_matmul_fast(block, 256, &x);
+                let diff = (scalar - fast).abs();
+                let rel = if scalar.abs() > 1e-6 { diff / scalar.abs() } else { diff };
+                assert!(rel < 1e-5,
+                    "trial {}: scalar={} fast={} rel={}",
+                    trial, scalar, fast, rel);
+            }
+            eprintln!("q4k fused avx2: 5 random trials passed");
+        }
+    }
+
+    #[test]
     fn avx2_path_is_actually_compiled() {
         // The C build script sets -mavx2 on x86_64. When it does, __AVX2__
         // is defined and the AVX2 code is compiled. This test asserts that

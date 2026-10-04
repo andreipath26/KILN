@@ -11,6 +11,38 @@ pub enum QuantKind {
     TQ1_0,
 }
 
+impl QuantKind {
+    /// Bytes required to store one contiguous row of `num_cols` weights
+    /// in this quant format. This is the single source of truth for
+    /// row layout. No call site computes it independently.
+    pub fn row_bytes(&self, num_cols: usize) -> usize {
+        match self {
+            QuantKind::F32 => num_cols * 4,
+            QuantKind::F16 => num_cols * 2,
+            QuantKind::Q4K => {
+                let blocks = (num_cols + 255) / 256;
+                blocks * 144
+            }
+            QuantKind::Q6K => {
+                let blocks = (num_cols + 255) / 256;
+                blocks * 210
+            }
+            QuantKind::TQ1_0 => (num_cols + 4) / 5,
+        }
+    }
+
+    /// Detect the quant kind from a raw byte count for `num_cols`
+    /// weights. Returns None if no known format matches.
+    pub fn detect(num_cols: usize, byte_len: usize) -> Option<QuantKind> {
+        for k in [QuantKind::TQ1_0, QuantKind::Q6K, QuantKind::Q4K, QuantKind::F16, QuantKind::F32] {
+            if k.row_bytes(num_cols) == byte_len {
+                return Some(k);
+            }
+        }
+        None
+    }
+}
+
 pub type TensorId = String;
 
 #[derive(Debug, Clone)]

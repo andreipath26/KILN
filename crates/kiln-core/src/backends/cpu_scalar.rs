@@ -64,7 +64,12 @@ fn dot_f16(bytes: &[u8], n: usize, x: &[f32]) -> f32 {
 impl Backend for CpuScalarBackend {
     fn name(&self) -> &str { "cpu_scalar" }
 
-    fn supports(&self, _op: &Operation) -> bool { true }
+    fn supports(&self, op: &Operation) -> bool {
+        match op {
+            Operation::Matmul { quant, .. } => !matches!(quant, QuantKind::TQ1_0),
+            _ => true,
+        }
+    }
 
     fn estimate(&self, _op: &Operation) -> Option<u64> { Some(0) }
 

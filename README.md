@@ -6,30 +6,33 @@ in Sydney. No cloud. No GPU required. No compromise on accuracy.
 
 ## Status
 
-Phase 1 in progress. **KILN holds a working conversation.** The
-runtime loads real GGUF files, parses the tokenizer (including
-special tokens from `tokenizer.ggml.token_type`), runs a real
-transformer forward pass (RoPE, GQA, RMSNorm, fused Q4_K / Q6_K
-matmul), keeps a per-layer KV cache, wraps user input in the model's
-chat template (ChatML for Qwen2.5), and stops on the model's EOS.
+**Phase 2 — Beat Ollama on the dense path. In progress.**
 
-Verified on the acceptance-test hardware, Dell Latitude 7490,
-i7-8650U, 16 GB DDR4-2400, no GPU, Qwen2.5-1.5B-Instruct Q4_K_M
-(986 MB):
+Ollama on this laptop, Qwen2.5-1.5B Q4_K, `hi there`:
+464 ms total, 24.44 tok/s, 30/31 prompt tokens cached.
 
-- `hi there` → `Hello! How can I help you today?` (9 tokens, stops on EOS)
-- Prefill + 9-token reply: 58.8 s, 0.15 tok/s
-- Top-1 for `The capital of France is`: ` Paris` (correct)
+KILN on the same: 58,980 ms, 0.15 tok/s. **The gap is 127x.**
 
-The floor is the scalar fused matmul. Fused AVX2 is next. Split
-AVX2 (dequant in C, dot in Rust) was measured at 6.8x slower and is
-not wired.
+Phase 2 exists to close it. Four units, each a measured commit:
 
-Gate 0A: CONDITIONALLY PASSED. Seven of eight research items confirmed.
-Item 8 (thermal envelope measurement) requires an AC-powered 30-minute
-test before the Phase 2 gate.
+- **2.1 Multithread the row loops.** 4 cores. Expect 3-4x. Target
+  under 20 s.
+- **2.2 Fused Q4_K matmul.** Dequant and dot in one C function,
+  int8 activations, vectorized nibble unpack. Expect 2-3x. Target
+  under 10 s.
+- **2.3 KV cache prefix reuse.** Keep the ChatML system prompt's
+  K/V resident across turns. Expect 2x. Target under 6 s.
+- **2.4 Decode/prefill split.** Different kernels for GEMV and GEMM.
 
-## What this is
+**Gate 2:** `echo "hi there" | kiln chat --model
+models/tiny/qwen25-1.5b.gguf` completes in under 6 seconds total
+wall clock.
+
+Phases 1 and 1.5 complete. The dispatch seam (Rule KILN-E36) is in
+and byte-identical. Ternary moves to Phase 3 (size, not speed).
+MoE streaming is Phase 4 — the mission phase.
+
+## What this is## What this is
 
 KILN is a per-layer dispatcher over a unified memory hierarchy. It
 schedules computations across CPU, iGPU, dGPU, NPU, RAM, NVMe SSD, and

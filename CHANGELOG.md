@@ -258,6 +258,43 @@ Phase 2 — ternary in the shipping path. Register
 tested. The dispatcher picks it when weights are TQ1.0. No change to
 `transformer.rs`. Target: 2x faster than Q4_K on the same model.
 
+## [Unreleased] — Roadmap v6.0, Phase 2 target locked
+
+### Changed
+
+- **Roadmap rewritten as v6.0.** Phase 2 is now a measured target:
+  beat Ollama on the dense 1.5B path. The gap is 127x (Ollama 464 ms,
+  KILN 58,980 ms on the same model and prompt).
+- **Multithreading moved into Phase 2.** It was in Phase 3 in v5.0.
+  That was a sequencing error; it is the largest single win available.
+- **Ternary moved to Phase 3.** The literature on this exact
+  hardware (Qiita, Ternary-Bonsai-8B on i7-8650U) reports 0.7 tok/s
+  on an 8B ternary model. On DDR4-2400 the bottleneck is memory
+  bandwidth, not quantization format. Ternary is a size optimization
+  on Tier 0, a speed optimization on AVX-512 and GPU.
+- **T-MAC removed from Failed Experiments.** It was evaluated in the
+  wrong integration point (per-row LUT, split dequant). It is now
+  "Not yet fairly tested" and scheduled for retest in Phase 3.3.
+- **"Q4_K is memory-bound, not compute-bound" corrected.** A recent
+  Rust port of llama.cpp's kernel measured 9.3 GiB/s scalar vs 17.7
+  GiB/s SIMD on the same data. If memory-bound they would be equal.
+  It is compute/issue-bound. Better SIMD does help.
+
+### Added
+
+- **Rule KILN-E39** — a phase is self-contained. Every phase has
+  Prerequisites, Deliverables, Success criterion, Out of scope, and
+  Exit test.
+- **Rule KILN-E40** — no commit without a measured gain.
+
+### Status
+
+- Phase 1: correctness reference. Complete.
+- Phase 1.5: dispatch seam. Complete.
+- Phase 2: beat Ollama. In progress. First unit is 2.1 multithreading.
+- Phase 3: ternary. Not started.
+- Phase 4: MoE streaming. Not started. This is the mission phase.
+
 ## [Released]
 
 None yet.

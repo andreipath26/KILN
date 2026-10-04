@@ -110,6 +110,18 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Convert a GGUF model to a different quantization.
+    Convert {
+        /// Input GGUF path.
+        #[arg(long)]
+        input: String,
+        /// Output GGUF path.
+        #[arg(long)]
+        output: String,
+        /// Target quantization. Only tq1_0 is supported.
+        #[arg(long, default_value = "tq1_0")]
+        quant: String,
+    },
 }
 
 #[tokio::main]
@@ -313,6 +325,18 @@ async fn main() {
                 for (k, v) in pairs {
                     println!("  {:<20} {}", k, v);
                 }
+            }
+        }
+        Commands::Convert { input, output, quant } => {
+            if quant != "tq1_0" {
+                eprintln!("convert: only tq1_0 is supported, got {}", quant);
+                std::process::exit(2);
+            }
+            let inp = std::path::PathBuf::from(&input);
+            let outp = std::path::PathBuf::from(&output);
+            match kiln_models::convert_to_tq1_0(&inp, &outp) {
+                Ok(n) => println!("converted {} tensors -> {}", n, output),
+                Err(e) => { eprintln!("convert error: {}", e); std::process::exit(1); }
             }
         }
         Commands::Chat { model, seed, max_tokens, strategy } => {

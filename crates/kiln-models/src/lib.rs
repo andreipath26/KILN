@@ -14,6 +14,8 @@ pub mod kv_layout;
 pub mod thermal;
 pub mod ml_cache;
 pub mod gguf;
+pub mod gguf_write;
+pub mod convert;
 pub mod tokenizer;
 
 pub use manifest::{Architecture, ModelManifest};
@@ -23,6 +25,8 @@ pub use kv_layout::KvLayout;
 pub use thermal::ThermalProfile;
 pub use ml_cache::MlCacheRef;
 
+pub use gguf_write::write_gguf;
+pub use convert::convert_to_tq1_0;
 pub use gguf::{GgufError, GgufFile, GgufHeader, GgufType, GgufTensorInfo, GgufValue, GgufValueType, read_header, parse_metadata, parse_tensor_table};
 
 pub use tokenizer::{BpeTokenizer, TokenizerError};

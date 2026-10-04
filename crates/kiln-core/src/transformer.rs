@@ -44,10 +44,16 @@ pub struct Transformer {
 }
 
 fn decode_f32(bytes: &[u8], count: usize) -> Vec<f32> {
+    // Fail loudly. A short tensor is a bug in the model file or the
+    // loader, never something to paper over.
+    assert!(
+        bytes.len() >= count * 4,
+        "decode_f32: need {} bytes for {} floats, got {}",
+        count * 4, count, bytes.len()
+    );
     let mut out = Vec::with_capacity(count);
     for i in 0..count {
         let off = i * 4;
-        if off + 4 > bytes.len() { break; }
         let b = &bytes[off..off + 4];
         out.push(f32::from_le_bytes([b[0], b[1], b[2], b[3]]));
     }
@@ -89,16 +95,10 @@ fn f16_to_f32(h: u16) -> f32 {
 }
 
 fn dot_packed(dispatcher: &Dispatcher, weights: &[u8], num_weights: usize, x: &[f32]) -> f32 {
-    let num_blocks = (num_weights + 255) / 256;
-    let q4k_len = num_blocks * 144;
-    let q6k_len = num_blocks * 210;
-    let f32_len = num_weights * 4;
-    let f16_len = num_weights * 2;
-    let kind = if weights.len() == q4k_len { QuantKind::Q4K }
-        else if weights.len() == q6k_len { QuantKind::Q6K }
-        else if weights.len() == f32_len { QuantKind::F32 }
-        else if weights.len() == f16_len { QuantKind::F16 }
-        else { return 0.0; };
+    let kind = match QuantKind::detect(num_weights, weights.len()) {
+        Some(k) => k,
+        None => return 0.0,
+    };
     let op = Operation::Matmul {
         weights: String::new(),
         quant: kind,
@@ -157,6 +157,7 @@ impl Transformer {
         let max_len = config.context_length.min(4096);
         let cache = crate::kv_cache::KvCache::new(config.num_layers, kv_dim, max_len);
         let mut dispatcher = crate::dispatch::Dispatcher::new();
+        dispatcher.register(Box::new(crate::backends::cpu_ternary::CpuTernaryBackend::new()));
         dispatcher.register(Box::new(crate::backends::cpu_scalar::CpuScalarBackend::new()));
         Ok(Self { config, weights, cache, dispatcher })
     }
@@ -167,7 +168,12 @@ impl Transformer {
     /// Returns a vector of num_rows floats.
     fn proj(&self, dispatcher: &Dispatcher, weights: &[u8], num_rows: usize, num_cols: usize, x: &[f32]) -> Vec<f32> {
         if num_rows == 0 || weights.is_empty() { return Vec::new(); }
-        let bytes_per_row = weights.len() / num_rows;
+        // The byte layout of a row is a property of the quant format.
+        // Query it. Do not compute it here.
+        let bytes_per_row = match QuantKind::detect(num_cols, weights.len() / num_rows) {
+            Some(k) => k.row_bytes(num_cols),
+            None => weights.len() / num_rows,  // fall back, will be caught by dot_packed
+        };
         let mut out = Vec::with_capacity(num_rows);
         for r in 0..num_rows {
             let start = r * bytes_per_row;

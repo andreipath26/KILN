@@ -457,6 +457,7 @@ name = "kiln-models"
 version = "0.0.1"
 dependencies = [
  "kiln-hal",
+ "kiln-kernels",
  "memmap2",
  "serde",
  "serde_json",
