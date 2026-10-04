@@ -48,6 +48,14 @@ int32_t kiln_llama_token_to_str(
     char* buf,
     int32_t buf_len);
 
+/* Reset the KV cache and the position counter. Use between turns of a
+ * multi-turn conversation when the context is being reused for a new
+ * session. Returns 0 on success. */
+int32_t kiln_llama_reset(kiln_llama_t h);
+
+/* Return the EOS token id for this model. -1 if the model has no EOS. */
+int32_t kiln_llama_eos_token(kiln_llama_t h);
+
 #ifdef __cplusplus
 }
 #endif
