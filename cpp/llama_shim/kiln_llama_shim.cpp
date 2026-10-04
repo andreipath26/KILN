@@ -31,8 +31,8 @@ kiln_llama_t kiln_llama_load(const char* model_path) {
 
     struct llama_context_params cparams = llama_context_default_params();
     /* 2048 token context is enough for Phase 2. */
-    cparams.n_ctx = 2048;
-    cparams.n_batch = 2048;
+    cparams.n_ctx = 512;
+    cparams.n_batch = 512;
     struct llama_context* ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
         llama_model_free(model);
@@ -53,7 +53,7 @@ kiln_llama_t kiln_llama_load(const char* model_path) {
     k->vocab   = vocab;
     k->n_vocab = n_vocab;
     k->n_past  = 0;
-    k->batch   = llama_batch_init(2048, 0, 1);
+    k->batch   = llama_batch_init(512, 0, 1);
     return (kiln_llama_t)k;
 }
 
