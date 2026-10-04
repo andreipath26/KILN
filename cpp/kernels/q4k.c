@@ -96,16 +96,16 @@ int kiln_q4k_dequant_block(const uint8_t* src, float* dst) {
 
     const uint8_t* qs = src + 16; /* 2 + 2 + 12 = 16 */
 
-    for (int j = 0; j < 8; ++j) {
-        float sub_scale = d * (float)scales[j];
-        float sub_min   = dmin * (float)mins[j];
-        const uint8_t* sub = qs + j * 16;
-        for (int k = 0; k < 16; ++k) {
-            uint8_t byte = sub[k];
-            int low  = byte & 0x0F;
-            int high = (byte >> 4) & 0x0F;
-            dst[j * 32 + 2 * k + 0] = sub_scale * (float)low  - sub_min;
-            dst[j * 32 + 2 * k + 1] = sub_scale * (float)high - sub_min;
+    for (int g = 0; g < 4; ++g) {
+        const uint8_t* grp = qs + g * 32;
+        float sc1 = d    * (float)scales[2 * g];
+        float mn1 = dmin * (float)mins[2 * g];
+        float sc2 = d    * (float)scales[2 * g + 1];
+        float mn2 = dmin * (float)mins[2 * g + 1];
+        for (int l = 0; l < 32; ++l) {
+            uint8_t byte = grp[l];
+            dst[g * 64 + l]      = sc1 * (float)(byte & 0x0F) - mn1;
+            dst[g * 64 + 32 + l] = sc2 * (float)(byte >> 4)   - mn2;
         }
     }
     return 0;
