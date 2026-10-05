@@ -129,3 +129,21 @@ int32_t kiln_llama_token_to_str(
     if (!k) return -1;
     return llama_token_to_piece(k->vocab, token, buf, buf_len, 0, 1);
 }
+
+int32_t kiln_llama_reset(kiln_llama_t h) {
+    struct kiln_llama* k = (struct kiln_llama*)h;
+    if (!k) return -1;
+    /* v0.5.0 uses the memory API, not the deprecated kv_self API. */
+    llama_memory_t mem = llama_get_memory(k->ctx);
+    if (mem) {
+        llama_memory_clear(mem, true);
+    }
+    k->n_past = 0;
+    return 0;
+}
+
+int32_t kiln_llama_eos_token(kiln_llama_t h) {
+    struct kiln_llama* k = (struct kiln_llama*)h;
+    if (!k) return -1;
+    return llama_vocab_eos(k->vocab);
+}

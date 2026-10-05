@@ -52,6 +52,8 @@ extern "C" {
         buf: *mut c_char,
         buf_len: c_int,
     ) -> c_int;
+    fn kiln_llama_reset(h: *mut c_void) -> c_int;
+    fn kiln_llama_eos_token(h: *mut c_void) -> c_int;
 }
 
 pub struct LlamaContext {
@@ -79,6 +81,22 @@ impl LlamaContext {
 
     pub fn n_vocab(&self) -> i32 { self.n_vocab }
     pub fn n_past(&self) -> i32 { self.n_past }
+
+    /// Reset the KV cache and the position counter. Use between
+    /// turns of a multi-turn conversation on the same context.
+    pub fn reset(&mut self) -> Result<(), LlamaError> {
+        let rc = unsafe { kiln_llama_reset(self.handle) };
+        if rc != 0 {
+            return Err(LlamaError::Decode(format!("reset returned {}", rc)));
+        }
+        self.n_past = 0;
+        Ok(())
+    }
+
+    /// The EOS token id for this model. -1 if the model has no EOS.
+    pub fn eos_token(&self) -> i32 {
+        unsafe { kiln_llama_eos_token(self.handle) }
+    }
 
     pub fn tokenize(&self, text: &str) -> Result<Vec<i32>, LlamaError> {
         let ctext = CString::new(text).map_err(|e| LlamaError::Tokenize(e.to_string()))?;
