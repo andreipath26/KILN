@@ -6,30 +6,30 @@ in Sydney. No cloud. No GPU required. No compromise on accuracy.
 
 ## Status
 
-**Phase 3 complete. Every model operation goes through the runtime
-dispatcher.**
+**Phase 4 complete. Ternary models load and hold a coherent
+conversation.**
 
-KILN forks llama.cpp (`vendor/llama.cpp` submodule of
-`github.com/andreipath26/kiln-llama`), statically links it, probes
-the machine at first run, and routes every operation through
-`RuntimeDispatcher`. `LlamaCppBackend` wraps `LlamaContext` and owns
-the session. The seam exists for Phase 4 (ternary) and Phase 5 (MoE
-streaming) to register new backends.
+KILN forks llama.cpp, statically links it, probes the machine,
+routes every operation through `RuntimeDispatcher`, and now runs
+natively ternary-trained models.
 
-Measured on Qwen2.5-1.5B Q4_K, Dell Latitude 7490 (Tier 0):
+Verified models, Dell Latitude 7490 (Tier 0):
 
-- `kiln debug "The capital of France is"` -> top-1 ` Paris`.
-  Forward, 10 runs: min 0.1459 s, median 0.2736 s.
-- `kiln chat` turn 1: `Hello! How can I help you today?`,
-  **8.46 tok/s**.
-- `kiln chat` turn 2 (multi-turn): `You said "hi there".`,
-  5.10 tok/s.
+| Model | Format | Size | Speed |
+|---|---|---|---|
+| Qwen2.5-1.5B | Q4_K | 986 MB | 8.46–10.00 tok/s |
+| Ternary-Bonsai-4B | Q2_0 g64 | 1.07 GB | 0.75–0.85 tok/s |
 
-Phases 1, 1.5, 2.0, 2.1, 2.2, 2.3, and 3 are complete. **Next is
-Phase 4:** ternary in the fork.
+Multi-turn chat works. Emoji and multi-byte characters render
+correctly. No garbage output.
+
+Phases 1, 1.5, 2.0–2.3, 3, and 4 are complete. **Next is Phase 4.5:**
+sanity and quality guarantees — load-time validation, canary prompts,
+and a generation watchdog so a broken model is refused instead of
+run. Then Phase 5, the mission: MoE expert streaming.
 
 The product claim: **KILN runs models larger than your machine's
-memory.** Phase 5 is the mission phase (MoE expert streaming).
+memory.**
 
 ## What this is## What this is## What this is## What this is
 

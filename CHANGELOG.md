@@ -6,6 +6,48 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Phase 4 complete: ternary works end to end
+
+- **`kiln convert` writer emits ggml type 34 (TQ1_0)** instead of the
+  KILN-private 1000. Reader maps 34 back to `GgufType::Tq1_0`.
+- **Native ternary model loads and runs.**
+  `Ternary-Bonsai-4B-Q2_0_g64.gguf` (group-64 packing, ggml type 42)
+  loads in mainline llama.cpp and holds a coherent multi-turn
+  conversation through `RuntimeDispatcher`.
+- **UTF-8 across token boundaries fixed.** `LlamaContext::token_bytes`
+  returns raw bytes. The chat loop buffers bytes across tokens and
+  decodes only when a full sequence is available. Emoji and multi-byte
+  characters render correctly. `token_to_str` remains as a lossy
+  convenience wrapper.
+
+**Measured, Qwen2.5-1.5B Q4_K vs Ternary-Bonsai-4B-Q2_0_g64, Tier 0:**
+
+| Model | Format | Size | tok/s |
+|---|---|---|---|
+| Qwen2.5-1.5B | Q4_K | 986 MB | 8.46–10.00 |
+| Ternary-Bonsai-4B | Q2_0 g64 | 1.07 GB | 0.75–0.85 |
+
+Ternary is a **size and portability** lever, not a speed lever, on
+Tier 0. The 4B model is 3x the parameters of the 1.5B and roughly 10x
+slower per token.
+
+**Findings recorded:**
+
+- **Group-128 files do not load in mainline llama.cpp.**
+  `Ternary-Bonsai-4B-Q2_0.gguf` (group-128, PrismML-specific) fails
+  with a tensor offset mismatch. One byte per block difference:
+  17 bytes per 64 weights vs 18. Use the `_g64` variant.
+- **Requantizing Q4_K to TQ1_0 destroys quality.** Both KILN and
+  llama.cpp's own CLI produce garbage on the same requantized file.
+  Ternary models must be trained at ternary precision, or quantized
+  from F16.
+- **The runtime was never the problem.** The same garbage appeared in
+  llama.cpp's `llama cli` on the same file, which proved the shim and
+  loader were correct.
+
+**Next:** Phase 4.5 — sanity and quality guarantees.
+
+
 ### Phase 3 complete: runtime dispatcher
 
 Rule KILN-E36 now applies at the runtime layer, not only the kernel
