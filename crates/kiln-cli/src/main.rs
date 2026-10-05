@@ -360,16 +360,17 @@ async fn main() {
                 Err(e) => { eprintln!("load: {}", e); std::process::exit(1); }
             };
             let vocab_size = ctx.n_vocab();
-            println!("KILN chat session (Phase 2.2, single-turn)");
+            let eos = ctx.eos_token();
+            println!("KILN chat session (Phase 2.3, multi-turn)");
             println!("  model:      {}", model);
             println!("  vocab:      {} tokens", vocab_size);
+            println!("  eos:        {}", eos);
             println!("  seed:       {}", seed);
             println!("  max_tokens: {}", max_tokens);
             println!("  strategy:   {}", strategy);
             println!("  runtime:    llama.cpp via kiln-runtime");
             println!();
             println!("Type a message and press Enter. Ctrl-D to exit.");
-            println!("Note: single-turn only in 2.2. Multi-turn is 2.3.");
             println!();
 
             let strat = match strategy.as_str() {
@@ -382,6 +383,9 @@ async fn main() {
                 }
             };
             let mut sampler = Sampler::new(strat, seed);
+
+            // Multi-turn history. Each entry is (user, assistant).
+            let mut history: Vec<(String, String)> = Vec::new();
 
             let stdin = std::io::stdin();
             let mut line = String::new();
@@ -398,12 +402,26 @@ async fn main() {
                 let prompt = line.trim_end();
                 if prompt.is_empty() { continue; }
 
-                let templated = format!(
-                    "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n\
-                     <|im_start|>user\n{}<|im_end|>\n\
-                     <|im_start|>assistant\n",
-                    prompt
-                );
+                // Rebuild the full ChatML prompt with history.
+                let mut templated = String::new();
+                templated.push_str("<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n");
+                for (u, a) in &history {
+                    templated.push_str("<|im_start|>user\n");
+                    templated.push_str(u);
+                    templated.push_str("<|im_end|>\n<|im_start|>assistant\n");
+                    templated.push_str(a);
+                    templated.push_str("<|im_end|>\n");
+                }
+                templated.push_str("<|im_start|>user\n");
+                templated.push_str(prompt);
+                templated.push_str("<|im_end|>\n<|im_start|>assistant\n");
+
+                // Reset the KV cache so the prompt can be re-prefilled
+                // with the full history from position 0.
+                if let Err(e) = ctx.reset() {
+                    eprintln!("reset: {}", e);
+                    continue;
+                }
 
                 let t0 = std::time::Instant::now();
                 let prompt_ids = match ctx.tokenize(&templated) {
@@ -415,16 +433,19 @@ async fn main() {
                     Err(e) => { eprintln!("forward: {}", e); continue; }
                 };
 
+                let mut reply = String::new();
                 let mut n_gen = 0usize;
                 for _ in 0..max_tokens {
                     let token = match sampler.sample(&next_logits) {
                         Some(t) => t,
                         None => break,
                     };
+                    if (token as i32) == eos { break; }
                     let piece = ctx.token_to_str(token as i32);
-                    if piece.contains("<|im_end|>") { break; }
+                    if piece.is_empty() { break; }
                     print!("{}", piece);
                     std::io::stdout().flush().ok();
+                    reply.push_str(&piece);
                     n_gen += 1;
                     match ctx.forward(&[token as i32]) {
                         Ok(l) => next_logits = l,
@@ -434,6 +455,8 @@ async fn main() {
                 println!();
                 let dt = t0.elapsed().as_secs_f64().max(1e-6);
                 eprintln!("[{:.2}s, {:.2} tok/s, {} tokens]", dt, n_gen as f64 / dt, n_gen);
+
+                history.push((prompt.to_string(), reply));
             }
         }
         Commands::Pipeline { path, json } => {
