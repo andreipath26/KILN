@@ -227,22 +227,33 @@ async fn main() {
             }
         }
         Commands::Debug { model, prompt, top } => {
+            use kiln_runtime::{RuntimeDispatcher, RuntimeOp, RuntimeResult};
+            use kiln_runtime::LlamaCppBackend;
+
             let path = std::path::PathBuf::from(&model);
             let prof = kiln_runtime::SystemProfile::load_or_probe();
-            let mut ctx = match kiln_runtime::LlamaContext::load_with(
-                &path, Some((prof.n_ctx as i32, prof.n_batch as i32, prof.n_threads as i32))) {
-                Ok(c) => c,
-                Err(e) => { eprintln!("load: {}", e); std::process::exit(1); }
-            };
+            let mut d = RuntimeDispatcher::new();
+            d.register(Box::new(LlamaCppBackend::new()));
+            if let Err(e) = d.dispatch(RuntimeOp::Load {
+                path,
+                n_ctx: prof.n_ctx,
+                n_batch: prof.n_batch,
+                n_threads: prof.n_threads,
+            }) {
+                eprintln!("load: {}", e);
+                std::process::exit(1);
+            }
             println!("prompt: {:?}", prompt);
-            let ids = match ctx.tokenize(&prompt) {
-                Ok(t) => t,
+            let ids = match d.dispatch(RuntimeOp::Tokenize { text: prompt.clone() }) {
+                Ok(RuntimeResult::Tokens(t)) => t,
+                Ok(_) => { eprintln!("tokenize: wrong return"); std::process::exit(1); }
                 Err(e) => { eprintln!("tokenize: {}", e); std::process::exit(1); }
             };
             println!("tokens: {:?}", ids);
             let t0 = std::time::Instant::now();
-            let logits = match ctx.forward(&ids) {
-                Ok(l) => l,
+            let logits = match d.dispatch(RuntimeOp::Forward { tokens: ids }) {
+                Ok(RuntimeResult::Logits(l)) => l,
+                Ok(_) => { eprintln!("forward: wrong return"); std::process::exit(1); }
                 Err(e) => { eprintln!("forward: {}", e); std::process::exit(1); }
             };
             let dt = t0.elapsed().as_secs_f64();
@@ -252,8 +263,11 @@ async fn main() {
             println!("top {}:", top);
             for k in 0..top.min(idx.len()) {
                 let i = idx[k];
-                let s = ctx.token_to_str(i as i32);
-                println!("  {:>6}  {:>10.4}  {:?}", i, logits[i], s);
+                let tokstr = match d.dispatch(RuntimeOp::TokenToStr { token: i as i32 }) {
+                    Ok(RuntimeResult::Str(s)) => s,
+                    _ => String::new(),
+                };
+                println!("  {:>6}  {:>10.4}  {:?}", i, logits[i], tokstr);
             }
         }
 

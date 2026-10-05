@@ -8,3 +8,7 @@ pub use ffi::{LlamaContext, LlamaError};
 pub use loader::{find_existing, Library, LoadError};
 pub mod profile;
 pub use profile::{SystemProfile, Tier};
+pub mod runtime_dispatch;
+pub mod backends;
+pub use runtime_dispatch::{RuntimeBackend, RuntimeDispatcher, RuntimeError, RuntimeOp, RuntimeResult};
+pub use backends::llama_cpp::LlamaCppBackend;
