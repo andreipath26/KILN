@@ -389,7 +389,7 @@ impl GgufType {
             13 => GgufType::Q5_K,
             14 => GgufType::Q6_K,
             15 => GgufType::Q8_K,
-            1000 => GgufType::Tq1_0,
+            34 => GgufType::Tq1_0,
             other => GgufType::Unknown(other),
         }
     }

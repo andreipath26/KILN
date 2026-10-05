@@ -73,7 +73,7 @@ fn dtype_to_u32(t: GgufType) -> u32 {
         GgufType::Q5_K => 13,
         GgufType::Q6_K => 14,
         GgufType::Q8_K => 15,
-        GgufType::Tq1_0 => 1000,
+        GgufType::Tq1_0 => 34,  // GGML_TYPE_TQ1_0 in llama.cpp v0.5.0
         GgufType::Unknown(v) => v,
     }
 }
