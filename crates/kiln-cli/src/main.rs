@@ -369,24 +369,37 @@ async fn main() {
         }
         Commands::Chat { model, seed, max_tokens, strategy } => {
             use kiln_core::chat::{Sampler, SamplingStrategy};
+            use kiln_runtime::{RuntimeDispatcher, RuntimeOp, RuntimeResult, LlamaCppBackend};
 
             let path = std::path::PathBuf::from(&model);
             let prof = kiln_runtime::SystemProfile::load_or_probe();
-            let mut ctx = match kiln_runtime::LlamaContext::load_with(
-                &path, Some((prof.n_ctx as i32, prof.n_batch as i32, prof.n_threads as i32))) {
-                Ok(c) => c,
-                Err(e) => { eprintln!("load: {}", e); std::process::exit(1); }
+            let mut d = RuntimeDispatcher::new();
+            d.register(Box::new(LlamaCppBackend::new()));
+            if let Err(e) = d.dispatch(RuntimeOp::Load {
+                path,
+                n_ctx: prof.n_ctx,
+                n_batch: prof.n_batch,
+                n_threads: prof.n_threads,
+            }) {
+                eprintln!("load: {}", e);
+                std::process::exit(1);
+            }
+            let vocab_size = match d.dispatch(RuntimeOp::NVocab) {
+                Ok(RuntimeResult::Int(n)) => n,
+                _ => { eprintln!("n_vocab failed"); std::process::exit(1); }
             };
-            let vocab_size = ctx.n_vocab();
-            let eos = ctx.eos_token();
-            println!("KILN chat session (Phase 2.3, multi-turn)");
+            let eos = match d.dispatch(RuntimeOp::EosToken) {
+                Ok(RuntimeResult::Int(n)) => n,
+                _ => { eprintln!("eos_token failed"); std::process::exit(1); }
+            };
+            println!("KILN chat session (Phase 3, runtime dispatch)");
             println!("  model:      {}", model);
             println!("  vocab:      {} tokens", vocab_size);
             println!("  eos:        {}", eos);
             println!("  seed:       {}", seed);
             println!("  max_tokens: {}", max_tokens);
             println!("  strategy:   {}", strategy);
-            println!("  runtime:    llama.cpp via kiln-runtime");
+            println!("  runtime:    llama.cpp via RuntimeDispatcher");
             println!("  profile:    tier={:?} n_ctx={} n_batch={} n_threads={}",
                 prof.tier, prof.n_ctx, prof.n_batch, prof.n_threads);
             println!();
@@ -404,9 +417,7 @@ async fn main() {
             };
             let mut sampler = Sampler::new(strat, seed);
 
-            // Multi-turn history. Each entry is (user, assistant).
             let mut history: Vec<(String, String)> = Vec::new();
-
             let stdin = std::io::stdin();
             let mut line = String::new();
             loop {
@@ -422,7 +433,6 @@ async fn main() {
                 let prompt = line.trim_end();
                 if prompt.is_empty() { continue; }
 
-                // Rebuild the full ChatML prompt with history.
                 let mut templated = String::new();
                 templated.push_str("<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n");
                 for (u, a) in &history {
@@ -436,21 +446,19 @@ async fn main() {
                 templated.push_str(prompt);
                 templated.push_str("<|im_end|>\n<|im_start|>assistant\n");
 
-                // Reset the KV cache so the prompt can be re-prefilled
-                // with the full history from position 0.
-                if let Err(e) = ctx.reset() {
+                if let Err(e) = d.dispatch(RuntimeOp::Reset) {
                     eprintln!("reset: {}", e);
                     continue;
                 }
 
                 let t0 = std::time::Instant::now();
-                let prompt_ids = match ctx.tokenize(&templated) {
-                    Ok(t) => t,
-                    Err(e) => { eprintln!("tokenize: {}", e); continue; }
+                let prompt_ids = match d.dispatch(RuntimeOp::Tokenize { text: templated }) {
+                    Ok(RuntimeResult::Tokens(t)) => t,
+                    _ => { eprintln!("tokenize failed"); continue; }
                 };
-                let mut next_logits = match ctx.forward(&prompt_ids) {
-                    Ok(l) => l,
-                    Err(e) => { eprintln!("forward: {}", e); continue; }
+                let mut next_logits = match d.dispatch(RuntimeOp::Forward { tokens: prompt_ids }) {
+                    Ok(RuntimeResult::Logits(l)) => l,
+                    _ => { eprintln!("forward failed"); continue; }
                 };
 
                 let mut reply = String::new();
@@ -461,15 +469,18 @@ async fn main() {
                         None => break,
                     };
                     if (token as i32) == eos { break; }
-                    let piece = ctx.token_to_str(token as i32);
+                    let piece = match d.dispatch(RuntimeOp::TokenToStr { token: token as i32 }) {
+                        Ok(RuntimeResult::Str(s)) => s,
+                        _ => break,
+                    };
                     if piece.is_empty() { break; }
                     print!("{}", piece);
                     std::io::stdout().flush().ok();
                     reply.push_str(&piece);
                     n_gen += 1;
-                    match ctx.forward(&[token as i32]) {
-                        Ok(l) => next_logits = l,
-                        Err(e) => { eprintln!("\nforward: {}", e); break; }
+                    match d.dispatch(RuntimeOp::Forward { tokens: vec![token as i32] }) {
+                        Ok(RuntimeResult::Logits(l)) => next_logits = l,
+                        _ => { eprintln!("\nforward failed"); break; }
                     }
                 }
                 println!();
