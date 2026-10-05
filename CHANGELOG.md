@@ -6,6 +6,46 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Phase 2.3 complete: system profile
+
+- **`crates/kiln-runtime/src/profile.rs`.** `SystemProfile::probe()`
+  reads logical core count from `std::thread::available_parallelism()`
+  and RAM from `/proc/meminfo`. Classifies into Tier0..Server. Writes
+  `~/.config/kiln/system-profile.json` on first run, reads it on every
+  subsequent run. No new crate dependencies.
+- **Shim gains `struct kiln_llama_params`.** `kiln_llama_load` takes
+  an optional params pointer for `n_ctx`, `n_batch`, `n_threads`. The
+  shim passes them to `llama_context_default_params()`.
+- **`LlamaContext::load_with(path, params)`** in
+  `crates/kiln-runtime/src/ffi.rs`. `load(path)` remains for
+  compatibility, delegating to `load_with(path, None)`.
+- **`kiln debug` and `kiln chat` use the profile.** Both call
+  `SystemProfile::load_or_probe()` and pass the values through.
+
+**Tier0 classifier.** `cores <= 8 && ram_gb <= 16` is Tier0. On the
+Dell 7490 the probe reports 8 logical cores and 15 GB, which lands on
+Tier0 with `n_ctx=4096`, `n_batch=512`, `n_threads=4`.
+
+**Thread count matters.** 8 logical cores is 4 physical plus
+hyperthreads. Hyperthreads contend for the same memory bus on a
+memory-bound matmul. Measured: 8 threads 0.1695 s, 4 threads
+0.1497 s. **~12% faster with fewer threads.** The profile picks 4.
+
+**Numbers, Tier 0, Qwen2.5-1.5B Q4_K, no `LD_LIBRARY_PATH`:**
+
+| | Value |
+|---|---|
+| `kiln debug` forward | 0.1497 s |
+| `kiln debug` top-1 | ` Paris` |
+| `kiln chat` turn 1 | 10.00 tok/s |
+| `kiln chat` turn 2 | 5.54 tok/s |
+
+**Phase 2.3 is complete.** System profile, multi-turn chat, KV reset,
+EOS id — all done.
+
+**Next:** Phase 3, dispatcher wired into the fork.
+
+
 ### Phase 2.0 + 2.3 (partial) — fork wired, multi-turn chat
 
 **The repo is now cloneable and the binary is self-contained.**

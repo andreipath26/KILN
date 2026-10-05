@@ -6,33 +6,33 @@ in Sydney. No cloud. No GPU required. No compromise on accuracy.
 
 ## Status
 
-**Phase 2.2 complete. KILN runs on llama.cpp.**
+**Phase 2 complete. KILN runs on llama.cpp with a system profile and
+multi-turn chat.**
 
-KILN wraps llama.cpp via a C++ shim (`cpp/llama_shim/`). The CLI's
-`kiln debug` and `kiln chat` now call llama.cpp's tokenizer and
-forward pass through `crates/kiln-runtime`, not the deprecated
-from-scratch transformer.
+`vendor/llama.cpp` is a git submodule of
+`github.com/andreipath26/kiln-llama`, statically linked. No
+`LD_LIBRARY_PATH`. No runtime dependency on a system llama.cpp. The
+repo clones and builds from scratch.
+
+The system profile probes the machine on first run, writes
+`~/.config/kiln/system-profile.json`, and feeds `n_ctx`, `n_batch`,
+`n_threads` to the shim on every run. On Tier 0 the profile picks 4
+threads, not 8 — hyperthreads contend for the memory bus.
 
 Measured on Qwen2.5-1.5B Q4_K, Dell Latitude 7490 (Tier 0):
 
-- `kiln debug "The capital of France is" --top 3` -> top-1 ` Paris`.
-  Warm forward **0.164 s**.
-- `kiln chat` `hi there` -> `Hello! How can I help you today?`
-  9 tokens in **1.64 s, 5.49 tok/s**.
-- From-scratch runtime on the same prompt: 58.98 s, 0.15 tok/s.
-  **36x faster.**
+- `kiln debug "The capital of France is"` -> top-1 ` Paris`, forward
+  **0.1497 s**.
+- `kiln chat` turn 1: `Hello! How can I help you today?`, 0.90 s,
+  **10.00 tok/s**.
+- `kiln chat` turn 2 (multi-turn, history in prompt):
+  `You said "hi there".`, 1.08 s, 5.54 tok/s.
 
-Phase 1 (correctness reference), Phase 1.5 (dispatch seam),
-Phase 2.0 (runtime loading design), and Phase 2.1 (`kiln-runtime`)
-are complete. **Phase 2.3** is next: system profile, multi-turn
-chat, KV reset, EOS id.
+Phases 1, 1.5, 2.0, 2.1, 2.2, and 2.3 are complete. **Next is Phase
+3:** the dispatcher wired into the fork.
 
 The product claim: **KILN runs models larger than your machine's
 memory.** Phase 5 is the mission phase (MoE expert streaming).
-
-Known: the release binary needs
-`LD_LIBRARY_PATH=/home/andreipath/llama.cpp/build/bin` at runtime.
-RPATH fix is Phase 2.0 shipping-half.
 
 ## What this is## What this is## What this is## What this is
 
