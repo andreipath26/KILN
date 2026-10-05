@@ -6,6 +6,46 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Phase 5 preparation: streaming build, UMF design, speed run plan
+
+- **`moe-stream` branch builds on Tier 0.** Cloned to
+  `/tmp/llama-stream`, built with `cmake`. `llama` binary at
+  `/tmp/llama-stream/build/bin/llama`. All streaming flags verified:
+  `--moe-stream`, `--moe-stream-cache <NG|Ns>`,
+  `--moe-stream-io-threads N`, `--moe-stream-direct`, `-ncmoe`,
+  `--spec-draft-n-cpu-moe`. `--moe-stream-window` correctly absent
+  (the buggy feature). No model downloaded. Zero data spent.
+- **`docs/umf-design.md`.** The UMF container format: a GGUF file
+  plus a KILN extension section holding an expert manifest,
+  prerouter weights, cache policy, and thermal profile. Readable by
+  stock llama.cpp (the GGUF part) and by KILN (the whole file).
+- **Roadmap Section 15.6.** The streaming fork fix list: the
+  `n_expert_used >= 6` abort, the O_DIRECT vs buffered choice, PR
+  #23695's four `ggml-backend.cpp` fixes, and the two documented
+  behavior notes.
+- **Roadmap Section 15.7.** Phase 3.5, the dense path speed run.
+  Root causes, validated fixes, success criterion.
+
+### Measured: KILN vs Ollama on Tier 0
+
+Qwen2.5-1.5B Q4_K, prompt `hi there`:
+
+| Metric | Ollama | KILN |
+|---|---|---|
+| Token generation rate | 26.86 tok/s | 10.57 tok/s best, 4.15 worst |
+| Prompt eval rate | 43.13 tok/s | not measured |
+| Prompt cache | 30/31 tokens | none |
+| Total wall clock (warm) | 464 ms | 850 ms |
+
+**The 127x from-scratch gap is gone.** The remaining gap is 2.5x on
+generation rate. Phase 3.5 closes it.
+
+### Next
+
+Phase 3.5: append instead of reset, n-gram speculative decoding,
+thread tuning, batch tuning. Target: beat Ollama's 26.86 tok/s.
+
+
 ### Phase 4.5 complete: sanity and quality guarantees
 
 A user never sees garbage without an explanation. Broken models are

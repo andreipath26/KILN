@@ -6,31 +6,42 @@ in Sydney. No cloud. No GPU required. No compromise on accuracy.
 
 ## Status
 
-**Phase 4.5 complete. A broken model is refused, not run.**
+**Phase 5 preparation complete. Phase 3.5 — dense path speed run — is next.**
 
 KILN forks llama.cpp, statically links it, routes every operation
 through `RuntimeDispatcher`, runs natively ternary-trained models,
-and validates every model before use.
+validates every model with `kiln doctor`, and watches every
+generation for degeneration.
 
-`kiln doctor <model>` runs load checks and canary prompts. Two fixed
-prompts with expected top-1: ` Paris` for "The capital of France is",
-` lazy` for "The quick brown fox jumps over the". A model that fails
-a canary is refused. `kiln chat` refuses to start. `--force` overrides
-with a warning.
+Measured on Tier 0, Qwen2.5-1.5B Q4_K, prompt `hi there`:
 
-During chat, a generation watchdog aborts on repeated output, low
-confidence, or non-printable output. Silent on valid models.
+| | Ollama | KILN |
+|---|---|---|
+| Generation rate | 26.86 tok/s | **10.57 tok/s** |
+| Prompt cache | 30/31 tokens | none |
+| Total wall clock (warm) | 464 ms | 850 ms |
 
-Verified models, Dell Latitude 7490 (Tier 0):
+The from-scratch 127x gap is gone. The remaining gap is **2.5x on
+generation rate**. Phase 3.5 closes it with four validated fixes:
 
-| Model | Format | Doctor | Speed |
-|---|---|---|---|
-| Qwen2.5-1.5B | Q4_K | PASS | 4.22-10.00 tok/s |
-| Ternary-Bonsai-4B | Q2_0 g64 | PASS | 0.75-0.85 tok/s |
-| Qwen2.5-1.5B TQ1_0 (requantized) | TQ1_0 | **FAIL** | refused |
+1. **Append, do not reset.** Stop re-prefilling the ChatML wrapper
+   every turn. Ollama caches 30/31 prompt tokens; we cache none.
+   Expected 2-3x on turn 2+.
+2. **Draftless n-gram speculative decoding.** `--spec-type ngram-mod`
+   ships in llama.cpp. No draft model. 1.3-2x. Stacks with prompt
+   cache.
+3. **Thread tuning.** Test 2, 3, 4 threads on the real workload.
+4. **Batch tuning.** Test `n_batch` 256-2048, `n_ubatch` 128-512.
 
-Phases 1, 1.5, 2.0-2.3, 3, 4, and 4.5 are complete. **Next is Phase
-5:** MoE expert streaming. The mission.
+**MoE streaming is built and waiting.** The `moe-stream` branch of
+`github.com/andreipath26/kiln-llama` builds on Tier 0. All streaming
+flags verified: `--moe-stream`, `--moe-stream-cache`,
+`--moe-stream-io-threads`, `--moe-stream-direct`, `-ncmoe`. The model
+test (Qwen3-30B-A3B) waits for data budget.
+
+Phases 1, 1.5, 2.0-2.3, 3, 4, 4.5 complete. **Next is Phase 3.5:**
+beat Ollama on the dense path. **Then Phase 5:** MoE expert
+streaming. The mission.
 
 The product claim: **KILN runs models larger than your machine's
 memory.**
