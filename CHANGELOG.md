@@ -6,6 +6,40 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Phase 4.5 complete: sanity and quality guarantees
+
+A user never sees garbage without an explanation. Broken models are
+refused, not run.
+
+- **`crates/kiln-runtime/src/sanity.rs`.** `Canary`, `CANARIES`,
+  `run_canaries`, `Watchdog`, `WatchdogVerdict`, `SanityError`.
+- **Canary prompts.** Two fixed prompts with expected top-1:
+  - "The capital of France is" -> ` Paris`
+  - "The quick brown fox jumps over the" -> ` lazy`
+  A third prompt ("1 + 1 =") was removed because the top-1 token after
+  `=` is a space, not the digit. Not a useful canary at top-1.
+- **Generation watchdog.** After each generated token: repeated output
+  (last 3 identical), low confidence (top-1 logit < -15), non-text
+  (more than 30% of last 20 tokens are non-printable). Aborts with a
+  reason. Silent on a good model.
+- **`kiln doctor <model>` command.** Runs the load check and the
+  canaries without starting a chat. Prints `load: PASS|FAIL`,
+  `canary: PASS|FAIL (reason)`, `verdict: model is usable|refused`.
+
+**Verified.**
+
+| Model | Result |
+|---|---|
+| `models/tiny/qwen25-1.5b.gguf` (Q4_K) | load PASS, canary PASS, usable |
+| `models/tiny/qwen25-1.5b-tq1-native.gguf` (requantized TQ1_0) | load PASS, canary FAIL (`eree`), refused |
+| `models/ternary/Ternary-Bonsai-4B-Q2_0_g64.gguf` | load PASS, canary PASS, usable |
+
+**Watchdog is silent on valid models.** Confirmed with `kiln chat` on
+Qwen2.5-1.5B: `Hello! How can I help you today?`, no watchdog messages.
+
+**Next:** Phase 5 — MoE expert streaming. The mission.
+
+
 ### Phase 4 complete: ternary works end to end
 
 - **`kiln convert` writer emits ggml type 34 (TQ1_0)** instead of the

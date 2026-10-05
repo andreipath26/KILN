@@ -6,27 +6,31 @@ in Sydney. No cloud. No GPU required. No compromise on accuracy.
 
 ## Status
 
-**Phase 4 complete. Ternary models load and hold a coherent
-conversation.**
+**Phase 4.5 complete. A broken model is refused, not run.**
 
-KILN forks llama.cpp, statically links it, probes the machine,
-routes every operation through `RuntimeDispatcher`, and now runs
-natively ternary-trained models.
+KILN forks llama.cpp, statically links it, routes every operation
+through `RuntimeDispatcher`, runs natively ternary-trained models,
+and validates every model before use.
+
+`kiln doctor <model>` runs load checks and canary prompts. Two fixed
+prompts with expected top-1: ` Paris` for "The capital of France is",
+` lazy` for "The quick brown fox jumps over the". A model that fails
+a canary is refused. `kiln chat` refuses to start. `--force` overrides
+with a warning.
+
+During chat, a generation watchdog aborts on repeated output, low
+confidence, or non-printable output. Silent on valid models.
 
 Verified models, Dell Latitude 7490 (Tier 0):
 
-| Model | Format | Size | Speed |
+| Model | Format | Doctor | Speed |
 |---|---|---|---|
-| Qwen2.5-1.5B | Q4_K | 986 MB | 8.46–10.00 tok/s |
-| Ternary-Bonsai-4B | Q2_0 g64 | 1.07 GB | 0.75–0.85 tok/s |
+| Qwen2.5-1.5B | Q4_K | PASS | 4.22-10.00 tok/s |
+| Ternary-Bonsai-4B | Q2_0 g64 | PASS | 0.75-0.85 tok/s |
+| Qwen2.5-1.5B TQ1_0 (requantized) | TQ1_0 | **FAIL** | refused |
 
-Multi-turn chat works. Emoji and multi-byte characters render
-correctly. No garbage output.
-
-Phases 1, 1.5, 2.0–2.3, 3, and 4 are complete. **Next is Phase 4.5:**
-sanity and quality guarantees — load-time validation, canary prompts,
-and a generation watchdog so a broken model is refused instead of
-run. Then Phase 5, the mission: MoE expert streaming.
+Phases 1, 1.5, 2.0-2.3, 3, 4, and 4.5 are complete. **Next is Phase
+5:** MoE expert streaming. The mission.
 
 The product claim: **KILN runs models larger than your machine's
 memory.**
