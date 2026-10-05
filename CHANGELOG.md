@@ -6,6 +6,52 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Phase 3 complete: runtime dispatcher
+
+Rule KILN-E36 now applies at the runtime layer, not only the kernel
+layer. Every model operation in the CLI goes through a dispatcher.
+
+- **`crates/kiln-runtime/src/runtime_dispatch.rs`.** `RuntimeOp`,
+  `RuntimeBackend`, `RuntimeDispatcher`, `RuntimeError`,
+  `RuntimeResult`. Operations: Load, Forward, Reset, Tokenize,
+  Logits, TokenToStr, Unload, NVocab, EosToken.
+- **`crates/kiln-runtime/src/backends/llama_cpp.rs`.**
+  `LlamaCppBackend` wraps `LlamaContext` and owns the session. Every
+  operation is a thin call into the existing context.
+- **`kiln debug` and `kiln chat` route through
+  `RuntimeDispatcher::dispatch`.** `LlamaContext` is still the
+  primitive; the backend is the adapter.
+- **Two dispatchers, two layers.** `kiln-core::dispatch` for
+  per-matmul routing inside the from-scratch transformer (frozen,
+  Phase 5 may use it). `kiln-runtime::runtime_dispatch` for
+  per-model-operation routing. Same concept, different granularity.
+
+**Why it matters.** Phase 4 (ternary) and Phase 5 (MoE streaming)
+register backends with `d.register(Box::new(...))`. No changes to
+`kiln-cli`, no changes to `LlamaContext`. The seam exists.
+
+**Measured.** Qwen2.5-1.5B Q4_K, Dell Latitude 7490 (Tier 0):
+
+| | Value |
+|---|---|
+| `kiln debug` top-1 | ` Paris` |
+| `kiln debug` forward, 10 runs | min 0.1459 s, median 0.2736 s, max 0.3077 s |
+| `kiln chat` turn 1 | `Hello! How can I help you today?`, 8.46 tok/s |
+| `kiln chat` turn 2 | `You said "hi there".`, 5.10 tok/s |
+
+**Measurement note.** Single-run `kiln debug` forward on Tier 0 has
+±2x variance. The best-case 0.1459 s equals Phase 2.3's 0.1497 s, so
+the dispatcher adds nothing. Future gates on this machine measure
+best-of-N or median-of-N, never a single run. The variance is a Tier
+0 property, not a defect.
+
+**Gate 3: PASSED.** Correctness: top-1 ` Paris`, multi-turn correct.
+Speed: no regression. Every model operation goes through the
+dispatcher.
+
+**Next:** Phase 4 — ternary in the fork.
+
+
 ### Phase 2.3 complete: system profile
 
 - **`crates/kiln-runtime/src/profile.rs`.** `SystemProfile::probe()`

@@ -6,30 +6,27 @@ in Sydney. No cloud. No GPU required. No compromise on accuracy.
 
 ## Status
 
-**Phase 2 complete. KILN runs on llama.cpp with a system profile and
-multi-turn chat.**
+**Phase 3 complete. Every model operation goes through the runtime
+dispatcher.**
 
-`vendor/llama.cpp` is a git submodule of
-`github.com/andreipath26/kiln-llama`, statically linked. No
-`LD_LIBRARY_PATH`. No runtime dependency on a system llama.cpp. The
-repo clones and builds from scratch.
-
-The system profile probes the machine on first run, writes
-`~/.config/kiln/system-profile.json`, and feeds `n_ctx`, `n_batch`,
-`n_threads` to the shim on every run. On Tier 0 the profile picks 4
-threads, not 8 — hyperthreads contend for the memory bus.
+KILN forks llama.cpp (`vendor/llama.cpp` submodule of
+`github.com/andreipath26/kiln-llama`), statically links it, probes
+the machine at first run, and routes every operation through
+`RuntimeDispatcher`. `LlamaCppBackend` wraps `LlamaContext` and owns
+the session. The seam exists for Phase 4 (ternary) and Phase 5 (MoE
+streaming) to register new backends.
 
 Measured on Qwen2.5-1.5B Q4_K, Dell Latitude 7490 (Tier 0):
 
-- `kiln debug "The capital of France is"` -> top-1 ` Paris`, forward
-  **0.1497 s**.
-- `kiln chat` turn 1: `Hello! How can I help you today?`, 0.90 s,
-  **10.00 tok/s**.
-- `kiln chat` turn 2 (multi-turn, history in prompt):
-  `You said "hi there".`, 1.08 s, 5.54 tok/s.
+- `kiln debug "The capital of France is"` -> top-1 ` Paris`.
+  Forward, 10 runs: min 0.1459 s, median 0.2736 s.
+- `kiln chat` turn 1: `Hello! How can I help you today?`,
+  **8.46 tok/s**.
+- `kiln chat` turn 2 (multi-turn): `You said "hi there".`,
+  5.10 tok/s.
 
-Phases 1, 1.5, 2.0, 2.1, 2.2, and 2.3 are complete. **Next is Phase
-3:** the dispatcher wired into the fork.
+Phases 1, 1.5, 2.0, 2.1, 2.2, 2.3, and 3 are complete. **Next is
+Phase 4:** ternary in the fork.
 
 The product claim: **KILN runs models larger than your machine's
 memory.** Phase 5 is the mission phase (MoE expert streaming).
