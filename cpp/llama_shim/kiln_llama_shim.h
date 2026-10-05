@@ -14,8 +14,15 @@ extern "C" {
 
 typedef void* kiln_llama_t;
 
+/* Context parameters. Filled by the caller from the system profile. */
+struct kiln_llama_params {
+    int32_t n_ctx;
+    int32_t n_batch;
+    int32_t n_threads;
+};
+
 /* Returns NULL on failure. */
-kiln_llama_t kiln_llama_load(const char* model_path);
+kiln_llama_t kiln_llama_load(const char* model_path, const struct kiln_llama_params* params);
 
 void kiln_llama_free(kiln_llama_t h);
 

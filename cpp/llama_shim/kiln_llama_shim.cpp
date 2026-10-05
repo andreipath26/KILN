@@ -18,7 +18,7 @@ struct kiln_llama {
     struct llama_batch batch;
 };
 
-kiln_llama_t kiln_llama_load(const char* model_path) {
+kiln_llama_t kiln_llama_load(const char* model_path, const struct kiln_llama_params* params) {
     if (!model_path) return NULL;
 
     llama_backend_init();
@@ -30,9 +30,14 @@ kiln_llama_t kiln_llama_load(const char* model_path) {
     }
 
     struct llama_context_params cparams = llama_context_default_params();
-    /* 2048 token context is enough for Phase 2. */
-    cparams.n_ctx = 512;
-    cparams.n_batch = 512;
+    if (params) {
+        if (params->n_ctx > 0)     cparams.n_ctx = (uint32_t)params->n_ctx;
+        if (params->n_batch > 0)   cparams.n_batch = (uint32_t)params->n_batch;
+        if (params->n_threads > 0) cparams.n_threads = (uint32_t)params->n_threads;
+    } else {
+        cparams.n_ctx = 512;
+        cparams.n_batch = 512;
+    }
     struct llama_context* ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
         llama_model_free(model);

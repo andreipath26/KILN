@@ -6,3 +6,5 @@ pub mod loader;
 
 pub use ffi::{LlamaContext, LlamaError};
 pub use loader::{find_existing, Library, LoadError};
+pub mod profile;
+pub use profile::{SystemProfile, Tier};

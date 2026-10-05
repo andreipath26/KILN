@@ -26,8 +26,15 @@ impl std::fmt::Display for LlamaError {
 
 impl std::error::Error for LlamaError {}
 
+#[repr(C)]
+pub struct LlamaParamsRaw {
+    pub n_ctx: c_int,
+    pub n_batch: c_int,
+    pub n_threads: c_int,
+}
+
 extern "C" {
-    fn kiln_llama_load(path: *const c_char) -> *mut c_void;
+    fn kiln_llama_load(path: *const c_char, params: *const LlamaParamsRaw) -> *mut c_void;
     fn kiln_llama_free(h: *mut c_void);
     fn kiln_llama_n_vocab(h: *mut c_void) -> c_int;
     fn kiln_llama_tokenize(
@@ -66,9 +73,19 @@ unsafe impl Send for LlamaContext {}
 
 impl LlamaContext {
     pub fn load(path: &Path) -> Result<Self, LlamaError> {
+        Self::load_with(path, None)
+    }
+
+    pub fn load_with(path: &Path, params: Option<(i32, i32, i32)>) -> Result<Self, LlamaError> {
         let cpath = CString::new(path.to_string_lossy().as_bytes())
             .map_err(|e| LlamaError::Load(e.to_string()))?;
-        let handle = unsafe { kiln_llama_load(cpath.as_ptr()) };
+        let raw = params.map(|(n_ctx, n_batch, n_threads)| LlamaParamsRaw {
+            n_ctx: n_ctx as c_int,
+            n_batch: n_batch as c_int,
+            n_threads: n_threads as c_int,
+        });
+        let raw_ptr = raw.as_ref().map(|r| r as *const LlamaParamsRaw).unwrap_or(std::ptr::null());
+        let handle = unsafe { kiln_llama_load(cpath.as_ptr(), raw_ptr) };
         if handle.is_null() {
             return Err(LlamaError::Load(format!(
                 "shim returned null for {}",

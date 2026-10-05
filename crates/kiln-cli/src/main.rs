@@ -228,7 +228,9 @@ async fn main() {
         }
         Commands::Debug { model, prompt, top } => {
             let path = std::path::PathBuf::from(&model);
-            let mut ctx = match kiln_runtime::LlamaContext::load(&path) {
+            let prof = kiln_runtime::SystemProfile::load_or_probe();
+            let mut ctx = match kiln_runtime::LlamaContext::load_with(
+                &path, Some((prof.n_ctx as i32, prof.n_batch as i32, prof.n_threads as i32))) {
                 Ok(c) => c,
                 Err(e) => { eprintln!("load: {}", e); std::process::exit(1); }
             };
@@ -355,7 +357,9 @@ async fn main() {
             use kiln_core::chat::{Sampler, SamplingStrategy};
 
             let path = std::path::PathBuf::from(&model);
-            let mut ctx = match kiln_runtime::LlamaContext::load(&path) {
+            let prof = kiln_runtime::SystemProfile::load_or_probe();
+            let mut ctx = match kiln_runtime::LlamaContext::load_with(
+                &path, Some((prof.n_ctx as i32, prof.n_batch as i32, prof.n_threads as i32))) {
                 Ok(c) => c,
                 Err(e) => { eprintln!("load: {}", e); std::process::exit(1); }
             };
@@ -369,6 +373,8 @@ async fn main() {
             println!("  max_tokens: {}", max_tokens);
             println!("  strategy:   {}", strategy);
             println!("  runtime:    llama.cpp via kiln-runtime");
+            println!("  profile:    tier={:?} n_ctx={} n_batch={} n_threads={}",
+                prof.tier, prof.n_ctx, prof.n_batch, prof.n_threads);
             println!();
             println!("Type a message and press Enter. Ctrl-D to exit.");
             println!();
