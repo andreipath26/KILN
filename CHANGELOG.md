@@ -6,6 +6,53 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Phase 2.0 + 2.3 (partial) — fork wired, multi-turn chat
+
+**The repo is now cloneable and the binary is self-contained.**
+
+- **`vendor/llama.cpp`** is a git submodule of
+  `github.com/andreipath26/kiln-llama`, the KILN fork of llama.cpp.
+  Pinned to the snapshot commit `daf663e0` on branch
+  `kiln-pin-v0.5.0`. Rule KILN-E44.
+- **Static linking.** `crates/kiln-runtime/build.rs` links
+  `libllama.a`, `libggml.a`, `libggml-base.a`, `libggml-cpu.a` from
+  `vendor/llama.cpp/build/{src,ggml/src}/`. No shared library. No
+  `LD_LIBRARY_PATH`. The release binary has zero runtime dependency
+  on a system llama.cpp.
+- **Absolute paths in `build.rs`**, derived from
+  `CARGO_MANIFEST_DIR`. Relative paths resolved from the wrong
+  working directory and broke the linker.
+- **`kiln_llama_reset` and `kiln_llama_eos_token`** in the C++ shim.
+  v0.5.0 uses the memory API (`llama_get_memory` /
+  `llama_memory_clear`), not the deprecated `llama_kv_self_clear`.
+- **`LlamaContext::reset()` and `LlamaContext::eos_token()`** in
+  `crates/kiln-runtime/src/ffi.rs`.
+- **`kiln chat` is multi-turn.** History kept as
+  `Vec<(user, assistant)>`. Full ChatML prompt rebuilt each turn.
+  KV reset between turns.
+- **EOS read from vocab** via `ctx.eos_token()` (151645 for Qwen2.5).
+  The string-match `"<|im_end|>"` check is gone.
+
+**Numbers, Tier 0, Qwen2.5-1.5B Q4_K, no `LD_LIBRARY_PATH`:**
+
+| | Value |
+|---|---|
+| `kiln debug "The capital of France is"` | top-1 ` Paris`, forward 0.209 s |
+| `kiln chat` turn 1 | `Hello! How can I help you today?`, 0.90 s, **10.00 tok/s** |
+| `kiln chat` turn 2 | `You said "hi there".`, 1.08 s, 5.54 tok/s |
+
+**Fresh clone test passed.** `git clone
+https://github.com/andreipath26/KILN.git` followed by `git submodule
+update --init vendor/llama.cpp` resolves the submodule and checks
+out `daf663e0`. The repo is cloneable by anyone.
+
+**Known:** `LlamaForward` adapter in
+`crates/kiln-cli/src/llama_forward.rs` is unused. Kept for a future
+refactor.
+
+**Next:** Phase 2.3 system profile.
+
+
 ### Phase 2.2 — KILN runs on llama.cpp
 
 **First measured win of the project.**
