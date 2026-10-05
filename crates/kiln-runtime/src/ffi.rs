@@ -169,8 +169,12 @@ impl LlamaContext {
         self.logits()
     }
 
-    pub fn token_to_str(&self, token: i32) -> String {
-        let mut buf = vec![0u8; 64];
+    /// Decode one token to raw UTF-8 bytes. Do not lossy-convert here;
+    /// a token may carry a partial multi-byte sequence that the next
+    /// token completes. The caller buffers bytes and decodes when a
+    /// full sequence is available.
+    pub fn token_bytes(&self, token: i32) -> Vec<u8> {
+        let mut buf = vec![0u8; 256];
         let n = unsafe {
             kiln_llama_token_to_str(
                 self.handle,
@@ -179,9 +183,14 @@ impl LlamaContext {
                 buf.len() as c_int,
             )
         };
-        if n <= 0 { return String::new(); }
+        if n <= 0 { return Vec::new(); }
         buf.truncate(n as usize);
-        String::from_utf8_lossy(&buf).to_string()
+        buf
+    }
+
+    /// Backwards-compatible string form. Lossy. Prefer token_bytes.
+    pub fn token_to_str(&self, token: i32) -> String {
+        String::from_utf8_lossy(&self.token_bytes(token)).to_string()
     }
 }
 

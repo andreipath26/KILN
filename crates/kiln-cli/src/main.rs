@@ -264,6 +264,7 @@ async fn main() {
             for k in 0..top.min(idx.len()) {
                 let i = idx[k];
                 let tokstr = match d.dispatch(RuntimeOp::TokenToStr { token: i as i32 }) {
+                    Ok(RuntimeResult::Bytes(b)) => String::from_utf8_lossy(&b).to_string(),
                     Ok(RuntimeResult::Str(s)) => s,
                     _ => String::new(),
                 };
@@ -463,20 +464,45 @@ async fn main() {
 
                 let mut reply = String::new();
                 let mut n_gen = 0usize;
+                let mut pending: Vec<u8> = Vec::new();
                 for _ in 0..max_tokens {
                     let token = match sampler.sample(&next_logits) {
                         Some(t) => t,
                         None => break,
                     };
                     if (token as i32) == eos { break; }
-                    let piece = match d.dispatch(RuntimeOp::TokenToStr { token: token as i32 }) {
-                        Ok(RuntimeResult::Str(s)) => s,
+                    let raw = match d.dispatch(RuntimeOp::TokenToStr { token: token as i32 }) {
+                        Ok(RuntimeResult::Bytes(b)) => b,
+                        Ok(RuntimeResult::Str(s)) => s.into_bytes(),
                         _ => break,
                     };
-                    if piece.is_empty() { break; }
-                    print!("{}", piece);
-                    std::io::stdout().flush().ok();
-                    reply.push_str(&piece);
+                    if raw.is_empty() { break; }
+                    // Buffer bytes across tokens. A token may carry a
+                    // partial multi-byte UTF-8 sequence that the next
+                    // token completes. Decode only when the buffer is
+                    // valid UTF-8.
+                    pending.extend_from_slice(&raw);
+                    match std::str::from_utf8(&pending) {
+                        Ok(s) => {
+                            print!("{}", s);
+                            std::io::stdout().flush().ok();
+                            reply.push_str(s);
+                            pending.clear();
+                        }
+                        Err(_) => {
+                            // Partial sequence. Keep buffering. If the
+                            // buffer grows past 8 bytes without ever
+                            // being valid, it is not a partial sequence,
+                            // it is garbage. Emit it lossy and clear.
+                            if pending.len() > 8 {
+                                let s = String::from_utf8_lossy(&pending).to_string();
+                                print!("{}", s);
+                                std::io::stdout().flush().ok();
+                                reply.push_str(&s);
+                                pending.clear();
+                            }
+                        }
+                    }
                     n_gen += 1;
                     match d.dispatch(RuntimeOp::Forward { tokens: vec![token as i32] }) {
                         Ok(RuntimeResult::Logits(l)) => next_logits = l,

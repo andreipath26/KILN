@@ -60,7 +60,7 @@ impl RuntimeBackend for LlamaCppBackend {
             }
             RuntimeOp::TokenToStr { token } => {
                 let ctx = self.ctx.as_ref().ok_or(RuntimeError::NoSession)?;
-                Ok(RuntimeResult::Str(ctx.token_to_str(*token)))
+                Ok(RuntimeResult::Bytes(ctx.token_bytes(*token)))
             }
             RuntimeOp::Unload => {
                 self.ctx = None;

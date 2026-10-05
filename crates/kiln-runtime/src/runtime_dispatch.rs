@@ -25,6 +25,7 @@ pub enum RuntimeResult {
     Logits(Vec<f32>),
     Tokens(Vec<i32>),
     Str(String),
+    Bytes(Vec<u8>),
     Int(i32),
 }
 
