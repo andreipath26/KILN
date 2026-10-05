@@ -12,3 +12,5 @@ pub mod runtime_dispatch;
 pub mod backends;
 pub use runtime_dispatch::{RuntimeBackend, RuntimeDispatcher, RuntimeError, RuntimeOp, RuntimeResult};
 pub use backends::llama_cpp::LlamaCppBackend;
+pub mod sanity;
+pub use sanity::{run_canaries, Canary, SanityError, Watchdog, WatchdogVerdict, CANARIES};

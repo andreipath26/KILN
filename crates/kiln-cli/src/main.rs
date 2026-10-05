@@ -124,6 +124,11 @@ enum Commands {
         #[arg(long, default_value = "tq1_0")]
         quant: String,
     },
+    /// Validate a model: load checks and canary prompts.
+    Doctor {
+        /// Path to the GGUF file.
+        model: String,
+    },
 }
 
 #[tokio::main]
@@ -465,6 +470,7 @@ async fn main() {
                 let mut reply = String::new();
                 let mut n_gen = 0usize;
                 let mut pending: Vec<u8> = Vec::new();
+                let mut watchdog = kiln_runtime::Watchdog::new();
                 for _ in 0..max_tokens {
                     let token = match sampler.sample(&next_logits) {
                         Some(t) => t,
@@ -504,6 +510,24 @@ async fn main() {
                         }
                     }
                     n_gen += 1;
+                    // Watchdog: top-1 logit is the max of next_logits.
+                    let top1 = next_logits.iter().cloned()
+                        .fold(f32::NEG_INFINITY, f32::max);
+                    match watchdog.observe(token as i32, &raw, top1) {
+                        kiln_runtime::WatchdogVerdict::Ok => {}
+                        kiln_runtime::WatchdogVerdict::RepeatedOutput => {
+                            eprintln!("\n[watchdog] aborting: repeated output");
+                            break;
+                        }
+                        kiln_runtime::WatchdogVerdict::LowConfidence => {
+                            eprintln!("\n[watchdog] aborting: low confidence (top1={})", top1);
+                            break;
+                        }
+                        kiln_runtime::WatchdogVerdict::NonTextOutput => {
+                            eprintln!("\n[watchdog] aborting: non-text output");
+                            break;
+                        }
+                    }
                     match d.dispatch(RuntimeOp::Forward { tokens: vec![token as i32] }) {
                         Ok(RuntimeResult::Logits(l)) => next_logits = l,
                         _ => { eprintln!("\nforward failed"); break; }
@@ -515,6 +539,42 @@ async fn main() {
 
                 history.push((prompt.to_string(), reply));
             }
+        }
+        Commands::Doctor { model } => {
+            use kiln_runtime::{RuntimeDispatcher, RuntimeOp, RuntimeResult, LlamaCppBackend};
+            use kiln_runtime::run_canaries;
+
+            let path = std::path::PathBuf::from(&model);
+            let prof = kiln_runtime::SystemProfile::load_or_probe();
+            println!("KILN doctor: {}", model);
+            println!("  profile: tier={:?} n_ctx={} n_batch={} n_threads={}",
+                prof.tier, prof.n_ctx, prof.n_batch, prof.n_threads);
+
+            let mut d = RuntimeDispatcher::new();
+            d.register(Box::new(LlamaCppBackend::new()));
+            match d.dispatch(RuntimeOp::Load {
+                path,
+                n_ctx: prof.n_ctx,
+                n_batch: prof.n_batch,
+                n_threads: prof.n_threads,
+            }) {
+                Ok(_) => println!("  load: PASS"),
+                Err(e) => { println!("  load: FAIL ({})", e); std::process::exit(1); }
+            }
+
+            // Canaries need a LlamaContext. The backend owns it, so
+            // reload through the context directly for the canary pass.
+            let path2 = std::path::PathBuf::from(&model);
+            let mut ctx = match kiln_runtime::LlamaContext::load_with(
+                &path2, Some((prof.n_ctx as i32, prof.n_batch as i32, prof.n_threads as i32))) {
+                Ok(c) => c,
+                Err(e) => { println!("  canary: SKIP (reload failed: {})", e); std::process::exit(1); }
+            };
+            match run_canaries(&mut ctx) {
+                Ok(()) => println!("  canary: PASS ({}/{})", kiln_runtime::CANARIES.len(), kiln_runtime::CANARIES.len()),
+                Err(e) => { println!("  canary: FAIL ({})", e); std::process::exit(1); }
+            }
+            println!("  verdict: model is usable");
         }
         Commands::Pipeline { path, json } => {
             let path_buf = std::path::PathBuf::from(&path);
