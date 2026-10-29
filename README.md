@@ -1,154 +1,176 @@
 # KILN
 
-The fastest local LLM runtime on Earth. One binary per platform. One model
-file. One API. Runs on a 2018 Dell laptop, an 8xH100 server, and a ThinkPad
-in Sydney. No cloud. No GPU required. No compromise on accuracy.
+**A local LLM runtime designed to run models larger than the machine's physical memory.**
 
-## Status
+KILN is a per-layer runtime and dispatcher that coordinates compute and a unified memory hierarchy across CPU, integrated/discrete GPU, NPU, RAM, NVMe storage and optional VRAM. The product goal is one runtime contract, one model file where supported, and a local-first experience across ordinary laptops and larger systems.
 
-**Phase 5 preparation complete. Phase 3.5 — dense path speed run — is next.**
+> **Status and source of truth:** Phases 1, 1.5, 2.0–2.3, 3, 4 and 4.5 are recorded complete. Phase 3.5 (dense-path performance) is the immediate execution priority. Phase 5 (CPU-only MoE expert streaming) remains the core mission, with feasibility and end-to-end acceptance gates still pending. The full phase ledger, rules and research log live in the [KILN Master Roadmap and Rules Set](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md).
 
-KILN forks llama.cpp, statically links it, routes every operation
-through `RuntimeDispatcher`, runs natively ternary-trained models,
-validates every model with `kiln doctor`, and watches every
-generation for degeneration.
+## Mission
 
-Measured on Tier 0, Qwen2.5-1.5B Q4_K, prompt `hi there`:
+The minimum acceptance platform is a Dell Latitude 7490 with Intel i7-8650U, 16 GB RAM, no discrete GPU and NVMe storage advertised at approximately 2 GB/s sequential throughput.
 
-| | Ollama | KILN |
+The core mission target is a 70B-class mixture-of-experts model with approximately 4B active parameters at **at least 4 tokens/s**, while keeping WikiText-2 accuracy within 1% of an FP16 reference under a pinned, reproducible protocol. This is a target, **not an achieved result**. Active parameter count alone does not prove feasibility; expert bytes read per token, random-read behavior, cache residency, compute and I/O overlap all matter.
+
+## Verified phase status
+
+| Phase | Scope | Status |
 |---|---|---|
-| Generation rate | 26.86 tok/s | **10.57 tok/s** |
-| Prompt cache | 30/31 tokens | none |
-| Total wall clock (warm) | 464 ms | 850 ms |
+| 1, 1.5 | Foundations | Complete |
+| 2.0–2.3 | llama.cpp integration and system profile | Complete |
+| 3 | RuntimeDispatcher and chat/debug integration | Complete |
+| 3.5 | Dense-path performance run | **Next execution priority** |
+| 4 | Ternary/TQ1.0 path | Complete |
+| 4.5 | Sanity and quality safeguards | Complete |
+| 5 | CPU-only MoE expert streaming | In progress; end-to-end feasibility not yet demonstrated |
+| 6 | Diffusion | Future research track |
+| 7 | Broader hardware abstraction | Future |
+| 8 | Productization | Future |
 
-The from-scratch 127x gap is gone. The remaining gap is **2.5x on
-generation rate**. Phase 3.5 closes it with four validated fixes:
+Relevant history includes runtime-dispatcher commits `d702aa6`, `140fc59`, TQ1.0 support `172bc92`, UTF-8 boundary handling `b27c869`, and quality/sanity checks `1033e45`. See the [commit history](https://github.com/andreipath26/KILN/commits/main) and the master roadmap for the fuller ledger.
 
-1. **Append, do not reset.** Stop re-prefilling the ChatML wrapper
-   every turn. Ollama caches 30/31 prompt tokens; we cache none.
-   Expected 2-3x on turn 2+.
-2. **Draftless n-gram speculative decoding.** `--spec-type ngram-mod`
-   ships in llama.cpp. No draft model. 1.3-2x. Stacks with prompt
-   cache.
-3. **Thread tuning.** Test 2, 3, 4 threads on the real workload.
-4. **Batch tuning.** Test `n_batch` 256-2048, `n_ubatch` 128-512.
+## Runtime and crates
 
-**MoE streaming is built and waiting.** The `moe-stream` branch of
-`github.com/andreipath26/kiln-llama` builds on Tier 0. All streaming
-flags verified: `--moe-stream`, `--moe-stream-cache`,
-`--moe-stream-io-threads`, `--moe-stream-direct`, `-ncmoe`. The model
-test (Qwen3-30B-A3B) waits for data budget.
+The Rust workspace contains these ten crates:
 
-Phases 1, 1.5, 2.0-2.3, 3, 4, 4.5 complete. **Next is Phase 3.5:**
-beat Ollama on the dense path. **Then Phase 5:** MoE expert
-streaming. The mission.
+- **kiln-hal** — backend/registry traits and shared types
+- **kiln-models** — model formats, UMF, GGUF loading and tokenizer support
+- **kiln-mem** — memory hierarchy management
+- **kiln-io** — I/O abstraction and data sources
+- **kiln-core** — monitoring, selection, scheduling, pipeline and chat loop
+- **kiln-kernels** — ternary packing/unpacking and matrix-kernel work
+- **kiln-runtime** — runtime orchestration and dispatch integration
+- **kiln-api** — Ollama-compatible REST API (default port 11435)
+- **kiln-cli** — command-line interface
+- **kiln-bench** — benchmark harness
 
-The product claim: **KILN runs models larger than your machine's
-memory.**
+Other top-level areas include `cpp/` (C kernels), `backends/` (hardware backends), `docs/` (design documents), `models/` (model catalog), `tests/` and `scripts/`.
 
-## What this is## What this is## What this is## What this is
+## CLI
 
-KILN is a per-layer dispatcher over a unified memory hierarchy. It
-schedules computations across CPU, iGPU, dGPU, NPU, RAM, NVMe SSD, and
-optional VRAM as one managed pool. It is not a monolithic inference
-engine.
+The CLI surface includes the following commands; exact flags depend on the command and build. Use the command's help output for the current syntax.
+
+- `chat` — interactive generation
+- `debug` — inspect/debug a forward pass
+- `tokenize` — tokenize text
+- `inspect` — inspect a model or artifact
+- `info` — show runtime/build information
+- `config` — inspect or validate configuration
+- `weights` — work with model weights
+- `convert` — model/format conversion
+- `doctor` — model/runtime sanity and quality checks
+- `pipeline` — run the pipeline against an input
+- `serve` — start the API server
+- `bench` / benchmark subcommands — run performance tests
+
+Examples:
+
+```sh
+cargo run -p kiln-cli -- --help
+cargo run -p kiln-cli -- chat --model <path-to-model.gguf> --seed 42 --max-tokens 50
+cargo run -p kiln-cli -- debug --help
+cargo run -p kiln-cli -- doctor --help
+cargo run -p kiln-cli -- pipeline <input-file> --loader gguf
+cargo run -p kiln-cli -- serve
+cargo run -p kiln-bench -- run
+```
 
 ## Design documents
 
-- docs/architecture.md — six-layer runtime stack
-- docs/core-design.md — Performance Monitor, Mode Selector, DAG Scheduler
-- docs/kernels-design.md — TQ1.0 ternary format, C ABI, build process
-- docs/fused-kernel-design.md — LUT-based matmul design and why it failed
-- docs/pipeline-design.md — end-to-end pipeline
-- docs/gguf-design.md — GGUF loader specification
-- docs/tokenizer-design.md — BPE tokenizer
-- docs/chat-loop-design.md — generation loop
-- docs/transformer-design.md — forward pass
-- docs/quantization-policy.md — Rule KILN-E35, supported formats
-- docs/kv-cache-design.md — per-layer K/V cache
-- docs/avx2-matmul-design.md — next unit of work
+The design record includes (availability and implementation status should be checked in the repository before relying on a document as an implementation contract):
 
-## Principles
+- `docs/architecture.md`
+- `docs/core-design.md`
+- `docs/kernels-design.md`
+- `docs/fused-kernel-design.md`
+- `docs/pipeline-design.md`
+- `docs/gguf-design.md`
+- `docs/tokenizer-design.md`
+- `docs/chat-loop-design.md`
+- `docs/transformer-design.md`
+- `docs/quantization-policy.md`
+- `docs/kv-cache-design.md`
+- `docs/avx2-matmul-design.md`
+- `docs/dispatch-integration-design.md`
+- `docs/runtime-loading-design.md`
+- `docs/special-tokens-design.md`
+- `docs/convert-design.md`
+- `docs/runtime-dispatch-design.md`
+- `docs/umf-design.md`
+- `docs/moe-stream-build.md`
+- `docs/edge0-study.md`
 
-1. The lowest-spec machine is the acceptance test.
-2. One binary per platform, one model file, one API.
-3. Per-layer dispatch, not per-machine modes.
-4. Accuracy preserved.
-5. Local by default.
-6. Open-core. MIT or Apache-2.0.
-7. Fail-safe.
-8. The masses come first.
+This list is a navigation aid, not a claim that every design is fully implemented. Check the file tree for the current inventory.
 
-## Crates
+## Measured performance
 
-- **kiln-hal** — Backend trait, Registry trait, core types
-- **kiln-models** — UMF, synthetic format, GGUF loader, BPE tokenizer
-- **kiln-mem** — Memory Hierarchy Manager
-- **kiln-io** — I/O abstraction, IoSource trait, SyncIoSource
-- **kiln-core** — Monitor, Selector, Scheduler, Pipeline, Chat loop
-- **kiln-kernels** — TQ1.0 ternary pack, unpack, and fused matmul
-- **kiln-api** — Ollama-compatible REST server on port 11435
-- **kiln-cli** — Command-line interface with ten commands
-- **kiln-bench** — Benchmark harness
+Historical measurements on the Tier 0 Dell Latitude 7490 are shown below. They are **recorded results, not a guarantee of current-main performance**. Reproduce them with pinned model, build, backend, workload, cache state, power/thermal conditions and repeated runs before using them as release claims.
 
-## Commands
+### Dense-path application results
 
-    cargo run -p kiln-cli -- chat --model <gguf> --seed 42 --max-tokens 50
-    cargo run -p kiln-cli -- pipeline <file> --loader gguf
-    cargo run -p kiln-cli -- info
-    cargo run -p kiln-cli -- serve
-    cargo run -p kiln-bench -- run
+| Measurement | Recorded result | Context |
+|---|---:|---|
+| `kiln debug` forward pass | 0.1497 s | System-profile result; a separate Phase 3 run recorded 0.1459 s best-case |
+| `kiln chat` generation | 10.57 tok/s | Qwen2.5-1.5B Q4_K, prompt “hi there” |
+| Ollama comparison | 26.86 tok/s | Same reported workload; prompt-cache behavior differs |
+| KILN warm total wall clock | 850 ms | Historical comparison |
+| Ollama warm total wall clock | 464 ms | Historical comparison |
+| Prompt cache | KILN: none; Ollama: 30/31 tokens | Historical comparison |
 
-## Measured performance (Dell Latitude 7490, no GPU)
+The original from-scratch gap was reported as 127× and later reduced to approximately **2.5×** on generation rate. The 2.5× figure is the recorded remaining gap, not evidence that Phase 3.5 has already closed it. Prompt-cache behavior, generation settings and backend parity must be controlled in a fresh comparison.
 
-### Kernel layer
+### Kernel and synthetic-pipeline results
 
-| Operation | Time per element | Speedup |
+| Operation | Time | Recorded comparison |
+|---|---:|---:|
+| Scalar ternary pack | 10.79 ns/element | Baseline |
+| AVX2 ternary pack | 0.61 ns/element | 17.70× faster than scalar |
+| Scalar unpack | 2.94 ns/element | Baseline |
+| Table unpack | 2.49 ns/element | 1.12× faster |
+| Scalar fused matmul | 2.75 ns/element | Baseline measurement |
+| Synthetic pipeline load | ~69,000 ns | 4×1024 synthetic model |
+| Synthetic pipeline select | ~5,500 ns | 4×1024 synthetic model |
+| Synthetic pipeline schedule | ~2,500 ns | 4×1024 synthetic model |
+| Synthetic pipeline execute | ~13,400 ns | 4×1024 synthetic model |
+| Synthetic pipeline total | ~91,000 ns | Output 65060 across 13 recorded runs |
+
+### Ternary model result
+
+Ternary-Bonsai-4B TQ1.0/group-64 was recorded as loading and sustaining coherent multi-turn conversation through `RuntimeDispatcher` on Tier 0. Historical throughput reports vary by run/build (approximately **0.72–0.85 tok/s**); preserve the exact benchmark artifact and environment when quoting a narrower figure. Group-128 compatibility was reported as unavailable in the tested mainline llama.cpp revision. This result does not establish the Phase 5 MoE mission target.
+
+## Failed approaches and lessons
+
+Negative results are part of the engineering record and must not be hidden:
+
+| Approach | Recorded result | Conclusion |
 |---|---|---|
-| Pack scalar | 10.79 ns | baseline |
-| Pack AVX2 | 0.61 ns | **17.70x** |
-| Unpack scalar | 2.94 ns | baseline |
-| Unpack table | 2.49 ns | 1.12x |
-| Fused matmul scalar | 2.75 ns | baseline |
+| LUT single-row matmul | 0.04× | Slower than scalar; do not retry without a fundamentally different design |
+| LUT 8-row matmul | 0.34× | Slower than scalar; same caveat |
+| AVX2 fused matmul attempt | 0.13× | Regression versus scalar in the tested implementation |
+| Split-AVX2 matmul attempt | 6.8× slower | Regression; retain as a failed experiment |
+| T-MAC integration | Wrong integration point | Reassess where the technique belongs before another implementation attempt |
 
-### Pipeline (synthetic model, 4x1024)
-
-| Stage | Time |
-|---|---|
-| Load | ~69,000 ns |
-| Select | ~5,500 ns |
-| Schedule | ~2,500 ns |
-| Execute | ~13,400 ns |
-| Total | ~91,000 ns |
-
-Output is deterministic at 65060 across 13 runs.
-
-### Documented kernel failures
-
-| Approach | Speedup |
-|---|---|
-| LUT single-row matmul | 0.04x |
-| LUT 8-row matmul | 0.34x |
-
-The LUT approach does not work on Skylake. Do not retry without a
-fundamentally different design.
-
-## Repository layout
-
-- crates/ — Rust orchestration, scheduler, kernels, and CLI
-- cpp/ — C kernels
-- backends/ — Hardware backends (Phase 4)
-- docs/ — Design documents
-- models/ — Curated model catalog (Phase 5)
-- tests/ — Integration, acceptance, and performance tests
-- scripts/ — Build and release scripts
+These measurements are implementation- and hardware-specific. Do not generalize them into proof that all LUT, AVX2 or T-MAC approaches fail. Preserve the experiment details and rerun only with a clear hypothesis and a reproducible benchmark.
 
 ## Development rules
 
-Rule KILN-E34: after every session, update the documentation, append
-the session log to the master roadmap, update this README, and push to
-GitHub. The session is not finished until the push succeeds.
+The authoritative rules and their canonical history are maintained in the [master roadmap](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md). In brief:
+
+- **KILN-E34:** every session updates documentation, appends the session log to the master roadmap, updates this README, and pushes successfully.
+- **KILN-E35–E51:** preserve the complete canonical rule set in the master roadmap/rule registry. These cover quantization policy, roadmap authority, phase containment, evidence-based completion claims, licensing separation, prior-art review, pinned llama.cpp integration, hardware-tier inclusivity, measured performance changes, and preservation of repository history/worktree state.
+- Do not call a phase complete because it builds or a component benchmark passes; use its end-to-end exit gate.
+- Keep external research results separate from KILN measurements. Do not assume independent optimization gains compose.
+- Before Git repair or branch cleanup, inspect status, logs, remotes, submodules, unreachable objects and backups; preserve uncommitted work.
+
+## Current next steps
+
+1. Reproduce the dense-path baseline and profile the actual hot path for Phase 3.5.
+2. Test prompt-cache behavior, speculative decoding, thread counts and batch sizes as isolated experiments before combining them.
+3. For Phase 5, measure realistic expert-block I/O, random-read latency, bytes fetched per token, cache usefulness, peak RAM and I/O/compute overlap before expanding the implementation.
+4. Run cache/predictor/prefetch ablations, then validate the exact model end-to-end with sustained throughput, memory and quality measurements.
+5. Keep the 70B-class ≥4 tok/s goal and Qwen3-30B-A3B ≥3 tok/s recorded targets clearly labelled as **targets until reproduced**.
+6. Keep licensing review as a separate tracked task and update public performance claims only from reproducible artifacts.
 
 ## License
 
-MIT. See LICENSE.
+MIT. See [LICENSE](LICENSE).
