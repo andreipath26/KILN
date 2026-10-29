@@ -43,8 +43,32 @@ enum Commands {
     Pull { model: String },
     /// List installed models. Not yet implemented.
     List,
-    /// Run the benchmark suite. Not yet implemented.
-    Bench { model: String },
+    /// Measure model load, prompt prefill, and token decode throughput.
+    Bench {
+        /// Path to the GGUF model file.
+        model: String,
+        /// Prompt used for every measured run.
+        #[arg(long, default_value = "The meaning of life is")]
+        prompt: String,
+        /// Maximum number of generated tokens per run.
+        #[arg(long, default_value_t = 64)]
+        tokens: usize,
+        /// Number of measured runs (reported individually and as a mean).
+        #[arg(long, default_value_t = 3)]
+        runs: usize,
+        /// Number of unreported warm-up runs before measurement.
+        #[arg(long, default_value_t = 1)]
+        warmup: usize,
+        /// Override the detected CPU thread count for controlled comparisons.
+        #[arg(long)]
+        threads: Option<u32>,
+        /// Override the detected batch size for controlled comparisons.
+        #[arg(long)]
+        batch: Option<u32>,
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Print the execution plan for a model without running it. Not yet implemented.
     Plan { model: String },
     /// Print the hardware profile.
@@ -610,9 +634,205 @@ async fn main() {
         Commands::Run { model } => not_implemented("run", &model),
         Commands::Pull { model } => not_implemented("pull", &model),
         Commands::List => not_implemented("list", ""),
-        Commands::Bench { model } => not_implemented("bench", &model),
+        Commands::Bench { model, prompt, tokens, runs, warmup, threads, batch, json } => {
+            if runs == 0 {
+                eprintln!("bench: --runs must be at least 1");
+                std::process::exit(2);
+            }
+            if tokens == 0 {
+                eprintln!("bench: --tokens must be at least 1");
+                std::process::exit(2);
+            }
+
+            use kiln_runtime::{LlamaCppBackend, RuntimeDispatcher, RuntimeOp, RuntimeResult, SystemProfile};
+            let mut profile = SystemProfile::load_or_probe();
+            if let Some(threads) = threads {
+                if threads == 0 {
+                    eprintln!("bench: --threads must be at least 1");
+                    std::process::exit(2);
+                }
+                profile.n_threads = threads;
+            }
+            if let Some(batch) = batch {
+                if batch == 0 {
+                    eprintln!("bench: --batch must be at least 1");
+                    std::process::exit(2);
+                }
+                profile.n_batch = batch;
+            }
+            let mut dispatcher = RuntimeDispatcher::new();
+            dispatcher.register(Box::new(LlamaCppBackend::new()));
+
+            let load_start = std::time::Instant::now();
+            if let Err(error) = dispatcher.dispatch(RuntimeOp::Load {
+                path: std::path::PathBuf::from(&model),
+                n_ctx: profile.n_ctx,
+                n_batch: profile.n_batch,
+                n_threads: profile.n_threads,
+            }) {
+                eprintln!("bench: model load failed: {}", error);
+                std::process::exit(1);
+            }
+            let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
+            let eos = match dispatcher.dispatch(RuntimeOp::EosToken) {
+                Ok(RuntimeResult::Int(token)) => token,
+                Ok(_) => {
+                    eprintln!("bench: backend returned an unexpected EOS-token result");
+                    std::process::exit(1);
+                }
+                Err(error) => {
+                    eprintln!("bench: unable to read EOS token: {}", error);
+                    std::process::exit(1);
+                }
+            };
+
+            let mut warmup_completed = 0usize;
+            for index in 0..warmup {
+                if let Err(error) = bench_once(&mut dispatcher, &prompt, tokens, eos) {
+                    eprintln!("bench: warm-up run {} failed: {}", index + 1, error);
+                    std::process::exit(1);
+                }
+                warmup_completed += 1;
+            }
+
+            let mut measurements = Vec::with_capacity(runs);
+            for index in 0..runs {
+                match bench_once(&mut dispatcher, &prompt, tokens, eos) {
+                    Ok(result) => measurements.push(result),
+                    Err(error) => {
+                        eprintln!("bench: measured run {} failed: {}", index + 1, error);
+                        std::process::exit(1);
+                    }
+                }
+            }
+
+            let mean = |key: &str| -> f64 {
+                measurements.iter()
+                    .filter_map(|run| run.get(key).and_then(serde_json::Value::as_f64))
+                    .sum::<f64>() / measurements.len() as f64
+            };
+            let output = serde_json::json!({
+                "model": model,
+                "prompt": prompt,
+                "max_new_tokens": tokens,
+                "warmup_runs": warmup_completed,
+                "requested_threads": profile.n_threads,
+                "requested_batch": profile.n_batch,
+                "measured_runs": runs,
+                "load_ms": load_ms,
+                "profile": {
+                    "tier": format!("{:?}", profile.tier),
+                    "n_ctx": profile.n_ctx,
+                    "n_batch": profile.n_batch,
+                    "n_threads": profile.n_threads
+                },
+                "mean": {
+                    "prompt_tokens": mean("prompt_tokens"),
+                    "generated_tokens": mean("generated_tokens"),
+                    "prefill_ms": mean("prefill_ms"),
+                    "decode_ms": mean("decode_ms"),
+                    "decode_tokens_per_second": mean("decode_tokens_per_second")
+                },
+                "runs": measurements
+            });
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&output).unwrap_or_else(|_| output.to_string()));
+            } else {
+                println!("KILN benchmark (RuntimeDispatcher / llama.cpp)");
+                println!("  model:             {}", model);
+                println!("  profile:           {:?}, threads={}, batch={}, context={}",
+                    profile.tier, profile.n_threads, profile.n_batch, profile.n_ctx);
+                println!("  load:              {:.2} ms", load_ms);
+                println!("  prompt:            {:?}", prompt);
+                println!("  warm-up runs:      {}", warmup_completed);
+                println!("  measured runs:     {}", runs);
+                println!("  mean prompt tokens:{:>8.2}", mean("prompt_tokens"));
+                println!("  mean prefill:      {:>8.2} ms", mean("prefill_ms"));
+                println!("  mean generated:    {:>8.2} tokens", mean("generated_tokens"));
+                println!("  mean decode:       {:>8.2} ms", mean("decode_ms"));
+                println!("  mean decode rate:  {:>8.2} tokens/s", mean("decode_tokens_per_second"));
+                println!();
+                for (index, run) in measurements.iter().enumerate() {
+                    println!("  run {}: prefill {:.2} ms; decode {:.2} ms; {:.2} tokens/s ({} prompt, {} generated)",
+                        index + 1,
+                        run["prefill_ms"].as_f64().unwrap_or(0.0),
+                        run["decode_ms"].as_f64().unwrap_or(0.0),
+                        run["decode_tokens_per_second"].as_f64().unwrap_or(0.0),
+                        run["prompt_tokens"].as_u64().unwrap_or(0),
+                        run["generated_tokens"].as_u64().unwrap_or(0));
+                }
+            }
+        },
         Commands::Plan { model } => not_implemented("plan", &model),
     }
+}
+
+/// Execute one benchmark sample through the same runtime dispatcher used by chat.
+fn bench_once(
+    dispatcher: &mut kiln_runtime::RuntimeDispatcher,
+    prompt: &str,
+    max_tokens: usize,
+    eos_token: i32,
+) -> Result<serde_json::Value, String> {
+    use kiln_core::chat::{Sampler, SamplingStrategy};
+    use kiln_runtime::{RuntimeOp, RuntimeResult};
+
+    dispatcher.dispatch(RuntimeOp::Reset).map_err(|e| format!("reset failed: {}", e))?;
+    let prompt_tokens = match dispatcher.dispatch(RuntimeOp::Tokenize { text: prompt.to_string() })
+        .map_err(|e| format!("tokenization failed: {}", e))? {
+        RuntimeResult::Tokens(tokens) => tokens,
+        _ => return Err("backend returned an unexpected tokenization result".to_string()),
+    };
+    if prompt_tokens.is_empty() {
+        return Err("prompt tokenized to an empty sequence".to_string());
+    }
+
+    let prefill_start = std::time::Instant::now();
+    let mut next_logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: prompt_tokens.clone() })
+        .map_err(|e| format!("prompt forward pass failed: {}", e))? {
+        RuntimeResult::Logits(logits) => logits,
+        _ => return Err("backend returned an unexpected prefill result".to_string()),
+    };
+    let prefill_ms = prefill_start.elapsed().as_secs_f64() * 1000.0;
+
+    let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
+    let mut generated_tokens = 0usize;
+    let decode_start = std::time::Instant::now();
+    for _ in 0..max_tokens {
+        let token = sampler.sample(&next_logits)
+            .ok_or_else(|| "sampler returned no token".to_string())? as i32;
+        if token == eos_token {
+            break;
+        }
+
+        match dispatcher.dispatch(RuntimeOp::TokenToStr { token })
+            .map_err(|e| format!("token-to-string failed: {}", e))? {
+            RuntimeResult::Bytes(_) | RuntimeResult::Str(_) => {}
+            _ => return Err("backend returned an unexpected token conversion result".to_string()),
+        }
+        generated_tokens += 1;
+        next_logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
+            .map_err(|e| format!("decode forward pass failed: {}", e))? {
+            RuntimeResult::Logits(logits) => logits,
+            _ => return Err("backend returned an unexpected decode result".to_string()),
+        };
+    }
+    let decode_seconds = decode_start.elapsed().as_secs_f64();
+    let decode_ms = decode_seconds * 1000.0;
+    let decode_tokens_per_second = if decode_seconds > 0.0 {
+        generated_tokens as f64 / decode_seconds
+    } else {
+        0.0
+    };
+
+    Ok(serde_json::json!({
+        "prompt_tokens": prompt_tokens.len(),
+        "generated_tokens": generated_tokens,
+        "prefill_ms": prefill_ms,
+        "decode_ms": decode_ms,
+        "decode_tokens_per_second": decode_tokens_per_second
+    }))
 }
 
 fn not_implemented(cmd: &str, arg: &str) -> ! {
