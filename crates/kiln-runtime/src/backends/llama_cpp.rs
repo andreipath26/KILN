@@ -1,7 +1,7 @@
 //! llama.cpp runtime backend. Phase 3.
 //! Wraps LlamaContext. Owns the live session.
 
-use crate::ffi::LlamaContext;
+use crate::ffi::{LlamaContext, LlamaError};
 use crate::runtime_dispatch::{RuntimeBackend, RuntimeError, RuntimeOp, RuntimeResult};
 
 pub struct LlamaCppBackend {
@@ -33,6 +33,14 @@ impl RuntimeBackend for LlamaCppBackend {
     fn execute(&mut self, op: &RuntimeOp) -> Result<RuntimeResult, RuntimeError> {
         match op {
             RuntimeOp::Load { path, n_ctx, n_batch, n_threads } => {
+                let max = i32::MAX as u32;
+                if *n_ctx == 0 || *n_batch == 0 || *n_threads == 0
+                    || *n_ctx > max || *n_batch > max || *n_threads > max
+                {
+                    return Err(RuntimeError::Llama(LlamaError::Load(
+                        "n_ctx, n_batch, and n_threads must be positive values within i32 range".to_string(),
+                    )));
+                }
                 let ctx = LlamaContext::load_with(
                     path,
                     Some((*n_ctx as i32, *n_batch as i32, *n_threads as i32)),
