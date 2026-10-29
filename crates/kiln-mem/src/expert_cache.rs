@@ -236,6 +236,18 @@ mod tests {
     }
 
     #[test]
+    fn lfu_prefers_retaining_a_frequently_accessed_expert() {
+        let cache = ExpertCache::new(8, ExpertCachePolicy::Lfu);
+        cache.insert(key(1), vec![1; 4]);
+        cache.insert(key(2), vec![2; 4]);
+        assert!(cache.get(key(1)).is_some());
+        assert!(cache.get(key(1)).is_some());
+        assert_eq!(cache.insert(key(3), vec![3; 4]), InsertOutcome::Inserted { evicted_entries: 1 });
+        assert!(cache.get(key(1)).is_some());
+        assert!(cache.get(key(2)).is_none());
+    }
+
+    #[test]
     fn oversized_entry_is_rejected_without_evicting_existing_entries() {
         let cache = ExpertCache::new(8, ExpertCachePolicy::Lru);
         cache.insert(key(1), vec![1; 4]);
