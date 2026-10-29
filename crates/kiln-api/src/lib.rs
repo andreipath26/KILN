@@ -6,6 +6,7 @@
 pub mod types;
 pub mod routes;
 pub mod server;
+pub mod runtime;
 
 pub use types::{
     GenerateRequest, GenerateResponse, ChatRequest, ChatResponse,
