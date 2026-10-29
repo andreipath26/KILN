@@ -46,7 +46,7 @@ streaming. The mission.
 The product claim: **KILN runs models larger than your machine's
 memory.**
 
-## What this is## What this is## What this is## What this is
+## What this is
 
 KILN is a per-layer dispatcher over a unified memory hierarchy. It
 schedules computations across CPU, iGPU, dGPU, NPU, RAM, NVMe SSD, and
