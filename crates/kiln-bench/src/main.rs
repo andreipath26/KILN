@@ -1287,6 +1287,56 @@ mod expert_cache_bench_tests {
     }
 
     #[test]
+    fn expert_cache_uses_validated_index_and_layer_aware_trace() {
+        let path = fixture();
+        let index_path = std::env::temp_dir().join(format!(
+            "kiln-expert-index-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let trace_path = std::env::temp_dir().join(format!(
+            "kiln-indexed-trace-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let table = ExpertTable {
+            blob_version: 1,
+            blob_size: std::fs::metadata(&path).unwrap().len(),
+            ranges: vec![
+                ExpertRange { layer: 0, expert_id: 0, byte_offset: 0, byte_length: 1024 },
+                ExpertRange { layer: 0, expert_id: 1, byte_offset: 1024, byte_length: 2048 },
+                ExpertRange { layer: 1, expert_id: 0, byte_offset: 3072, byte_length: 512 },
+            ],
+        };
+        std::fs::write(&index_path, serde_json::to_vec(&table).unwrap()).unwrap();
+        std::fs::write(
+            &trace_path,
+            "[{\"layer\":0,\"expert_id\":0},{\"layer\":1,\"expert_id\":0},{\"layer\":0,\"expert_id\":0}]",
+        ).unwrap();
+
+        let report = run_expert_cache(
+            &path, 0, 999, 1, 42, "uniform", Some(&trace_path), Some(&index_path)
+        ).unwrap();
+        assert_eq!(report.block_bytes, None);
+        assert_eq!(report.index_file, Some(index_path.display().to_string()));
+        assert_eq!(report.expert_entries_available, 3);
+        assert_eq!(report.requests, 3);
+        assert_eq!(report.patterns[0].misses, 3);
+        assert_eq!(report.patterns[0].estimated_backing_bytes_read, 2560);
+        assert_eq!(report.patterns[1].hits, 1);
+        assert_eq!(report.patterns[1].misses, 2);
+        assert!(report.patterns.iter().all(|p| p.checksum == report.patterns[0].checksum));
+
+        std::fs::write(&trace_path, "[{\"layer\":9,\"expert_id\":99}]").unwrap();
+        assert!(run_expert_cache(
+            &path, 0, 1, 1, 42, "uniform", Some(&trace_path), Some(&index_path)
+        ).is_err());
+        std::fs::remove_file(trace_path).unwrap();
+        std::fs::remove_file(index_path).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn prefetch_replay_reports_predictions_and_rejects_invalid_traces() {
         let trace_path = std::env::temp_dir().join(format!(
             "kiln-prefetch-trace-{}-{}.json",
