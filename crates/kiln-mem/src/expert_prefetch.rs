@@ -3,7 +3,7 @@
 //! This module plans candidates only. It does not start I/O, does not observe
 //! live llama.cpp routing, and does not claim that a planned read overlapped
 //! compute. The caller must execute, cancel, and measure these plans.
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use serde::{Deserialize, Serialize};
 
 use crate::expert_cache::ExpertKey;
@@ -124,10 +124,15 @@ impl ExpertPrefetcher {
         let Some(counts) = self.transitions.get(&current) else {
             return Vec::new();
         };
+        let mut seen_candidates = HashSet::new();
         let mut ranked: Vec<_> = candidate_sizes.iter()
             .filter_map(|(key, bytes)| {
                 let count = counts.get(key).copied()?;
-                if *bytes == 0 || self.in_flight.contains_key(key) || self.ready.contains_key(key) {
+                if *bytes == 0
+                    || self.in_flight.contains_key(key)
+                    || self.ready.contains_key(key)
+                    || !seen_candidates.insert(*key)
+                {
                     return None;
                 }
                 Some(PrefetchCandidate {
@@ -314,19 +319,24 @@ mod tests {
     #[test]
     fn duplicate_and_ready_candidates_are_not_scheduled_twice() {
         let mut p = ExpertPrefetcher::new(4, 400);
-        for next in [1, 1, 2, 1] {
+        for next in [1, 1, 2, 3, 1] {
             p.observe(key(0));
             p.observe(key(next));
         }
-        let plans = p.predict(key(0), &[(key(1), 100), (key(1), 100), (key(2), 100)], 3);
-        assert_eq!(plans.len(), 2);
+        let plans = p.predict(
+            key(0),
+            &[(key(1), 100), (key(1), 100), (key(2), 100), (key(3), 100)],
+            3,
+        );
+        assert_eq!(plans.len(), 3);
         assert!(p.mark_ready(key(1)));
         assert!(p.mark_unused(key(2)));
+        assert!(p.mark_unused(key(3)));
         let plans = p.predict(key(0), &[(key(1), 100), (key(2), 100)], 2);
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].key, key(2));
         assert_eq!(p.stats().in_flight_requests, 1);
-        assert_eq!(p.stats().scheduled, 3);
+        assert_eq!(p.stats().scheduled, 4);
     }
 
     #[test]
