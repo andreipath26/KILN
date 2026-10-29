@@ -10,6 +10,7 @@
 //!   kiln-bench run --json     # print report as JSON only
 //!   kiln-bench info           # print what will be measured
 
+use std::collections::HashMap;
 use std::time::Instant;
 use std::path::PathBuf;
 
@@ -1225,8 +1226,8 @@ async fn main() {
                 }
             }
         }
-        Commands::PrefetchReplay { trace_file, block_bytes, top_k, max_pending, max_inflight_mib, latency_requests, json } => {
-            match run_prefetch_replay(&trace_file, block_bytes, top_k, max_pending, max_inflight_mib, latency_requests) {
+        Commands::PrefetchReplay { trace_file, blob_file, index_file, block_bytes, top_k, max_pending, max_inflight_mib, latency_requests, json } => {
+            match run_prefetch_replay(&trace_file, block_bytes, top_k, max_pending, max_inflight_mib, latency_requests, blob_file.as_deref(), index_file.as_deref()) {
                 Ok(report) if json => println!("{}", serde_json::to_string_pretty(&report).unwrap()),
                 Ok(report) => print_prefetch_replay_human(&report),
                 Err(error) => {
@@ -1417,7 +1418,7 @@ mod expert_cache_bench_tests {
                 .as_nanos()
         ));
         std::fs::write(&trace_path, "[0,1,0,1,0,1,0,1]").unwrap();
-        let report = run_prefetch_replay(&trace_path, 1024, 1, 4, 1, 0).unwrap();
+        let report = run_prefetch_replay(&trace_path, 1024, 1, 4, 1, 0, None, None).unwrap();
         assert_eq!(report.trace_events, 8);
         assert_eq!(report.distinct_experts_in_trace, 2);
         std::fs::write(&trace_path, "[[0,1],[1,1],[0,1],[1,2],[0,1]]").unwrap();
@@ -1428,7 +1429,7 @@ mod expert_cache_bench_tests {
         assert!(report.predicted_candidates > 0);
         assert_eq!(report.stats.scheduled, report.stats.useful + report.stats.late + report.stats.unused + report.stats.cancelled);
         std::fs::write(&trace_path, "[]").unwrap();
-        assert!(run_prefetch_replay(&trace_path, 1024, 1, 4, 1, 0).is_err());
+        assert!(run_prefetch_replay(&trace_path, 1024, 1, 4, 1, 0, None, None).is_err());
         std::fs::remove_file(trace_path).unwrap();
     }
 
