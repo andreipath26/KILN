@@ -14,7 +14,7 @@ use std::time::Instant;
 use std::path::PathBuf;
 
 use kiln_io::{CachedExpertBlobReader, FileRangeReader};
-use kiln_mem::ExpertCachePolicy;
+use kiln_mem::{ExpertCachePolicy, ExpertKey, ExpertPrefetcher, PrefetchStats};
 use kiln_models::{ExpertRange, ExpertTable};
 
 use clap::{Parser, Subcommand};
@@ -63,6 +63,30 @@ enum Commands {
         /// Optional JSON array of expert IDs captured from a model router.
         #[arg(long)]
         trace_file: Option<PathBuf>,
+        /// Emit JSON only.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Replay a mapped expert-ID trace through the bounded history prefetch predictor.
+    PrefetchReplay {
+        /// JSON array of expert IDs in observed access order.
+        #[arg(long)]
+        trace_file: PathBuf,
+        /// Fixed expert block size used for planner budget accounting.
+        #[arg(long, default_value_t = 1_048_576)]
+        block_bytes: u64,
+        /// Maximum number of candidate experts to schedule per observed access.
+        #[arg(long, default_value_t = 2)]
+        top_k: usize,
+        /// Maximum total tracked plans (in-flight plus ready).
+        #[arg(long, default_value_t = 8)]
+        max_pending: usize,
+        /// Maximum in-flight prefetch bytes.
+        #[arg(long, default_value_t = 16)]
+        max_inflight_mib: u64,
+        /// Simulated read latency in trace-access steps; 0 means ready immediately.
+        #[arg(long, default_value_t = 1)]
+        latency_requests: usize,
         /// Emit JSON only.
         #[arg(long)]
         json: bool,
@@ -162,6 +186,26 @@ struct ExpertCacheReport {
     page_cache_controlled: bool,
     note: String,
     patterns: Vec<ExpertCachePattern>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PrefetchReplayReport {
+    version: String,
+    phase_gate: String,
+    trace_file: String,
+    trace_events: usize,
+    expert_ids_available: u32,
+    block_bytes: u64,
+    top_k: usize,
+    max_pending: usize,
+    max_inflight_bytes: u64,
+    simulated_latency_requests: usize,
+    next_event_coverage: f64,
+    next_event_precision: f64,
+    predicted_candidates: u64,
+    correct_next_event_predictions: u64,
+    stats: PrefetchStats,
+    note: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -437,6 +481,116 @@ fn run_expert_cache(
         note: "Real file reads on this host. OS page cache is uncontrolled; cache budget counts retained expert bytes only, not returned buffers. The trace is synthetic unless a JSON expert-ID trace file is supplied. This is not model inference or a target-hardware claim unless run on the target machine.".to_string(),
         patterns,
     })
+}
+
+fn run_prefetch_replay(
+    trace_file: &std::path::Path,
+    block_bytes: u64,
+    top_k: usize,
+    max_pending: usize,
+    max_inflight_mib: u64,
+    latency_requests: usize,
+) -> Result<PrefetchReplayReport, Box<dyn std::error::Error>> {
+    if block_bytes == 0 || top_k == 0 || max_pending == 0 || max_inflight_mib == 0 {
+        return Err("block-bytes, top-k, max-pending and max-inflight-mib must be greater than zero".into());
+    }
+    let trace: Vec<u32> = serde_json::from_slice(&std::fs::read(trace_file)?)?;
+    if trace.is_empty() {
+        return Err("trace file must be a non-empty JSON array of expert IDs".into());
+    }
+    let max_id = *trace.iter().max().unwrap();
+    if max_id > 999_999 {
+        return Err("trace expert IDs must be <= 999999 to bound candidate-index memory".into());
+    }
+    let expert_count = max_id + 1;
+    let candidates: Vec<(ExpertKey, u64)> = (0..expert_count)
+        .map(|expert_id| (ExpertKey { layer: 0, expert_id }, block_bytes))
+        .collect();
+    let max_inflight_bytes = max_inflight_mib.checked_mul(1024 * 1024)
+        .ok_or("max-inflight-mib is too large")?;
+    let mut predictor = ExpertPrefetcher::new(max_pending, max_inflight_bytes);
+    let mut scheduled_at: Vec<(ExpertKey, usize)> = Vec::new();
+    let mut all_scheduled = Vec::new();
+    let mut predicted_candidates = 0u64;
+    let mut correct_next_event_predictions = 0u64;
+
+    for (index, expert_id) in trace.iter().copied().enumerate() {
+        let mut remaining = Vec::new();
+        for (key, scheduled_index) in scheduled_at.drain(..) {
+            if index.saturating_sub(scheduled_index) >= latency_requests {
+                if predictor.mark_ready(key) {
+                    // Completed before demand; keep it tracked until use/unused.
+                }
+            } else {
+                remaining.push((key, scheduled_index));
+            }
+        }
+        scheduled_at = remaining;
+
+        let actual = ExpertKey { layer: 0, expert_id };
+        predictor.observe(actual);
+
+        if index + 1 < trace.len() {
+            let plans = predictor.predict(actual, &candidates, top_k);
+            predicted_candidates = predicted_candidates.saturating_add(plans.len() as u64);
+            let next = trace[index + 1];
+            if plans.iter().any(|candidate| candidate.key.expert_id == next) {
+                correct_next_event_predictions = correct_next_event_predictions.saturating_add(1);
+            }
+            for plan in plans {
+                scheduled_at.push((plan.key, index));
+                all_scheduled.push(plan.key);
+            }
+        }
+    }
+
+    // Any plan still pending at end-of-trace is an unused speculative read.
+    for key in all_scheduled {
+        predictor.mark_unused(key);
+    }
+    let stats = predictor.stats();
+    let eligible_next_events = trace.len().saturating_sub(1) as f64;
+    let next_event_coverage = if eligible_next_events == 0.0 {
+        0.0
+    } else {
+        correct_next_event_predictions as f64 / eligible_next_events
+    };
+    let next_event_precision = if predicted_candidates == 0 {
+        0.0
+    } else {
+        correct_next_event_predictions as f64 / predicted_candidates as f64
+    };
+    Ok(PrefetchReplayReport {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        phase_gate: "5C-prefetch-trace-replay".to_string(),
+        trace_file: trace_file.display().to_string(),
+        trace_events: trace.len(),
+        expert_ids_available: expert_count,
+        block_bytes,
+        top_k,
+        max_pending,
+        max_inflight_bytes,
+        simulated_latency_requests: latency_requests,
+        next_event_coverage,
+        next_event_precision,
+        predicted_candidates,
+        correct_next_event_predictions,
+        stats,
+        note: "Trace replay only. Latency is simulated in trace-access steps; no disk reads, live routing capture, or compute/I/O overlap are performed. Expert IDs are interpreted as layer 0 IDs and fixed block sizes are assumed. Compare these diagnostic metrics with a no-prefetch baseline; do not treat them as inference performance.".to_string(),
+    })
+}
+
+fn print_prefetch_replay_human(report: &PrefetchReplayReport) {
+    println!("KILN prefetch trace replay");
+    println!("  trace: {} events from {}", report.trace_events, report.trace_file);
+    println!("  next-event coverage: {:.2}% | candidate precision: {:.2}%",
+        report.next_event_coverage * 100.0, report.next_event_precision * 100.0);
+    println!("  scheduled: {} | useful: {} | late: {} | unused: {} | cancelled: {}",
+        report.stats.scheduled, report.stats.useful, report.stats.late,
+        report.stats.unused, report.stats.cancelled);
+    println!("  max in-flight bytes: {} | current in-flight bytes: {}",
+        report.max_inflight_bytes, report.stats.in_flight_bytes);
+    println!("  {}", report.note);
 }
 
 fn print_expert_cache_human(report: &ExpertCacheReport) {
@@ -935,6 +1089,16 @@ async fn main() {
                 Ok(report) => print_expert_cache_human(&report),
                 Err(error) => {
                     eprintln!("expert cache benchmark failed: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::PrefetchReplay { trace_file, block_bytes, top_k, max_pending, max_inflight_mib, latency_requests, json } => {
+            match run_prefetch_replay(&trace_file, block_bytes, top_k, max_pending, max_inflight_mib, latency_requests) {
+                Ok(report) if json => println!("{}", serde_json::to_string_pretty(&report).unwrap()),
+                Ok(report) => print_prefetch_replay_human(&report),
+                Err(error) => {
+                    eprintln!("prefetch replay failed: {error}");
                     std::process::exit(2);
                 }
             }
