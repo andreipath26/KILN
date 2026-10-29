@@ -56,7 +56,8 @@ impl RuntimeBackend for LlamaCppBackend {
                 Ok(RuntimeResult::Tokens(ids))
             }
             RuntimeOp::Logits => {
-                Err(RuntimeError::NoSession)
+                let ctx = self.ctx.as_ref().ok_or(RuntimeError::NoSession)?;
+                Ok(RuntimeResult::Logits(ctx.logits()?))
             }
             RuntimeOp::TokenToStr { token } => {
                 let ctx = self.ctx.as_ref().ok_or(RuntimeError::NoSession)?;
