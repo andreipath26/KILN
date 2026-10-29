@@ -70,7 +70,8 @@ impl CachedExpertBlobReader {
         let mut trace = self.access_trace.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         trace.max_events = max_events;
         trace.events.clear();
-        trace.events.reserve(max_events.saturating_sub(trace.events.capacity()));
+        let additional = max_events.saturating_sub(trace.events.capacity());
+        trace.events.reserve(additional);
         trace.dropped_events = 0;
     }
 
