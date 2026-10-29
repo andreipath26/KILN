@@ -1,8 +1,9 @@
 //! Route handlers for the Ollama-compatible API.
 
-use std::time::Instant;
+use std::{convert::Infallible, time::Instant};
 
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{body::{Body, Bytes}, extract::State, http::{header, StatusCode}, response::{IntoResponse, Response}, Json};
+use tokio_stream::wrappers::ReceiverStream;
 use kiln_core::chat::{Sampler, SamplingStrategy};
 use kiln_runtime::{RuntimeOp, RuntimeResult};
 use serde_json::{json, Value};
@@ -70,6 +71,16 @@ fn infer(
     prompt: &str,
     max_tokens: usize,
 ) -> Result<(String, String), ApiError> {
+    infer_with_chunks(state, requested_model, prompt, max_tokens, &mut |_| true)
+}
+
+fn infer_with_chunks(
+    state: &ApiState,
+    requested_model: &str,
+    prompt: &str,
+    max_tokens: usize,
+    on_chunk: &mut dyn FnMut(&str) -> bool,
+) -> Result<(String, String), ApiError> {
     if prompt.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "prompt must not be empty".into()));
     }
@@ -116,6 +127,7 @@ fn infer(
     };
     let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
     let mut output = Vec::new();
+    let mut emitted_bytes = 0usize;
 
     for step in 0..max_tokens {
         let token = sampler.sample(&logits)
@@ -130,6 +142,25 @@ fn infer(
             _ => return Err((StatusCode::INTERNAL_SERVER_ERROR, "runtime returned an unexpected token-string result".into())),
         }
 
+        let tail = &output[emitted_bytes..];
+        match std::str::from_utf8(tail) {
+            Ok(chunk) => {
+                if !chunk.is_empty() && !on_chunk(chunk) {
+                    break;
+                }
+                emitted_bytes = output.len();
+            }
+            Err(error) if error.valid_up_to() > 0 => {
+                let valid_len = error.valid_up_to();
+                let chunk = std::str::from_utf8(&tail[..valid_len]).expect("valid UTF-8 prefix");
+                if !on_chunk(chunk) {
+                    break;
+                }
+                emitted_bytes += valid_len;
+            }
+            Err(_) => {}
+        }
+
         // No need to evaluate another token after the final requested output token.
         if step + 1 < max_tokens {
             logits = match session.dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
@@ -140,19 +171,57 @@ fn infer(
         }
     }
 
+    if emitted_bytes < output.len() {
+        let remainder = String::from_utf8_lossy(&output[emitted_bytes..]);
+        if !remainder.is_empty() {
+            let _ = on_chunk(&remainder);
+        }
+    }
     Ok((session.model_name.clone(), String::from_utf8_lossy(&output).into_owned()))
 }
 
-/// POST /api/generate. Streaming and generation options other than num_predict
-/// are rejected rather than silently pretending to support them.
+/// POST /api/generate. Streaming emits newline-delimited JSON chunks.
 pub async fn generate(
     State(state): State<ApiState>,
     Json(request): Json<GenerateRequest>,
-) -> Result<Json<GenerateResponse>, ErrorResponse> {
-    if request.stream.unwrap_or(false) {
-        return Err(error_response((StatusCode::NOT_IMPLEMENTED, "streaming responses are not implemented yet".into())));
-    }
+) -> Result<Response, ErrorResponse> {
     let max_tokens = max_tokens_from_options(request.options.as_ref()).map_err(error_response)?;
+    if request.stream.unwrap_or(false) {
+        if request.prompt.trim().is_empty() {
+            return Err(error_response((StatusCode::BAD_REQUEST, "prompt must not be empty".into())));
+        }
+        {
+            let runtime = state.runtime.lock().map_err(|_| error_response((StatusCode::INTERNAL_SERVER_ERROR, "runtime state lock is poisoned".into())))?;
+            let session = runtime.as_ref().ok_or_else(|| error_response((StatusCode::SERVICE_UNAVAILABLE, "no model is configured; set KILN_MODEL_PATH before starting the server".into())))?;
+            if request.model != session.model_name {
+                return Err(error_response((StatusCode::NOT_FOUND, format!("model {} is not loaded; loaded model is {}", request.model, session.model_name))));
+            }
+        }
+        let model = request.model.clone();
+        let prompt = request.prompt.clone();
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, Infallible>>(16);
+        tokio::task::spawn_blocking(move || {
+            let mut send_chunk = |chunk: &str| {
+                let line = serde_json::json!({"model": model, "response": chunk, "done": false}).to_string() + "\n";
+                tx.blocking_send(Ok(Bytes::from(line))).is_ok()
+            };
+            match infer_with_chunks(&state, &model, &prompt, max_tokens, &mut send_chunk) {
+                Ok((actual_model, _)) => {
+                    let line = serde_json::json!({"model": actual_model, "response": "", "done": true}).to_string() + "\n";
+                    let _ = tx.blocking_send(Ok(Bytes::from(line)));
+                }
+                Err((_, message)) => {
+                    let line = serde_json::json!({"error": message}).to_string() + "\n";
+                    let _ = tx.blocking_send(Ok(Bytes::from(line)));
+                }
+            }
+        });
+        return Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/x-ndjson")
+            .body(Body::from_stream(ReceiverStream::new(rx)))
+            .expect("static streaming response headers are valid"));
+    }
     let started = Instant::now();
     let result = tokio::task::spawn_blocking(move || {
         infer(&state, &request.model, &request.prompt, max_tokens)
@@ -164,7 +233,7 @@ pub async fn generate(
         done: true,
         context: None,
         total_duration: Some(started.elapsed().as_nanos().min(u64::MAX as u128) as u64),
-    }))
+    }).into_response())
 }
 
 /// POST /api/chat. Messages are rendered as explicit role-prefixed text because
