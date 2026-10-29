@@ -83,7 +83,8 @@ impl ExpertPrefetcher {
                 && (source_exists || self.transitions.len() < MAX_TRANSITION_SOURCES)
             {
                 *self.transitions.entry(previous).or_default().entry(actual).or_default() = 1;
-                *self.totals.entry(previous).or_default() = self.totals.get(&previous).copied().unwrap_or(0).saturating_add(1);
+                let total = self.totals.entry(previous).or_default();
+                *total = total.saturating_add(1);
                 self.transition_edges += 1;
             } else if source_exists {
                 // Keep the denominator honest when the edge table is full, but
