@@ -40,15 +40,35 @@ impl CachedExpertBlobReader {
         cache_capacity_bytes: u64,
         policy: ExpertCachePolicy,
     ) -> Result<Self, ExpertBlobError> {
-        Ok(Self {
-            reader: Mutex::new(ExpertBlobReader::open(path, table)?),
+        let reader = ExpertBlobReader::open(path, table)?;
+        Ok(Self::from_reader(reader, cache_capacity_bytes, policy))
+    }
+
+    /// Open a blob using a size-bounded JSON ExpertTable index file.
+    pub fn open_indexed(
+        path: impl AsRef<Path>,
+        index_path: impl AsRef<Path>,
+        cache_capacity_bytes: u64,
+        policy: ExpertCachePolicy,
+    ) -> Result<Self, ExpertBlobError> {
+        let reader = ExpertBlobReader::open_indexed(path, index_path)?;
+        Ok(Self::from_reader(reader, cache_capacity_bytes, policy))
+    }
+
+    fn from_reader(
+        reader: ExpertBlobReader,
+        cache_capacity_bytes: u64,
+        policy: ExpertCachePolicy,
+    ) -> Self {
+        Self {
+            reader: Mutex::new(reader),
             cache: ExpertCache::new(cache_capacity_bytes, policy),
             access_trace: Mutex::new(AccessTraceState {
                 max_events: 0,
                 events: Vec::new(),
                 dropped_events: 0,
             }),
-        })
+        }
     }
 
     fn lock_reader(&self) -> MutexGuard<'_, ExpertBlobReader> {
@@ -218,6 +238,26 @@ mod tests {
         assert_eq!(stats.hits, 7);
         assert_eq!(stats.misses, 1);
         assert!(stats.used_bytes <= stats.capacity_bytes);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn opens_index_file_directly_and_uses_the_same_cache_path() {
+        let (path, bytes, table) = fixture();
+        let index_path = std::env::temp_dir().join(format!(
+            "kiln-cached-index-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(&index_path, serde_json::to_vec(&table).unwrap()).unwrap();
+        let reader = CachedExpertBlobReader::open_indexed(
+            &path, &index_path, 16, ExpertCachePolicy::Lru
+        ).unwrap();
+        assert_eq!(reader.read_expert(1, 0).unwrap(), bytes[16..24]);
+        assert_eq!(reader.read_expert(1, 0).unwrap(), bytes[16..24]);
+        assert_eq!(reader.cache_stats().hits, 1);
+        assert_eq!(reader.cache_stats().misses, 1);
+        std::fs::remove_file(index_path).unwrap();
         std::fs::remove_file(path).unwrap();
     }
 
