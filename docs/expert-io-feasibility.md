@@ -63,3 +63,9 @@ Workloads are `phase-shift`, `stationary-hot`, `uniform`, and `round-robin`. The
 The reported backing bytes are inferred from cache misses multiplied by block size, not OS-level physical-device counters. The cache budget counts retained expert bytes only; returned buffers are outside that budget.
 
 To replay an externally captured routing trace, pass `--trace-file /path/to/trace.json`. The file must be a non-empty JSON array of integer block IDs, for example `[0, 0, 3, 7, 3]`; each ID must be less than the number of complete blocks in the file. In this mode the trace file determines the request count and `--workload` is ignored. A model router's `(layer, expert_id)` events must first be mapped to the correct block IDs using the model's actual expert layout. This command does not yet collect routing events from the live inference path.
+
+## Phase 5C predictor primitive (planning only)
+
+The `kiln-mem::ExpertPrefetcher` learns one-step transitions from an observed `ExpertKey` sequence and ranks candidates by empirical conditional frequency. The caller supplies candidate block sizes. It enforces maximum in-flight request and byte budgets and exposes counters for scheduled predictions, cap rejections, useful, late, unused and cancelled requests. Tests cover ranking/confidence, budget enforcement, outcome accounting and stale-plan cancellation.
+
+This is deliberately a predictor/planner primitive, not asynchronous I/O: it does not submit reads, fetch expert bytes, evict cache entries, observe live llama.cpp router events, or prove overlap. The integration layer must call `observe` for actual expert accesses, use the model's validated expert index for sizes and identities, execute returned plans, and report outcomes accurately. Compare against no-prefetch and naive baselines on the same captured trace before enabling it in inference.
