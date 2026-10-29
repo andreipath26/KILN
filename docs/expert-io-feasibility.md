@@ -45,7 +45,7 @@ Important limits:
 
 ## Phase 5B real-file cache replay
 
-After building the CLI, compare no-cache, LRU, LFU and adaptive cache policies against the same deterministic synthetic trace and identical retained-byte budgets:
+After building the CLI, compare no-cache, LRU, LFU and adaptive cache policies against the same deterministic synthetic trace and identical retained-byte budgets. To replay a model-derived trace against a validated variable-size index, supply `--index-file /path/to/experts.index.json` and a layer-aware `--trace-file` captured from a router or `CachedExpertBlobReader`:
 
 ```sh
 cargo run -p kiln-bench -- expert-cache \
@@ -60,9 +60,9 @@ cargo run -p kiln-bench -- expert-cache \
 
 Workloads are `phase-shift`, `stationary-hot`, `uniform`, and `round-robin`. The command partitions the file into fixed-size synthetic expert blocks, replays the same trace for each policy, and reports elapsed time, request rate, hit rate, estimated backing bytes read, cache bytes and evictions. It performs real file reads on the machine where the command runs, but the access trace is synthetic and the OS page cache is uncontrolled. Run it on the target Dell for target-machine data; do not interpret a CI-host result as Dell performance.
 
-The reported backing bytes are inferred from cache misses multiplied by block size, not OS-level physical-device counters. The cache budget counts retained expert bytes only; returned buffers are outside that budget.
+Without `--index-file`, the benchmark partitions the file into fixed-size synthetic layer-0 blocks; `--trace-file` can then contain flat IDs such as `[0, 0, 3, 7, 3]`. With `--index-file`, the file must be a JSON-serialized `ExpertTable` whose validated entries map each `(layer, expert_id)` to one contiguous byte range in the blob. The trace can then contain flat IDs, `[layer, expert_id]` pairs, or objects such as `{"layer": 1, "expert_id": 7}`; every key must exist in the index. This is not a GGUF index extractor: the blob and index must already be prepared in KILN's current single-range-per-expert layout.
 
-To replay an externally captured routing trace, pass `--trace-file /path/to/trace.json`. The file must be a non-empty JSON array of integer block IDs, for example `[0, 0, 3, 7, 3]`; each ID must be less than the number of complete blocks in the file. In this mode the trace file determines the request count and `--workload` is ignored. A model router's `(layer, expert_id)` events must first be mapped to the correct block IDs using the model's actual expert layout. This command does not yet collect routing events from the live inference path.
+When an index is supplied, estimated backing bytes are the sum of actual indexed range lengths for cache misses; without an index, the fixed block size is used. These values represent bytes requested from the file API, not physical-device counters. The cache budget counts retained expert bytes only; returned buffers are outside that budget. Trace-file length determines the request count and `--workload` is ignored. The benchmark replays the trace but does not itself collect live llama.cpp routing events.
 
 ## Phase 5C predictor primitive (planning only)
 
