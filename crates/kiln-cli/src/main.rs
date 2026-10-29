@@ -37,8 +37,14 @@ enum Commands {
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
     },
-    /// Start an interactive chat with a model. Not yet implemented.
-    Run { model: String },
+    /// Start an interactive chat session using the llama.cpp runtime.
+    Run {
+        /// Path to the GGUF model file.
+        model: String,
+        /// Maximum tokens generated per response.
+        #[arg(long, default_value_t = 128)]
+        max_tokens: usize,
+    },
     /// Download a model from the catalog. Not yet implemented.
     Pull { model: String },
     /// List installed models. Not yet implemented.
@@ -631,7 +637,16 @@ async fn main() {
                 }
             }
         }
-        Commands::Run { model } => not_implemented("run", &model),
+        Commands::Run { model, max_tokens } => {
+            if max_tokens == 0 {
+                eprintln!("run: --max-tokens must be at least 1");
+                std::process::exit(2);
+            }
+            if let Err(error) = run_interactive(&model, max_tokens) {
+                eprintln!("run: {}", error);
+                std::process::exit(1);
+            }
+        },
         Commands::Pull { model } => not_implemented("pull", &model),
         Commands::List => not_implemented("list", ""),
         Commands::Bench { model, prompt, tokens, runs, warmup, threads, batch, json } => {
@@ -766,6 +781,96 @@ async fn main() {
         },
         Commands::Plan { model } => not_implemented("plan", &model),
     }
+}
+
+/// Run a real interactive text session using the runtime dispatcher.
+fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
+    use kiln_core::chat::{Sampler, SamplingStrategy};
+    use kiln_runtime::{LlamaCppBackend, RuntimeDispatcher, RuntimeOp, RuntimeResult, SystemProfile};
+    use std::io::{self, Write};
+
+    let profile = SystemProfile::load_or_probe();
+    let mut dispatcher = RuntimeDispatcher::new();
+    dispatcher.register(Box::new(LlamaCppBackend::new()));
+    dispatcher.dispatch(RuntimeOp::Load {
+        path: std::path::PathBuf::from(model),
+        n_ctx: profile.n_ctx,
+        n_batch: profile.n_batch,
+        n_threads: profile.n_threads,
+    }).map_err(|e| format!("model load failed: {}", e))?;
+
+    let eos = match dispatcher.dispatch(RuntimeOp::EosToken)
+        .map_err(|e| format!("could not read EOS token: {}", e))? {
+        RuntimeResult::Int(token) => token,
+        _ => return Err("backend returned an unexpected EOS-token result".to_string()),
+    };
+
+    println!("KILN interactive session — model: {}", model);
+    println!("Type /exit to quit. Profile: {:?}, threads={}, context={}",
+        profile.tier, profile.n_threads, profile.n_ctx);
+
+    let stdin = io::stdin();
+    loop {
+        print!("you> ");
+        io::stdout().flush().map_err(|e| format!("prompt output failed: {}", e))?;
+        let mut prompt = String::new();
+        let bytes = stdin.read_line(&mut prompt).map_err(|e| format!("input failed: {}", e))?;
+        if bytes == 0 {
+            break;
+        }
+        let prompt = prompt.trim();
+        if prompt.eq_ignore_ascii_case("/exit") || prompt.eq_ignore_ascii_case("/quit") {
+            break;
+        }
+        if prompt.is_empty() {
+            continue;
+        }
+
+        dispatcher.dispatch(RuntimeOp::Reset)
+            .map_err(|e| format!("session reset failed: {}", e))?;
+        let tokens = match dispatcher.dispatch(RuntimeOp::Tokenize { text: prompt.to_string() })
+            .map_err(|e| format!("tokenization failed: {}", e))? {
+            RuntimeResult::Tokens(tokens) => tokens,
+            _ => return Err("backend returned an unexpected tokenization result".to_string()),
+        };
+        if tokens.is_empty() {
+            eprintln!("warning: prompt tokenized to no tokens");
+            continue;
+        }
+        let mut logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens })
+            .map_err(|e| format!("prompt evaluation failed: {}", e))? {
+            RuntimeResult::Logits(logits) => logits,
+            _ => return Err("backend returned an unexpected prompt result".to_string()),
+        };
+
+        print!("kiln> ");
+        io::stdout().flush().map_err(|e| format!("response output failed: {}", e))?;
+        let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
+        for _ in 0..max_tokens {
+            let token = sampler.sample(&logits)
+                .ok_or_else(|| "sampler returned no token".to_string())? as i32;
+            if token == eos {
+                break;
+            }
+            let piece = match dispatcher.dispatch(RuntimeOp::TokenToStr { token })
+                .map_err(|e| format!("token decoding failed: {}", e))? {
+                RuntimeResult::Bytes(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+                RuntimeResult::Str(text) => text,
+                _ => return Err("backend returned an unexpected token-string result".to_string()),
+            };
+            print!("{}", piece);
+            io::stdout().flush().map_err(|e| format!("response output failed: {}", e))?;
+            logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
+                .map_err(|e| format!("decode step failed: {}", e))? {
+                RuntimeResult::Logits(logits) => logits,
+                _ => return Err("backend returned an unexpected decode result".to_string()),
+            };
+        }
+        println!();
+    }
+    dispatcher.dispatch(RuntimeOp::Unload)
+        .map_err(|e| format!("model unload failed: {}", e))?;
+    Ok(())
 }
 
 /// Execute one benchmark sample through the same runtime dispatcher used by chat.
