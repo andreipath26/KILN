@@ -164,7 +164,7 @@ The authoritative rules and their canonical history are maintained in the [maste
 
 ## API implementation status
 
-The HTTP server exposes Ollama-compatible route shapes, but inference is not yet wired through the API to an active runtime session. Until that integration is complete, `POST /api/generate` and `POST /api/chat` return HTTP 501 instead of fabricated successful answers. `GET /api/tags` currently reports an empty inventory because no model registry is connected. These are explicit limitations, not completed inference features.
+Set `KILN_MODEL_PATH` to a readable GGUF file before starting `kiln serve`. The server loads that model once at startup and routes `POST /api/generate` and `POST /api/chat` through the runtime dispatcher. Both routes support non-streaming JSON responses; the API-streaming branch adds newline-delimited JSON chunks when `stream: true`. The chat route currently builds a simple role-prefixed prompt rather than applying a model-specific chat template. Generation is greedy and only `options.num_predict` is accepted; unsupported options are rejected instead of silently ignored. `GET /api/tags` reports the configured model, but a multi-model registry, model pull lifecycle, and complete Ollama parity remain unimplemented.
 
 ## Current next steps
 
