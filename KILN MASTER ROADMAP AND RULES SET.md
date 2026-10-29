@@ -183,6 +183,27 @@ Do not equate advertised NVMe sequential throughput with effective random/block-
 
 This only bounds the storage-served portion; it excludes compute, KV-cache, scheduling and other overhead. Measure the fraction served from cache and the fraction of I/O hidden by overlap. If the measured bound misses the target, assess cache residency, locality, representation size, alternative models and target assumptions before increasing implementation scope. A simplified bandwidth calculation alone neither proves feasibility nor infeasibility.
 
+### Synthetic expert-cache experiment — exploratory, not a hardware result
+
+**Recorded 2026-10-29:** a synthetic trace of 100,000 expert accesses across 128 experts produced these LRU hit rates:
+
+| Cache capacity | Observed synthetic LRU hit rate |
+|---:|---:|
+| 4 experts | 18.76% |
+| 8 experts | 36.84% |
+| 16 experts | 68.50% |
+| 32 experts | 88.70% |
+
+These figures demonstrate only that cache capacity can materially affect hit rate under the chosen synthetic access pattern. They are **simulation results, not a measurement on a Dell/Latitude system, not a real-model trace, and not evidence of tokens/s or Phase 5 feasibility**. The trace generator/distribution, seed, exact cache semantics and run command must be recorded before treating the result as a reproducible baseline.
+
+**Required follow-up benchmark work (not yet completed):**
+1. Implement a byte-bounded cache; expert-count capacity alone is not representative when experts differ in size.
+2. Compare LRU, LFU and an adaptive policy on the same pinned traces and memory budget.
+3. Add deterministic trace replay and record the trace schema, generator/seed or source hash, cache configuration and results.
+4. Measure hit/miss latency, bytes read, read amplification, useful prefetch, memory occupancy and end-to-end throughput where a real model/backend is available.
+5. Add unit/property tests and CI coverage for capacity enforcement, eviction correctness, replay determinism and policy comparisons.
+6. Keep synthetic results and real hardware/model measurements in separate result categories.
+
 ### Gate 5B — Cache, predictor and scheduler ablations
 
 Compare at least: simple LRU or another transparent baseline; frequency/reuse-aware cache; router-aware prefetch; confidence-aware predictive prefetch; no-prefetch and no-prerouter ablations.
@@ -236,6 +257,15 @@ The research log is inclusive. No lead is removed because it targets another tie
 
 ## 10. Quantitative feasibility and reporting discipline
 
+### Dense-versus-MoE bandwidth sanity check (back-of-envelope only)
+
+For scale, a 70B dense model represented at an idealized 2 bits/parameter has approximately **17.5 GB** of raw weight data in decimal units before scales, metadata, alignment and other overhead. If the full weight set had to be fetched from storage for every generated token, 4 tokens/s would imply roughly **70 GB/s** of weight traffic. This is a deliberately simplified upper-bound-style scenario, not a prediction of actual runtime: caching, quantization layout, reuse, compute and the memory hierarchy change the real result.
+
+For a MoE case with roughly 4B active parameters per token at the same idealized 2 bits/parameter, the active-weight equivalent is approximately **1 GB/token**, or **4 GB/s at 4 tokens/s**, before overhead. This does **not** mean the implementation necessarily reads exactly 1 GB from SSD per token: actual bytes depend on expert routing, shared weights, block granularity, cache residency, prefetch, read amplification and overlap.
+
+Use these calculations to frame measurements, not to declare dense inference impossible or MoE feasibility proven. Replace the assumptions with measured effective bytes/token and usable bandwidth on a pinned model/runtime/hardware setup. Record raw model size, effective representation size, storage bytes read per token, cache-served fraction, overlap, peak RAM, sustained tokens/s and output quality separately.
+
+
 Distinguish total parameters from active parameters; nominal bit width from effective bytes/parameter; model file size from expert bytes fetched/token; advertised storage bandwidth from measured effective bandwidth; cache hit ratio from useful prefetch ratio; prompt-processing speed from generation speed; microbenchmark speed from sustained end-to-end throughput; and model quality from a single narrow metric.
 
 Measure data movement across SSD, page cache, RAM and CPU caches. Track weight, KV-cache, activation, metadata and intermediate-buffer traffic separately where possible. Re-profile after every successful optimization because the bottleneck may migrate.
@@ -283,6 +313,12 @@ A “not beneficial” result is useful and must remain recorded with tested con
 - That an external system should be vendored wholesale.
 
 ## 13. Session log
+
+### 2026-10-29 — dense/MoE feasibility and synthetic cache experiment
+
+- Recorded the idealized 70B dense / 2-bit estimate (~17.5 GB raw weights; ~70 GB/s at 4 tokens/s if all weights were fetched each token) and the 4B-active MoE / 2-bit estimate (~1 GB active-weight equivalent per token; ~4 GB/s at 4 tokens/s). These are back-of-envelope calculations, not hardware benchmarks or proof of feasibility/impossibility.
+- Recorded a synthetic 100,000-access, 128-expert LRU trace: 18.76%, 36.84%, 68.50% and 88.70% hit rate at 4, 8, 16 and 32 expert cache capacities, respectively. Explicitly classified it as simulation only, not a Dell/Latitude or real-model measurement.
+- Follow-up still pending: pin trace generator/distribution and seed; implement byte-bounded cache; compare LRU/LFU/adaptive policies; add deterministic trace replay, tests and CI; then evaluate real model traces and end-to-end behavior separately.
 
 ### 2026-10-29 — research integration
 
