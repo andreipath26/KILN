@@ -724,13 +724,41 @@ async fn main() {
                 }
             }
 
-            let mean = |key: &str| -> f64 {
-                measurements.iter()
+            // Report distribution statistics as well as means. A mean alone can
+            // hide noisy runs and is insufficient for controlled comparisons.
+            let stats = |key: &str| -> serde_json::Value {
+                let mut values: Vec<f64> = measurements.iter()
                     .filter_map(|run| run.get(key).and_then(serde_json::Value::as_f64))
-                    .sum::<f64>() / measurements.len() as f64
+                    .collect();
+                if values.is_empty() {
+                    return serde_json::Value::Null;
+                }
+                values.sort_by(f64::total_cmp);
+                let count = values.len();
+                let mean = values.iter().sum::<f64>() / count as f64;
+                let median = if count % 2 == 0 {
+                    (values[count / 2 - 1] + values[count / 2]) / 2.0
+                } else {
+                    values[count / 2]
+                };
+                let variance = values.iter().map(|value| (value - mean).powi(2)).sum::<f64>() / count as f64;
+                serde_json::json!({
+                    "mean": mean,
+                    "median": median,
+                    "min": values[0],
+                    "max": values[count - 1],
+                    "stddev_population": variance.sqrt()
+                })
             };
+            let model_path = std::fs::canonicalize(&model)
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|_| model.clone());
+            let model_size_bytes = std::fs::metadata(&model).map(|metadata| metadata.len()).ok();
+            let logical_cpus = std::thread::available_parallelism().map(|n| n.get()).ok();
             let output = serde_json::json!({
                 "model": model,
+                "model_path_canonical": model_path,
+                "model_size_bytes": model_size_bytes,
                 "prompt": prompt,
                 "max_new_tokens": tokens,
                 "warmup_runs": warmup_completed,
@@ -738,18 +766,23 @@ async fn main() {
                 "requested_batch": profile.n_batch,
                 "measured_runs": runs,
                 "load_ms": load_ms,
+                "environment": {
+                    "os": std::env::consts::OS,
+                    "architecture": std::env::consts::ARCH,
+                    "logical_cpus": logical_cpus
+                },
                 "profile": {
                     "tier": format!("{:?}", profile.tier),
                     "n_ctx": profile.n_ctx,
                     "n_batch": profile.n_batch,
                     "n_threads": profile.n_threads
                 },
-                "mean": {
-                    "prompt_tokens": mean("prompt_tokens"),
-                    "generated_tokens": mean("generated_tokens"),
-                    "prefill_ms": mean("prefill_ms"),
-                    "decode_ms": mean("decode_ms"),
-                    "decode_tokens_per_second": mean("decode_tokens_per_second")
+                "statistics": {
+                    "prompt_tokens": stats("prompt_tokens"),
+                    "generated_tokens": stats("generated_tokens"),
+                    "prefill_ms": stats("prefill_ms"),
+                    "decode_ms": stats("decode_ms"),
+                    "decode_tokens_per_second": stats("decode_tokens_per_second")
                 },
                 "runs": measurements
             });
@@ -765,11 +798,27 @@ async fn main() {
                 println!("  prompt:            {:?}", prompt);
                 println!("  warm-up runs:      {}", warmup_completed);
                 println!("  measured runs:     {}", runs);
-                println!("  mean prompt tokens:{:>8.2}", mean("prompt_tokens"));
-                println!("  mean prefill:      {:>8.2} ms", mean("prefill_ms"));
-                println!("  mean generated:    {:>8.2} tokens", mean("generated_tokens"));
-                println!("  mean decode:       {:>8.2} ms", mean("decode_ms"));
-                println!("  mean decode rate:  {:>8.2} tokens/s", mean("decode_tokens_per_second"));
+                println!("  model size:        {} bytes", model_size_bytes.map(|n| n.to_string()).unwrap_or_else(|| "unknown".into()));
+                println!("  environment:       {} / {}, logical CPUs={}",
+                    std::env::consts::OS, std::env::consts::ARCH,
+                    logical_cpus.map(|n| n.to_string()).unwrap_or_else(|| "unknown".into()));
+                for (label, key, unit) in [
+                    ("prompt tokens", "prompt_tokens", ""),
+                    ("prefill", "prefill_ms", " ms"),
+                    ("generated", "generated_tokens", " tokens"),
+                    ("decode", "decode_ms", " ms"),
+                    ("decode rate", "decode_tokens_per_second", " tokens/s"),
+                ] {
+                    let summary = stats(key);
+                    if let Some(summary) = summary.as_object() {
+                        println!("  {:<18} median {:>8.2}{} | mean {:>8.2} | range {:.2}–{:.2}",
+                            format!("{}:", label),
+                            summary["median"].as_f64().unwrap_or(0.0), unit,
+                            summary["mean"].as_f64().unwrap_or(0.0),
+                            summary["min"].as_f64().unwrap_or(0.0),
+                            summary["max"].as_f64().unwrap_or(0.0));
+                    }
+                }
                 println!();
                 for (index, run) in measurements.iter().enumerate() {
                     println!("  run {}: prefill {:.2} ms; decode {:.2} ms; {:.2} tokens/s ({} prompt, {} generated)",
