@@ -212,3 +212,31 @@ impl Drop for LlamaContext {
         unsafe { kiln_llama_free(self.handle); }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_decode_batch_is_rejected_before_ffi() {
+        let mut ctx = LlamaContext {
+            handle: std::ptr::null_mut(),
+            n_vocab: 1,
+            n_past: 0,
+        };
+        let err = ctx.decode(&[]).unwrap_err();
+        assert!(matches!(err, LlamaError::Decode(message) if message.contains("empty")));
+    }
+
+    #[test]
+    fn token_position_overflow_is_rejected_before_ffi() {
+        let mut ctx = LlamaContext {
+            handle: std::ptr::null_mut(),
+            n_vocab: 1,
+            n_past: i32::MAX,
+        };
+        let err = ctx.decode(&[1]).unwrap_err();
+        assert!(matches!(err, LlamaError::Decode(message) if message.contains("overflow")));
+    }
+}
