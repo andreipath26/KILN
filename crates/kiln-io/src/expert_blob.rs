@@ -6,9 +6,14 @@ use kiln_models::{ExpertTable, ExpertTableError};
 
 use crate::{FileRangeReader, RangeReadError};
 
+const MAX_INDEX_FILE_BYTES: u64 = 128 * 1024 * 1024;
+
 #[derive(Debug)]
 pub enum ExpertBlobError {
     Io(RangeReadError),
+    IndexFileIo(std::io::Error),
+    InvalidIndexJson(serde_json::Error),
+    IndexFileTooLarge { actual_bytes: u64, max_bytes: u64 },
     InvalidIndex(ExpertTableError),
     MissingExpert { layer: u32, expert_id: u32 },
     BufferLengthMismatch { expected: u64, actual: usize },
@@ -18,6 +23,11 @@ impl std::fmt::Display for ExpertBlobError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(error) => write!(f, "{error}"),
+            Self::IndexFileIo(error) => write!(f, "expert index file I/O error: {error}"),
+            Self::InvalidIndexJson(error) => write!(f, "invalid expert index JSON: {error}"),
+            Self::IndexFileTooLarge { actual_bytes, max_bytes } => write!(
+                f, "expert index file is {actual_bytes} bytes; limit is {max_bytes} bytes"
+            ),
             Self::InvalidIndex(error) => write!(f, "invalid expert index: {error}"),
             Self::MissingExpert { layer, expert_id } => {
                 write!(f, "expert ({layer}, {expert_id}) is not present in the index")
@@ -58,6 +68,25 @@ impl ExpertBlobReader {
         let reader = FileRangeReader::open(path)?;
         table.validate(reader.file_size())?;
         Ok(Self { reader, table })
+    }
+
+    /// Load and validate a JSON ExpertTable before opening the indexed blob.
+    /// The index file is size-limited to avoid unbounded metadata allocation.
+    pub fn open_indexed(
+        path: impl AsRef<Path>,
+        index_path: impl AsRef<Path>,
+    ) -> Result<Self, ExpertBlobError> {
+        let index_path = index_path.as_ref();
+        let index_size = std::fs::metadata(index_path).map_err(ExpertBlobError::IndexFileIo)?.len();
+        if index_size > MAX_INDEX_FILE_BYTES {
+            return Err(ExpertBlobError::IndexFileTooLarge {
+                actual_bytes: index_size,
+                max_bytes: MAX_INDEX_FILE_BYTES,
+            });
+        }
+        let bytes = std::fs::read(index_path).map_err(ExpertBlobError::IndexFileIo)?;
+        let table: ExpertTable = serde_json::from_slice(&bytes).map_err(ExpertBlobError::InvalidIndexJson)?;
+        Self::open(path, table)
     }
 
     pub fn file_size(&self) -> u64 {
@@ -167,6 +196,26 @@ mod tests {
             reader.read_expert_into(1, 0, &mut [0u8; 4]),
             Err(ExpertBlobError::BufferLengthMismatch { .. })
         ));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn opens_validated_json_index_and_rejects_invalid_json() {
+        let (path, bytes) = fixture();
+        let index_path = std::env::temp_dir().join(format!(
+            "kiln-expert-blob-index-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(&index_path, serde_json::to_vec(&index(bytes.len() as u64)).unwrap()).unwrap();
+        let mut reader = ExpertBlobReader::open_indexed(&path, &index_path).unwrap();
+        assert_eq!(reader.read_expert(1, 0).unwrap(), bytes[16..24]);
+        std::fs::write(&index_path, "{invalid").unwrap();
+        assert!(matches!(
+            ExpertBlobReader::open_indexed(&path, &index_path),
+            Err(ExpertBlobError::InvalidIndexJson(_))
+        ));
+        std::fs::remove_file(index_path).unwrap();
         std::fs::remove_file(path).unwrap();
     }
 
