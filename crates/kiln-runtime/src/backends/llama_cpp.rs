@@ -86,3 +86,34 @@ impl RuntimeBackend for LlamaCppBackend {
         }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn rejects_zero_parameters_before_native_load() {
+        let mut backend = LlamaCppBackend::new();
+        let result = backend.execute(&RuntimeOp::Load {
+            path: PathBuf::from("not-used.gguf"),
+            n_ctx: 0,
+            n_batch: 512,
+            n_threads: 4,
+        });
+        assert!(matches!(result, Err(RuntimeError::Llama(LlamaError::Load(_)))));
+    }
+
+    #[test]
+    fn rejects_parameters_outside_c_int_range_before_native_load() {
+        let mut backend = LlamaCppBackend::new();
+        let result = backend.execute(&RuntimeOp::Load {
+            path: PathBuf::from("not-used.gguf"),
+            n_ctx: i32::MAX as u32 + 1,
+            n_batch: 512,
+            n_threads: 4,
+        });
+        assert!(matches!(result, Err(RuntimeError::Llama(LlamaError::Load(_)))));
+    }
+}
