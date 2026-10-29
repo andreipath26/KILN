@@ -320,3 +320,184 @@ A “not beneficial” result is useful and must remain recorded with tested con
 - Added UTF-8 boundary handling so token byte fragments do not split Unicode characters in emitted chunks.
 - Added fail-closed regression tests for streaming requests when no model is configured.
 - This work is not merged or CI-verified yet. It does not complete the model registry, pull lifecycle, chat-template handling, or full Ollama compatibility, and it does not mark any roadmap phase complete.
+
+
+### 2026-10-29 — Phase 5A expert-block I/O implementation
+
+- Merged PR #11 after GitHub Actions succeeded; API generation/chat now support newline-delimited JSON streaming when requested. Full Ollama compatibility remains incomplete.
+- Started the Phase 5A feasibility work on a separate branch.
+- Added a portable, bounded random-access file reader that reads only requested ranges and rejects out-of-bounds/overflowing ranges before I/O.
+- Added expert-index validation for blob-size agreement, sorted layer/expert IDs, non-empty in-bounds ranges, and non-overlapping byte intervals.
+- Added a `kiln-bench expert-io` command to compare sequential and deterministic random block reads against a real file, reporting throughput and p50/p95 per-request latency. The OS page cache is explicitly uncontrolled.
+- Added unit tests for exact range reads, invalid ranges, empty ranges at EOF, and the I/O probe's two access patterns.
+- This is an implementation milestone only. CI must pass before merge; the Dell measurements and the Phase 5A acceptance decision remain pending. No expert-streaming or 70B performance claim is made.
+
+
+## 15. CPU-only large-MoE execution plan (research-informed, evidence-gated)
+
+### 15.1 Target and non-negotiable measurement rules
+
+Target hardware is the user's Dell Latitude 7490 (Intel Core i7-8650U, 16 GB RAM, no discrete GPU, NVMe nominally around 2 GB/s). These are target specifications, not measured KILN results. Every hardware claim must identify the machine and exact setup; do not substitute hosted CI or another desktop.
+
+Primary stretch target: run a 70B-class MoE with approximately 4B active parameters at >=4 generated tokens/second while staying within the declared RAM budget and keeping WikiText-2 quality within 1% of the pinned FP16 reference under a documented protocol. This remains unproven. Also track the nearer Qwen3-30B-A3B target separately; do not silently substitute one for the other.
+
+Keep these quantities separate in every report:
+- total versus active parameters;
+- nominal bits versus effective on-disk bytes/parameter;
+- full model size versus expert bytes actually fetched per generated token;
+- OS page-cache hits versus physical-storage reads;
+- advertised versus measured sequential and random-read throughput;
+- prefetch requests versus timely, useful prefetches;
+- microbenchmark throughput versus sustained end-to-end generation;
+- prompt processing versus token generation;
+- model quality versus a single narrow proxy metric.
+
+Illustrative lower-bound arithmetic only: 4B active weights at 2 bits/weight are 1.0 GB/token before scales, metadata, shared weights and other overhead. At 4 tokens/s, that is 4 GB/s if all of those bytes must come from storage each token. If half of that traffic is served from RAM, the simplified storage demand falls to 2 GB/s. At 1.58 bits/weight the corresponding idealized values are 0.79 GB/token and 3.16 GB/s at 4 tokens/s before overhead. These are not forecasts; actual expert selection, reuse, cache residency, effective representation size and CPU compute must be measured.
+
+### 15.2 Research leads and how KILN will test them
+
+Research findings are hypotheses to reproduce or falsify, not claims about KILN performance.
+
+- **FlashMoE, arXiv:2601.17063 (Jan 2026), https://arxiv.org/abs/2601.17063.** Reports an SSD-resident MoE expert cache using adaptive recency/frequency and reports higher cache hit rates and speedups on its test platform. KILN hypothesis: recency plus frequency can outperform plain LRU on representative expert traces. Test against LRU and LFU using identical traces, cache budgets, cold/warm conditions and replayed routing sequences; report useful hit rate, bytes read, latency and end-to-end tokens/s. Do not import the paper's speedup claim as a KILN result.
+- **MoE-Infinity, arXiv:2401.14361, https://arxiv.org/abs/2401.14361.** Relevant techniques include expert tracing, caching and prefetching/offload. Its GPU-centric setup does not establish CPU-only laptop performance. KILN hypothesis: routing-history-aware prefetch can hide a measurable fraction of expert I/O. Compare no prefetch, simple next-use prediction and history-based prediction; record timely-useful, late, unused and evicted-before-use prefetches, plus I/O/compute overlap and end-to-end latency.
+- **Survey of I/O optimization for LLM inference, https://link.springer.com/article/10.1007/s10462-026-11651-1 (published 2026-07-24).** Use as a taxonomy and literature index for weight/KV/activation movement, caching, workload drift and routing-logit prefetch. Any technique selected from the survey must receive a concrete hypothesis, an ablation and a measured exit criterion.
+- **BitNet b1.58 2B4T technical report, arXiv:2504.12285, https://arxiv.org/abs/2504.12285; official inference framework: https://github.com/microsoft/BitNet.** This is a distinct native-ternary representation path, not evidence that an existing dense/MoE model can simply be stored at 1.58 bits without conversion or quality cost. Evaluate only with compatible model weights/kernel paths and a quality gate.
+- **PowerInfer and SSD/offload research** remain contextual leads only where their GPU assumptions, hardware, license and model format are explicitly checked. No wholesale vendoring based on paper results or headline speedups.
+
+Research log follow-up: add each lead using the Section 11 schema, including exact version/date, tested hardware, metric, risks, falsifiable hypothesis, artifact/commit and status. If full paper or artifact cannot be inspected, mark the lead as preliminary rather than fully reproduced.
+
+### 15.3 Required implementation sequence after Phase 5A
+
+1. **Close the Phase 5A correctness gate.** Review PR #12 for API compatibility, bounds-before-allocation, range-index invariants, tests and documentation. CI must pass. Then measure the command on the actual Dell against a real representative file, recording cold/warm caveats and random/sequential access. Do not call it a storage benchmark if page cache is uncontrolled.
+2. **Phase 5B — bounded expert cache.** Implement a cache interface and a deterministic trace-replay harness first. Compare no cache, LRU, LFU and an adaptive recency/frequency policy at identical byte budgets. Enforce a hard memory cap and test eviction, oversized entries, duplicate loads, concurrent access and cache invalidation. Choose a winner only from measured results.
+3. **Phase 5C — routing-informed prefetch.** Add an optional predictor interface and trace-driven tests before connecting it to live inference. Compare no prefetch and simple/history-based strategies. Cap in-flight requests and prefetched bytes; cancel or discard stale predictions. Track useful/late/unused prefetch and cache pollution.
+4. **Phase 5D — I/O/compute overlap.** Introduce bounded asynchronous reads and reusable buffers only after the synchronous path is correct. Compare synchronous versus overlapped operation on the same traces and workload. Measure queue depth, CPU utilization, bytes read, stalls, p50/p95 latency and sustained generation speed. Do not claim overlap from async APIs alone.
+5. **End-to-end model gate.** Integrate the smallest compatible MoE model first, verify tensor/index mapping and deterministic output, then test larger models. Record model hash, tokenizer/template, quantization, runtime commit, OS, CPU/thread settings, RAM, storage, prompt, generation settings, warm-up, repetitions and measurement window.
+6. **Quality gate.** Pin the FP16/reference model, dataset version/split, tokenizer, evaluation code, seed and metric. Report the full metric and confidence/variation, not just “within 1%”. Reject performance changes that violate the declared quality or memory limits.
+7. **Representation experiments remain separate.** TQ1.0, native ternary weights, ternary K/V/RSD and QTEA each need their own storage accounting, compatible kernels, quality tests and baseline. Do not combine optimizations until each has an isolated ablation; then test interactions.
+8. **Only then optimize product claims.** No README or release claim of >=4 tok/s, “no compromise on accuracy”, or specific model-size support without reproducible target-hardware evidence.
+
+### 15.4 Phase 5A implementation notes and known limitations
+
+The current PR #12 adds a portable seek/read range reader, expert-range table validation, an expert-blob reader and `kiln-bench expert-io` sequential/random access patterns. Its benchmark reports latency and throughput and explicitly does not control OS page cache. It is a baseline only: it does not implement direct I/O, io_uring, index-file parsing, cache/prefetch, I/O/compute overlap or end-to-end MoE inference. Dell measurements and formal Phase 5A acceptance remain pending.
+
+Before accepting the implementation, ensure range bounds are checked before allocating the requested buffer. A request larger than the file must fail cheaply instead of attempting an allocation first. Keep public API compatibility in mind when changing `ExpertTable`; search all crate usages before replacing existing shapes.
+
+### 15.5 Status snapshot (2026-10-29)
+
+- PR #11, streamed API generation/chat, was merged on 2026-10-29; GitHub Actions run 40835639935 succeeded. This does not establish full Ollama compatibility or end-to-end model performance.
+- PR #12, expert-block I/O feasibility, is open. Latest observed head: `3ab5e17427959faa0df26260ce9093d872d7f042`; CI run 40836786234 succeeded. Earlier intermediate commit 3673eb3 failed CI, then a later head passed; preserve that history and inspect current head before merging.
+- Phase 5A is implemented in a review branch, not accepted. The Dell benchmark and review of edge cases remain outstanding.
+- Next engineering action: close Phase 5A review findings, then implement Phase 5B cache using trace replay and hard memory bounds. Do not jump directly to a live predictor or claim the target is feasible before these gates.
+
+### 2026-10-29 — research-informed MoE plan and execution update
+
+- Added explicit target-machine context and separated theoretical bandwidth arithmetic from measurements.
+- Added FlashMoE, MoE-Infinity, the 2026 I/O survey and BitNet b1.58 as research leads with concrete KILN ablations and portability caveats.
+- Ordered implementation as expert I/O correctness/measurement, bounded cache, routing-informed prefetch, I/O/compute overlap, end-to-end model tests, then quality-gated representation experiments.
+- Added a prohibition on promoting paper-reported speedups into KILN claims without reproducing them on the target workload.
+- No Dell measurement or 70B-class performance result is claimed by this roadmap update.
+
+
+### 2026-10-29 — first synthetic expert-cache experiment
+
+Added `scripts/synthetic_moe_cache_bench.py`. It deterministically generates 100,000 expert references across 128 experts in two phases, each with a distinct hot set (85% hot-set selection, 15% uniform selection). It compares no cache and LRU/LFU/adaptive recency-frequency policies at capacities of 4, 8, 16 and 32 experts. The default storage model assumes 16 MiB per expert, 100 microseconds fixed latency per miss and 1.5 GiB/s bandwidth. These are tunable assumptions, not measured properties of the Dell or the KILN runtime.
+
+Reproducible command:
+```bash
+python3 scripts/synthetic_moe_cache_bench.py --requests 100000 --seed 42
+```
+
+Observed synthetic results for the fixed seed:
+| Capacity | Policy | Hit rate | Modelled storage bytes read | Modelled serialized I/O time |
+|---:|---|---:|---:|---:|
+| 0 | none | 0.00% | 1,562.50 GiB | 1,051.67 s |
+| 4 | LRU | 18.76% | 1,269.33 GiB | 854.34 s |
+| 4 | LFU | 12.98% | 1,359.73 GiB | 915.19 s |
+| 4 | adaptive | 12.98% | 1,359.73 GiB | 915.19 s |
+| 8 | LRU | 36.84% | 986.81 GiB | 664.19 s |
+| 8 | LFU | 23.95% | 1,188.22 GiB | 799.75 s |
+| 8 | adaptive | 23.95% | 1,188.22 GiB | 799.75 s |
+| 16 | LRU | 68.50% | 492.20 GiB | 331.29 s |
+| 16 | LFU | 45.12% | 857.44 GiB | 577.11 s |
+| 16 | adaptive | 45.12% | 857.44 GiB | 577.11 s |
+| 32 | LRU | 88.70% | 176.62 GiB | 118.88 s |
+| 32 | LFU | 54.66% | 708.47 GiB | 476.85 s |
+| 32 | adaptive | 55.55% | 694.53 GiB | 467.47 s |
+
+Interpretation: this deliberately phase-shifting trace favours recency because the hot set changes halfway through. At 32 cached experts, LRU cuts simulated storage reads by about 88.7% against no cache under this synthetic trace. That is evidence only that the simulator and chosen trace respond as expected—not that real KILN will obtain an 88.7% speedup. The adaptive policy is close to LFU at smaller capacities, so it has not demonstrated an advantage here. Do not select an algorithm from this single trace.
+
+Important limits:
+- `modelled_serial_io_seconds` is arithmetic from assumed latency and bandwidth, not elapsed storage time. It excludes CPU compute, real SSD behaviour, kernel/filesystem effects, OS page cache, queueing, concurrency and overlap.
+- `simulator_wall_seconds` is only the Python simulation runtime, not model inference time.
+- The current trace is synthetic, not collected from a model router. The cache capacity is counted in experts, not enforced by actual byte size.
+- Follow-up completed on this branch: added four synthetic trace regimes (`phase-shift`, `stationary-hot`, `uniform`, `round-robin`), deterministic Python regression tests wired into CI, and corrected LFU recency tie-breaking. The simulator remains synthetic; no production cache policy is selected from these traces.
+
+
+### 2026-10-29 — Phase 5A review fixes and Phase 5B cache foundation
+
+- Added explicit rejection of unsupported expert-index versions; the table validator now accepts only format version 1.
+- Expanded synthetic trace generation to phase-shift, stationary-hot-set, uniform-random and round-robin workloads; added deterministic unit tests and a CI step for those tests.
+- Corrected LFU's recency tie-break to use last-access time and made adaptive frequency aging periodic by access count.
+- Added `kiln-mem::ExpertCache`: byte-bounded retained cache, LRU/LFU/adaptive policies, hit/miss/eviction accounting, oversized-entry rejection, replacement accounting, invalidation and clear.
+- Added `kiln-io::CachedExpertBlobReader`, with a second cache check after acquiring the file-reader lock to avoid duplicate cold reads for a key that another caller just loaded.
+- Added Rust tests for eviction, oversized blocks, duplicate-key insertion, concurrent inserts/reads, byte caps, invalidation and warm-cache reads.
+- Cache budget applies to retained cache membership bytes. Caller-owned copies returned by the reader are outside that budget and must be accounted for by the eventual runtime.
+- This is still a cache primitive, not yet wired into live model inference. Routing traces, prefetch, asynchronous I/O, compute overlap, Dell measurements and end-to-end quality/performance gates remain outstanding.
+- CI passed for the synthetic trace test, unsupported-version validation, and their immediate commits. CI for the latest cache commits was still running at the time of this note; do not mark Phase 5A accepted or merge PR #12 until the latest head is green and reviewed.
+
+### 2026-10-29 — real-file Phase 5B trace-replay benchmark added
+
+- Added `kiln-bench expert-cache` to replay the same deterministic synthetic access trace against no cache, LRU, LFU and adaptive policies with equal byte budgets for cached policies.
+- The command partitions a representative file into fixed-size synthetic expert blocks and reports measured host elapsed time/request rate, cache hit/miss statistics, estimated bytes requested from the backing file, retained cache bytes, evictions and checksum.
+- Added command tests for policy comparison, identical trace checksum, byte-budget enforcement and invalid inputs. The command caps the synthetic index at one million blocks to avoid an unbounded index allocation.
+- This is a real-file benchmark when run on a user's host, but its expert trace is still synthetic and OS page-cache state is uncontrolled. It does not prove physical SSD bytes read or model inference performance.
+- Current branch head at this note: `47efa8e89f48158a05d82d9ef0d9858976f5b190`. CI for the latest benchmark additions is still running. The earlier cache-core commit `63cf5a727be89c1a73e601eb2728c172572b5b5a` passed workspace tests after a borrow-checker issue was fixed. Do not merge PR #12 until the latest head is green.
+- Phase 5A remains unaccepted until the benchmark is run on the target Dell with a representative file and the evidence is recorded. The expert cache is not yet connected to the live llama.cpp model inference path.
+
+### 2026-10-29 — trace-file replay input
+
+- `kiln-bench expert-cache` now accepts `--trace-file` containing a non-empty JSON array of mapped block IDs. It validates every ID against the file's available synthetic blocks and uses the trace's length as the request count.
+- Added tests for valid trace replay, checksum consistency, empty traces and out-of-range IDs.
+- Important boundary: the current reader benchmark maps each fixed-size file block to a synthetic ID at layer 0. A real router's (layer, expert_id) events must be translated using the model's actual expert-to-file layout first. Live routing collection is not implemented.
+- The latest cache benchmark and Rust cache code passed CI through commit `47efa8e89f48158a05d82d9ef0d9858976f5b190`; the real-file benchmark tests passed on `4c9c5d12871ad25ebd9f68ded1abd154edddd5ca`. CI for the trace-file extension is still running; latest observed code-test run is `40839927111`. Phase 5A remains open pending target-Dell measurements.
+
+### 2026-10-29 — latest CI verified; Phase 5C predictor primitive started
+
+- CI run `40840145028` completed successfully for trace-file replay and roadmap state at commit `543d5dfa3a7409de59bfbac93cd1526ba622b652`. The follow-up predictor code is newer and must receive its own green CI before it is accepted.
+- Added `kiln-mem::ExpertPrefetcher` as a standalone, deterministic trace-driven predictor primitive. It learns one-step expert transitions, ranks candidates by observed conditional frequency, accepts model-index-provided sizes, enforces request and byte budgets, and exposes counters for useful, late, unused and cancelled plans.
+- Tests cover empirical ranking/confidence, caps, outcome accounting and cancellation. This primitive does not perform I/O, observe live llama.cpp routing, or prove overlap; its output must be integrated and evaluated against no-prefetch baselines before use in inference.
+- PR #12 remains open. The latest trace-replay code passed CI, but Phase 5A is not accepted because the target Dell run is missing. Phase 5B's cache is not connected to live inference. Phase 5C is only a planner primitive at this stage.
+- Immediate next steps: get CI green for this predictor commit; inspect cache/prefetch API correctness; build a trace-driven comparative benchmark that records prediction coverage, useful/late/unused rates and bytes; then integrate trace capture into the pinned `kiln-llama` runtime. Do not start async I/O until synchronous trace replay and cache behavior are validated.
+
+### 2026-10-29 — Phase 5C trace-replay benchmark added
+
+- Added `kiln-bench prefetch-replay` to evaluate the one-step transition predictor on a mapped JSON expert-ID sequence. It reports next-event top-k coverage/precision, scheduled predictions and useful/late/unused/cancelled outcomes under configured request/byte caps.
+- Read latency is simulated in trace-event steps, not measured in milliseconds. The command does not issue disk reads, instrument live llama.cpp routing, model ready-cache eviction, or demonstrate I/O/compute overlap.
+- Tightened the predictor contract: a prediction is useful only if the caller marks it ready before demand; demand while still in-flight is late. Total tracked speculative plans are bounded, including ready metadata, and session reset clears both pending and ready metadata.
+- Added tests for predictor confidence, request/byte caps, useful-versus-late accounting, cleanup, replay metrics and malformed/empty traces. These latest changes still require a green CI run.
+- Next: review CI for the latest branch head; then integrate routing trace collection into the pinned `kiln-llama` runtime or establish a model-compatible external trace source. Only after real traces are available should predictor strategies be compared on real expert sequences and the synchronous cache path be integrated. Async I/O remains gated on validated synchronous behavior.
+
+### 2026-10-29 — layer-aware trace input
+
+- Extended the prefetch replay tool to accept flat expert IDs, `[layer, expert_id]` pairs, or `{layer, expert_id}` objects. This supports the shape of an externally captured router trace without pretending that the current llama.cpp wrapper collects one.
+- Candidate experts are limited to those present in the supplied trace and are assigned a uniform block size. The benchmark therefore measures transition prediction on a trace, not prediction over the full model expert inventory.
+- Added a regression test for layer-aware pair traces. Latest changes are awaiting CI.
+
+### 2026-10-29 — bounded cache-backed expert access tracing
+
+- Added opt-in bounded access tracing to `CachedExpertBlobReader`. It records successful requested `(layer, expert_id)` events, including cache hits, without recording failed reads. The trace has a caller-configured event cap and counts dropped events rather than growing without bound.
+- Added snapshot and JSON export APIs; the JSON event array matches the layer-aware object format accepted by `kiln-bench prefetch-replay`. Export intentionally omits the dropped count from the event array; callers can inspect it in the in-memory snapshot.
+- Added a test for ordered events, bounded growth, dropped-event accounting, JSON round-trip, and disabling trace capture.
+- Corrected the documentation boundary: this captures real accesses only when code calls `CachedExpertBlobReader`. The current llama.cpp backend loads and executes through its own context and does not use this reader, so this does not yet capture live model routing or provide real MoE traces.
+- CI run `40842392964` failed on the initial trace commit due to a Rust borrow-checker conflict in the vector-capacity reservation expression. The expression was separated into a local calculation in follow-up commit `acdfe5c83205db01fab74ccd694d575e39715da1`; its CI is queued and must be checked before accepting the change.
+- Next: validate the trace API on the latest green CI head; then determine whether to instrument the pinned llama.cpp fork's model-specific router or build a KILN-native expert-loading path that can consume the index, cache, and trace recorder. Do not claim live routing capture or start async I/O before that boundary is resolved.
+
+### 2026-10-29 — found the existing experimental llama.cpp MoE streaming path
+
+- The KILN submodule currently pins `vendor/llama.cpp` to `daf663e00f96e58e3073e73e7234b0f0738cbf86`, which has no `src/llama-moe-stream.cpp`. Therefore the current default KILN checkout does not include the experimental MoE streaming implementation.
+- The fork has a separate `moe-stream` branch at `1248fd8fa8cfebaece5ea992e4d951c1e18bb9d5`, containing a real streamed expert cache, route-hotness eviction, I/O worker pool, demand loads, and multi-pass prefill with next-wave preloads. This is stronger than the standalone cache/predictor primitives but is not integrated into the pinned KILN build.
+- That branch is substantially stale relative to the fork's current `master` (GitHub compare reports 1,520 commits behind, 3 commits ahead). Do **not** simply move the KILN submodule pointer to the stale branch; it risks discarding a large amount of upstream compatibility work.
+- Added opt-in, bounded route trace output to the experimental `moe-stream` branch via `LLAMA_MOE_STREAM_TRACE=/path/to/trace.json`. It records selected `(layer, expert_id)` events from both standard remap and multi-pass prefill, capped at one million events, and writes a JSON array on manager destruction. Documentation is in that fork's `docs/moe-stream-trace.md`.
+- The experimental branch's configured GitHub Actions workflows produced zero jobs for these commits because the available workflow is disabled/path-filtered for this branch; the trace instrumentation is not yet build-verified. Do not treat it as accepted.
+- Integration plan: port the MoE streaming implementation onto current `kiln-llama/master` with focused compatibility changes and a dedicated CPU build/test workflow; then port the trace hook and update the KILN submodule pin only after build and model-parity checks. In parallel, keep KILN's portable cache/predictor primitives as independently testable components. Async/prefetch performance claims remain gated on real traces and target-hardware evidence.

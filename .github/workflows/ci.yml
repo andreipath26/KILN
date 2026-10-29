@@ -44,5 +44,8 @@ jobs:
         continue-on-error: true
         run: cargo fmt --all -- --check
 
+      - name: Test synthetic MoE cache simulator
+        run: python3 -m unittest scripts.test_synthetic_moe_cache_bench -v
+
       - name: Run workspace tests
         run: cargo test --workspace --all-targets

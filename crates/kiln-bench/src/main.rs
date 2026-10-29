@@ -10,7 +10,13 @@
 //!   kiln-bench run --json     # print report as JSON only
 //!   kiln-bench info           # print what will be measured
 
+use std::collections::HashMap;
 use std::time::Instant;
+use std::path::PathBuf;
+
+use kiln_io::{CachedExpertBlobReader, FileRangeReader};
+use kiln_mem::{ExpertCachePolicy, ExpertKey, ExpertPrefetcher, PrefetchStats};
+use kiln_models::{ExpertRange, ExpertTable};
 
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -35,6 +41,87 @@ enum Commands {
     },
     /// Print what will be measured without running anything.
     Info,
+    /// Compare real-file expert reads with no cache and byte-bounded cache policies.
+    ExpertCache {
+        /// Path to an expert blob or representative large file.
+        #[arg(long)]
+        file: PathBuf,
+        /// Bytes per synthetic expert block (default 1 MiB).
+        #[arg(long, default_value_t = 1_048_576)]
+        block_bytes: usize,
+        /// Number of expert accesses to replay.
+        #[arg(long, default_value_t = 10_000)]
+        requests: usize,
+        /// Equal retained-cache budget for LRU, LFU and adaptive policies.
+        #[arg(long, default_value_t = 256)]
+        cache_mib: u64,
+        /// Seed for reproducible access traces.
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+        /// Synthetic access pattern; ignored when --trace-file is supplied.
+        #[arg(long, value_parser = ["phase-shift", "stationary-hot", "uniform", "round-robin"], default_value = "phase-shift")]
+        workload: String,
+        /// Optional validated JSON ExpertTable mapping (layer, expert_id) to blob byte ranges.
+        #[arg(long)]
+        index_file: Option<PathBuf>,
+        /// Optional JSON array of expert IDs or layer-aware keys captured from a model router.
+        #[arg(long)]
+        trace_file: Option<PathBuf>,
+        /// Emit JSON only.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Replay a mapped expert-ID trace through the bounded history prefetch predictor.
+    PrefetchReplay {
+        /// JSON array of expert IDs or layer-aware expert keys in observed access order.
+        #[arg(long)]
+        trace_file: PathBuf,
+        /// Optional expert blob file; required together with --index-file for variable-size accounting.
+        #[arg(long)]
+        blob_file: Option<PathBuf>,
+        /// Optional JSON ExpertTable index; when supplied, candidate byte sizes come from indexed ranges.
+        #[arg(long)]
+        index_file: Option<PathBuf>,
+        /// Fixed expert block size used for planner budget accounting without --index-file.
+        #[arg(long, default_value_t = 1_048_576)]
+        block_bytes: u64,
+        /// Maximum number of candidate experts to schedule per observed access.
+        #[arg(long, default_value_t = 2)]
+        top_k: usize,
+        /// Maximum total tracked plans (in-flight plus ready).
+        #[arg(long, default_value_t = 8)]
+        max_pending: usize,
+        /// Maximum in-flight prefetch bytes.
+        #[arg(long, default_value_t = 16)]
+        max_inflight_mib: u64,
+        /// Simulated read latency in trace-access steps; 0 means ready immediately.
+        #[arg(long, default_value_t = 1)]
+        latency_requests: usize,
+        /// Emit JSON only.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Measure bounded random and sequential reads from a real model/expert blob.
+    ExpertIo {
+        /// Path to an expert blob or other representative large model file.
+        #[arg(long)]
+        file: PathBuf,
+        /// Bytes per expert-block read (default 1 MiB).
+        #[arg(long, default_value_t = 1_048_576)]
+        block_bytes: usize,
+        /// Number of block reads per repetition.
+        #[arg(long, default_value_t = 256)]
+        requests: usize,
+        /// Number of repetitions for each access pattern.
+        #[arg(long, default_value_t = 5)]
+        runs: usize,
+        /// Seed for reproducible random access offsets.
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+        /// Emit JSON only.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// The report structure. This is the format every phase gate produces.
@@ -61,6 +148,627 @@ pub struct Summary {
     pub total: u32,
     pub passed: u32,
     pub failed: u32,
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ExpertIoPattern {
+    access_pattern: String,
+    requests: usize,
+    block_bytes: usize,
+    total_bytes_read: u64,
+    elapsed_ms: f64,
+    throughput_mib_s: f64,
+    request_latency_p50_us: f64,
+    request_latency_p95_us: f64,
+    checksum: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ExpertCachePattern {
+    policy: String,
+    cache_capacity_bytes: u64,
+    requests: usize,
+    hits: u64,
+    misses: u64,
+    hit_rate: f64,
+    estimated_backing_bytes_read: u64,
+    elapsed_ms: f64,
+    requests_per_second: f64,
+    cache_used_bytes: u64,
+    entries: usize,
+    evictions: u64,
+    checksum: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ExpertCacheReport {
+    version: String,
+    phase_gate: String,
+    file: String,
+    file_size_bytes: u64,
+    block_bytes: Option<usize>,
+    index_file: Option<String>,
+    expert_entries_available: usize,
+    requests: usize,
+    seed: u64,
+    workload: String,
+    trace_source: String,
+    page_cache_controlled: bool,
+    note: String,
+    patterns: Vec<ExpertCachePattern>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PrefetchReplayReport {
+    version: String,
+    phase_gate: String,
+    trace_file: String,
+    blob_file: Option<String>,
+    index_file: Option<String>,
+    trace_events: usize,
+    distinct_experts_in_trace: usize,
+    block_bytes: Option<u64>,
+    candidate_bytes_total: u64,
+    top_k: usize,
+    max_pending: usize,
+    max_inflight_bytes: u64,
+    simulated_latency_requests: usize,
+    next_event_coverage: f64,
+    next_event_precision: f64,
+    predicted_candidates: u64,
+    correct_next_event_predictions: u64,
+    stats: PrefetchStats,
+    note: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ExpertIoReport {
+    version: String,
+    phase_gate: String,
+    file: String,
+    file_size_bytes: u64,
+    os: String,
+    architecture: String,
+    block_bytes: usize,
+    requests_per_run: usize,
+    repetitions: usize,
+    seed: u64,
+    page_cache_controlled: bool,
+    note: String,
+    patterns: Vec<ExpertIoPattern>,
+}
+
+fn percentile(sorted: &[u64], percentile: f64) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let index = ((sorted.len() - 1) as f64 * percentile).ceil() as usize;
+    sorted[index.min(sorted.len() - 1)] as f64 / 1_000.0
+}
+
+fn run_expert_io_pattern(
+    reader: &mut FileRangeReader,
+    offsets: &[u64],
+    block_bytes: usize,
+    repetitions: usize,
+    access_pattern: &str,
+) -> Result<ExpertIoPattern, Box<dyn std::error::Error>> {
+    let mut buffer = vec![0u8; block_bytes];
+    let mut latencies = Vec::with_capacity(offsets.len().saturating_mul(repetitions));
+    let mut checksum = 0u64;
+    let total_start = Instant::now();
+
+    for _ in 0..repetitions {
+        for offset in offsets {
+            let start = Instant::now();
+            reader.read_exact_at(*offset, &mut buffer)?;
+            latencies.push(start.elapsed().as_nanos().min(u64::MAX as u128) as u64);
+            // Touch a deterministic sample of the bytes to prevent this from
+            // becoming a pure seek-only benchmark.
+            for byte in buffer.iter().step_by(4096) {
+                checksum = checksum.rotate_left(5) ^ u64::from(*byte);
+            }
+        }
+    }
+
+    let elapsed = total_start.elapsed();
+    let elapsed_secs = elapsed.as_secs_f64().max(f64::MIN_POSITIVE);
+    let total_bytes_read = (block_bytes as u64)
+        .saturating_mul(offsets.len() as u64)
+        .saturating_mul(repetitions as u64);
+    latencies.sort_unstable();
+
+    Ok(ExpertIoPattern {
+        access_pattern: access_pattern.to_string(),
+        requests: offsets.len().saturating_mul(repetitions),
+        block_bytes,
+        total_bytes_read,
+        elapsed_ms: elapsed.as_secs_f64() * 1000.0,
+        throughput_mib_s: total_bytes_read as f64 / (1024.0 * 1024.0) / elapsed_secs,
+        request_latency_p50_us: percentile(&latencies, 0.50),
+        request_latency_p95_us: percentile(&latencies, 0.95),
+        checksum,
+    })
+}
+
+fn run_expert_io(
+    file: &std::path::Path,
+    block_bytes: usize,
+    requests: usize,
+    runs: usize,
+    seed: u64,
+) -> Result<ExpertIoReport, Box<dyn std::error::Error>> {
+    if block_bytes == 0 || requests == 0 || runs == 0 {
+        return Err("block-bytes, requests, and runs must all be greater than zero".into());
+    }
+    let mut reader = FileRangeReader::open(file)?;
+    let blocks_available = reader.file_size() / block_bytes as u64;
+    if blocks_available == 0 {
+        return Err(format!(
+            "file is {} bytes; it must contain at least one full {}-byte block",
+            reader.file_size(), block_bytes
+        ).into());
+    }
+
+    let mut sequential_offsets = Vec::with_capacity(requests);
+    let mut random_offsets = Vec::with_capacity(requests);
+    let mut state = seed;
+    for i in 0..requests {
+        sequential_offsets.push((i as u64 % blocks_available) * block_bytes as u64);
+        // Stable LCG: repeatable across platforms and Rust versions.
+        state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        random_offsets.push((state % blocks_available) * block_bytes as u64);
+    }
+
+    let sequential = run_expert_io_pattern(&mut reader, &sequential_offsets, block_bytes, runs, "sequential")?;
+    let random = run_expert_io_pattern(&mut reader, &random_offsets, block_bytes, runs, "random")?;
+
+    Ok(ExpertIoReport {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        phase_gate: "5A-expert-block-io-feasibility".to_string(),
+        file: file.display().to_string(),
+        file_size_bytes: reader.file_size(),
+        os: std::env::consts::OS.to_string(),
+        architecture: std::env::consts::ARCH.to_string(),
+        block_bytes,
+        requests_per_run: requests,
+        repetitions: runs,
+        seed,
+        page_cache_controlled: false,
+        note: "Portable seek/read baseline. OS page cache is not controlled; repeated runs may be warm. This measures storage access only, not end-to-end model tokens/s.".to_string(),
+        patterns: vec![sequential, random],
+    })
+}
+
+fn make_key_trace(
+    available: &[ExpertKey],
+    requests: usize,
+    seed: u64,
+    workload: &str,
+) -> Vec<ExpertKey> {
+    let mut trace = Vec::with_capacity(requests);
+    if available.is_empty() {
+        return trace;
+    }
+    let mut state = seed;
+    let hot_count = (available.len() / 8).max(1);
+    let next = |state: &mut u64| {
+        *state = state.wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        *state
+    };
+    for i in 0..requests {
+        let index = match workload {
+            "uniform" => (next(&mut state) % available.len() as u64) as usize,
+            "round-robin" => i % available.len(),
+            "stationary-hot" | "phase-shift" => {
+                let phase = if workload == "stationary-hot" || i < requests / 2 { 0 } else { 1 };
+                let hot_start = phase * (available.len() / 2);
+                if next(&mut state) % 100 < 85 {
+                    hot_start + (next(&mut state) % hot_count as u64) as usize
+                } else {
+                    (next(&mut state) % available.len() as u64) as usize
+                }
+            }
+            _ => unreachable!("workload validated by CLI and caller"),
+        };
+        trace.push(available[index]);
+    }
+    trace
+}
+
+fn run_expert_cache_policy(
+    file: &std::path::Path,
+    table: ExpertTable,
+    trace: &[ExpertKey],
+    cache_capacity_bytes: u64,
+    policy: ExpertCachePolicy,
+    policy_name: &str,
+) -> Result<ExpertCachePattern, Box<dyn std::error::Error>> {
+    let reader = CachedExpertBlobReader::open(file, table, cache_capacity_bytes, policy)?;
+    let started = Instant::now();
+    let mut checksum = 0u64;
+    let mut estimated_backing_bytes_read = 0u64;
+    let mut previous_misses = 0u64;
+    for key in trace {
+        let bytes = reader.read_expert(key.layer, key.expert_id)?;
+        let stats = reader.cache_stats();
+        if stats.misses > previous_misses {
+            estimated_backing_bytes_read = estimated_backing_bytes_read.saturating_add(bytes.len() as u64);
+            previous_misses = stats.misses;
+        }
+        if let Some(first) = bytes.first() {
+            checksum = checksum.rotate_left(5) ^ u64::from(*first);
+        }
+        if let Some(last) = bytes.last() {
+            checksum = checksum.rotate_left(3) ^ u64::from(*last);
+        }
+    }
+    let elapsed = started.elapsed();
+    let elapsed_secs = elapsed.as_secs_f64().max(f64::MIN_POSITIVE);
+    let stats = reader.cache_stats();
+    let requests = trace.len();
+    let total_lookups = stats.hits.saturating_add(stats.misses).max(1);
+    Ok(ExpertCachePattern {
+        policy: policy_name.to_string(),
+        cache_capacity_bytes,
+        requests,
+        hits: stats.hits,
+        misses: stats.misses,
+        hit_rate: stats.hits as f64 / total_lookups as f64,
+        estimated_backing_bytes_read,
+        elapsed_ms: elapsed.as_secs_f64() * 1000.0,
+        requests_per_second: requests as f64 / elapsed_secs,
+        cache_used_bytes: stats.used_bytes,
+        entries: stats.entries,
+        evictions: stats.evictions,
+        checksum,
+    })
+}
+
+fn run_expert_cache(
+    file: &std::path::Path,
+    block_bytes: usize,
+    requests: usize,
+    cache_mib: u64,
+    seed: u64,
+    workload: &str,
+    trace_file: Option<&std::path::Path>,
+    index_file: Option<&std::path::Path>,
+) -> Result<ExpertCacheReport, Box<dyn std::error::Error>> {
+    if (trace_file.is_none() && requests == 0) || cache_mib == 0 {
+        return Err("requests must be greater than zero without --trace-file, and cache-mib must be greater than zero".into());
+    }
+    if trace_file.is_none() && !["phase-shift", "stationary-hot", "uniform", "round-robin"].contains(&workload) {
+        return Err(format!("unsupported workload: {workload}").into());
+    }
+    let file_size = std::fs::metadata(file)?.len();
+    let (table, block_bytes_report) = if let Some(index_path) = index_file {
+        let contents = read_bounded_input(index_path, MAX_EXPERT_INDEX_BYTES, "expert index")?;
+        let table: ExpertTable = serde_json::from_slice(&contents)?;
+        table.validate(file_size)?;
+        if table.ranges.is_empty() {
+            return Err("expert index contains no entries".into());
+        }
+        (table, None)
+    } else {
+        if block_bytes == 0 {
+            return Err("block-bytes must be greater than zero when --index-file is not supplied".into());
+        }
+        let block_bytes_u64 = u64::try_from(block_bytes)?;
+        let experts_u64 = file_size / block_bytes_u64;
+        if experts_u64 == 0 {
+            return Err(format!("file is {file_size} bytes; it must contain at least one full {block_bytes}-byte block").into());
+        }
+        if experts_u64 > 1_000_000 {
+            return Err("benchmark index would exceed one million synthetic expert blocks; increase --block-bytes".into());
+        }
+        let mut ranges = Vec::with_capacity(experts_u64 as usize);
+        for expert_id in 0..experts_u64 {
+            ranges.push(ExpertRange {
+                layer: 0,
+                expert_id: expert_id as u32,
+                byte_offset: expert_id.saturating_mul(block_bytes_u64),
+                byte_length: block_bytes_u64,
+            });
+        }
+        (ExpertTable { blob_version: 1, blob_size: file_size, ranges }, Some(block_bytes))
+    };
+    table.validate(file_size)?;
+    let available: Vec<ExpertKey> = table.ranges.iter()
+        .map(|range| ExpertKey { layer: range.layer, expert_id: range.expert_id })
+        .collect();
+    if available.len() > 1_000_000 {
+        return Err("expert index contains more than one million entries; split or reduce the index to bound benchmark memory".into());
+    }
+    let trace: Vec<ExpertKey> = if let Some(trace_path) = trace_file {
+        let input: ExpertTraceInput = serde_json::from_slice(&read_bounded_input(trace_path, MAX_EXPERT_TRACE_BYTES, "expert trace")?)?;
+        let trace = match input {
+            ExpertTraceInput::FlatIds(ids) => ids.into_iter()
+                .map(|expert_id| ExpertKey { layer: 0, expert_id }).collect(),
+            ExpertTraceInput::ExpertKeys(keys) => keys,
+            ExpertTraceInput::Pairs(pairs) => pairs.into_iter()
+                .map(|(layer, expert_id)| ExpertKey { layer, expert_id }).collect(),
+        };
+        if trace.is_empty() {
+            return Err("trace file must be a non-empty JSON array of expert IDs, [layer, expert_id] pairs, or {layer, expert_id} objects".into());
+        }
+        if trace.len() > 10_000_000 {
+            return Err("trace contains more than 10 million events; split the trace to bound memory".into());
+        }
+        let available_set: std::collections::HashSet<ExpertKey> = available.iter().copied().collect();
+        if let Some(missing) = trace.iter().find(|key| !available_set.contains(key)) {
+            return Err(format!("trace references expert ({}, {}), which is absent from the selected index", missing.layer, missing.expert_id).into());
+        }
+        trace
+    } else {
+        make_key_trace(&available, requests, seed, workload)
+    };
+    let cache_capacity_bytes = cache_mib.checked_mul(1024 * 1024)
+        .ok_or("cache-mib is too large")?;
+    let mut patterns = Vec::new();
+    patterns.push(run_expert_cache_policy(
+        file, table.clone(), &trace, 0, ExpertCachePolicy::Lru, "none"
+    )?);
+    for (policy, name) in [
+        (ExpertCachePolicy::Lru, "lru"),
+        (ExpertCachePolicy::Lfu, "lfu"),
+        (ExpertCachePolicy::Adaptive, "adaptive"),
+    ] {
+        patterns.push(run_expert_cache_policy(
+            file, table.clone(), &trace, cache_capacity_bytes, policy, name
+        )?);
+    }
+    Ok(ExpertCacheReport {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        phase_gate: "5B-expert-cache-trace-replay".to_string(),
+        file: file.display().to_string(),
+        file_size_bytes: file_size,
+        block_bytes: block_bytes_report,
+        index_file: index_file.map(|path| path.display().to_string()),
+        expert_entries_available: available.len(),
+        requests: trace.len(),
+        seed,
+        workload: if trace_file.is_some() { "trace-file".to_string() } else { workload.to_string() },
+        trace_source: trace_file.map_or_else(|| format!("synthetic:{}", workload), |path| path.display().to_string()),
+        page_cache_controlled: false,
+        note: "Real file reads on this host. If --index-file is supplied, each trace key maps through that validated ExpertTable to a variable-length byte range; otherwise fixed-size synthetic layer-0 blocks are used. OS page cache is uncontrolled, estimated backing bytes are summed requested range lengths on cache misses (not physical-device counters), and caller-owned buffers are outside the cache budget. This is not an inference benchmark or a target-hardware claim unless run on the target machine.".to_string(),
+        patterns,
+    })
+}
+
+const MAX_EXPERT_INDEX_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_EXPERT_TRACE_BYTES: u64 = 128 * 1024 * 1024;
+
+fn read_bounded_input(
+    path: &std::path::Path,
+    max_bytes: u64,
+    description: &str,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let size = std::fs::metadata(path)?.len();
+    if size > max_bytes {
+        return Err(format!(
+            "{description} file is {size} bytes; input limit is {max_bytes} bytes"
+        ).into());
+    }
+    Ok(std::fs::read(path)?)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ExpertTraceInput {
+    FlatIds(Vec<u32>),
+    ExpertKeys(Vec<ExpertKey>),
+    Pairs(Vec<(u32, u32)>),
+}
+
+fn run_prefetch_replay(
+    trace_file: &std::path::Path,
+    block_bytes: u64,
+    top_k: usize,
+    max_pending: usize,
+    max_inflight_mib: u64,
+    latency_requests: usize,
+    blob_file: Option<&std::path::Path>,
+    index_file: Option<&std::path::Path>,
+) -> Result<PrefetchReplayReport, Box<dyn std::error::Error>> {
+    use std::collections::HashSet;
+
+    if top_k == 0 || max_pending == 0 || max_inflight_mib == 0 {
+        return Err("top-k, max-pending and max-inflight-mib must be greater than zero".into());
+    }
+    if (blob_file.is_some() != index_file.is_some()) {
+        return Err("--blob-file and --index-file must be supplied together".into());
+    }
+    let indexed_sizes: Option<HashMap<ExpertKey, u64>> = if let (Some(blob_path), Some(index_path)) = (blob_file, index_file) {
+        let blob_size = std::fs::metadata(blob_path)?.len();
+        let contents = read_bounded_input(index_path, MAX_EXPERT_INDEX_BYTES, "expert index")?;
+        let table: ExpertTable = serde_json::from_slice(&contents)?;
+        table.validate(blob_size)?;
+        if table.ranges.is_empty() {
+            return Err("expert index contains no entries".into());
+        }
+        if table.ranges.len() > 1_000_000 {
+            return Err("expert index contains more than one million entries; reduce the index to bound memory".into());
+        }
+        Some(table.ranges.into_iter().map(|range| (
+            ExpertKey { layer: range.layer, expert_id: range.expert_id },
+            range.byte_length,
+        )).collect())
+    } else {
+        if block_bytes == 0 {
+            return Err("block-bytes must be greater than zero without --index-file".into());
+        }
+        None
+    };
+
+    let input: ExpertTraceInput = serde_json::from_slice(
+        &read_bounded_input(trace_file, MAX_EXPERT_TRACE_BYTES, "expert trace")?
+    )?;
+    let trace: Vec<ExpertKey> = match input {
+        ExpertTraceInput::FlatIds(ids) => ids.into_iter()
+            .map(|expert_id| ExpertKey { layer: 0, expert_id }).collect(),
+        ExpertTraceInput::ExpertKeys(keys) => keys,
+        ExpertTraceInput::Pairs(pairs) => pairs.into_iter()
+            .map(|(layer, expert_id)| ExpertKey { layer, expert_id }).collect(),
+    };
+    if trace.is_empty() {
+        return Err("trace file must be a non-empty JSON array of expert IDs, [layer, expert_id] pairs, or {layer, expert_id} objects".into());
+    }
+    if trace.len() > 10_000_000 {
+        return Err("trace contains more than 10 million events; split the trace to bound memory".into());
+    }
+    let distinct: HashSet<ExpertKey> = trace.iter().copied().collect();
+    let mut candidates: Vec<(ExpertKey, u64)> = distinct.iter().copied().map(|key| {
+        let bytes = indexed_sizes.as_ref()
+            .and_then(|sizes| sizes.get(&key).copied())
+            .unwrap_or(block_bytes);
+        (key, bytes)
+    }).collect();
+    if let Some(sizes) = &indexed_sizes {
+        if let Some(missing) = distinct.iter().find(|key| !sizes.contains_key(key)) {
+            return Err(format!("trace references expert ({}, {}), which is absent from the selected index", missing.layer, missing.expert_id).into());
+        }
+    }
+    candidates.sort_by_key(|(key, _)| (key.layer, key.expert_id));
+    let distinct_experts_in_trace = candidates.len();
+    let candidate_bytes_total = candidates.iter().fold(0u64, |sum, (_, bytes)| sum.saturating_add(*bytes));
+    let max_inflight_bytes = max_inflight_mib.checked_mul(1024 * 1024)
+        .ok_or("max-inflight-mib is too large")?;
+    let mut predictor = ExpertPrefetcher::new(max_pending, max_inflight_bytes);
+    let mut scheduled_at: Vec<(ExpertKey, usize)> = Vec::new();
+    let mut predicted_candidates = 0u64;
+    let mut correct_next_event_predictions = 0u64;
+
+    for (index, actual) in trace.iter().copied().enumerate() {
+        let mut remaining = Vec::new();
+        for (key, scheduled_index) in scheduled_at.drain(..) {
+            if index.saturating_sub(scheduled_index) >= latency_requests {
+                predictor.mark_ready(key);
+            } else {
+                remaining.push((key, scheduled_index));
+            }
+        }
+        scheduled_at = remaining;
+
+        predictor.observe(actual);
+        // Discard any stale completion record before this key can be scheduled again.
+        scheduled_at.retain(|(key, _)| *key != actual);
+        if index + 1 < trace.len() {
+            let plans = predictor.predict(actual, &candidates, top_k);
+            predicted_candidates = predicted_candidates.saturating_add(plans.len() as u64);
+            let next = trace[index + 1];
+            if plans.iter().any(|candidate| candidate.key == next) {
+                correct_next_event_predictions = correct_next_event_predictions.saturating_add(1);
+            }
+            for plan in plans {
+                scheduled_at.push((plan.key, index));
+            }
+        }
+    }
+
+    predictor.mark_all_unused();
+    let stats = predictor.stats();
+    let eligible_next_events = trace.len().saturating_sub(1) as f64;
+    let next_event_coverage = if eligible_next_events == 0.0 {
+        0.0
+    } else {
+        correct_next_event_predictions as f64 / eligible_next_events
+    };
+    let next_event_precision = if predicted_candidates == 0 {
+        0.0
+    } else {
+        correct_next_event_predictions as f64 / predicted_candidates as f64
+    };
+    Ok(PrefetchReplayReport {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        phase_gate: "5C-prefetch-trace-replay".to_string(),
+        trace_file: trace_file.display().to_string(),
+        blob_file: blob_file.map(|path| path.display().to_string()),
+        index_file: index_file.map(|path| path.display().to_string()),
+        trace_events: trace.len(),
+        distinct_experts_in_trace,
+        block_bytes: if indexed_sizes.is_some() { None } else { Some(block_bytes) },
+        candidate_bytes_total,
+        top_k,
+        max_pending,
+        max_inflight_bytes,
+        simulated_latency_requests: latency_requests,
+        next_event_coverage,
+        next_event_precision,
+        predicted_candidates,
+        correct_next_event_predictions,
+        stats,
+        note: if indexed_sizes.is_some() {
+            "Trace replay only, using validated variable-size expert ranges from --index-file and --blob-file. Latency is simulated in trace-access steps; no disk reads, live routing capture, or compute/I/O overlap are performed. The candidate universe is limited to experts present in the supplied trace. Do not treat these diagnostics as inference performance.".to_string()
+        } else {
+            "Trace replay only, using a fixed synthetic block size. Latency is simulated in trace-access steps; no disk reads, live routing capture, or compute/I/O overlap are performed. Trace entries may be flat IDs (layer 0), [layer, expert_id] pairs, or {layer, expert_id} objects; the candidate universe is limited to experts present in the supplied trace. Do not treat these diagnostics as inference performance.".to_string()
+        },
+    })
+}
+
+fn print_prefetch_replay_human(report: &PrefetchReplayReport) {
+    println!("KILN prefetch trace replay");
+    println!("  trace: {} events from {}", report.trace_events, report.trace_file);
+    println!("  next-event coverage: {:.2}% | candidate precision: {:.2}%",
+        report.next_event_coverage * 100.0, report.next_event_precision * 100.0);
+    println!("  scheduled: {} | useful: {} | late: {} | unused: {} | cancelled: {}",
+        report.stats.scheduled, report.stats.useful, report.stats.late,
+        report.stats.unused, report.stats.cancelled);
+    println!("  max in-flight bytes: {} | current in-flight bytes: {}",
+        report.max_inflight_bytes, report.stats.in_flight_bytes);
+    if let Some(block_bytes) = report.block_bytes {
+        println!("  sizing: fixed {block_bytes}-byte synthetic blocks");
+    } else {
+        println!("  sizing: indexed ranges from {} (blob {})",
+            report.index_file.as_deref().unwrap_or("<unknown>"),
+            report.blob_file.as_deref().unwrap_or("<unknown>"));
+    }
+    println!("  candidate bytes represented: {}", report.candidate_bytes_total);
+    println!("  {}", report.note);
+}
+
+fn print_expert_cache_human(report: &ExpertCacheReport) {
+    println!("KILN expert-cache trace replay");
+    println!("  phase gate: {} | file: {} ({} bytes)", report.phase_gate, report.file, report.file_size_bytes);
+    if let Some(block_bytes) = report.block_bytes {
+        println!("  synthetic block size: {block_bytes} bytes");
+    } else {
+        println!("  expert index: {}", report.index_file.as_deref().unwrap_or("<unknown>"));
+    }
+    println!("  entries: {} | requests: {} | workload: {} | seed: {}",
+        report.expert_entries_available, report.requests, report.workload, report.seed);
+    println!("  OS page cache: uncontrolled");
+    for pattern in &report.patterns {
+        println!("  {}: {:.2}% hits, {:.2} requests/s, {} estimated backing bytes, {} retained bytes, {} evictions",
+            pattern.policy, pattern.hit_rate * 100.0, pattern.requests_per_second,
+            pattern.estimated_backing_bytes_read, pattern.cache_used_bytes, pattern.evictions);
+    }
+    println!("  {}", report.note);
+}
+
+fn print_expert_io_human(report: &ExpertIoReport) {
+    println!("KILN expert-block I/O feasibility report");
+    println!("  phase gate:     {}", report.phase_gate);
+    println!("  file:           {}", report.file);
+    println!("  file size:      {} bytes", report.file_size_bytes);
+    println!("  host:           {} / {}", report.os, report.architecture);
+    println!("  block size:     {} bytes", report.block_bytes);
+    println!("  requests/run:   {}", report.requests_per_run);
+    println!("  repetitions:    {}", report.repetitions);
+    println!("  random seed:    {}", report.seed);
+    println!("  page cache:     uncontrolled");
+    for pattern in &report.patterns {
+        println!("");
+        println!("  {} access", pattern.access_pattern);
+        println!("    throughput:   {:.2} MiB/s", pattern.throughput_mib_s);
+        println!("    latency p50:  {:.2} us", pattern.request_latency_p50_us);
+        println!("    latency p95:  {:.2} us", pattern.request_latency_p95_us);
+        println!("    total read:   {} bytes", pattern.total_bytes_read);
+    }
+    println!("");
+    println!("  {}", report.note);
 }
 
 fn measure<F: FnOnce() -> f64>(name: &str, unit: &str, f: F) -> Measurement {
@@ -485,6 +1193,10 @@ fn print_info() {
     println!("    - wikitext2_perplexity:  per model");
     println!("    - mmlu_score:            per model");
     println!("");
+    println!("  Phase 5A: expert-io --file <path> measures bounded sequential/random file reads");
+    println!("  Phase 5B: expert-cache --file <path> replays synthetic expert traces across cache policies");
+    println!("  Both are storage/cache probes, not end-to-end model throughput benchmarks.");
+    println!("");
     println!("  Phase 2 through 6 extend the harness with the acceptance tests");
     println!("  AT-1 through AT-8 defined in Section 13 of the Master File.");
 }
@@ -512,5 +1224,229 @@ async fn main() {
         Commands::Info => {
             print_info();
         }
+        Commands::ExpertCache { file, block_bytes, requests, cache_mib, seed, workload, index_file, trace_file, json } => {
+            match run_expert_cache(&file, block_bytes, requests, cache_mib, seed, &workload, trace_file.as_deref(), index_file.as_deref()) {
+                Ok(report) if json => println!("{}", serde_json::to_string_pretty(&report).unwrap()),
+                Ok(report) => print_expert_cache_human(&report),
+                Err(error) => {
+                    eprintln!("expert cache benchmark failed: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::PrefetchReplay { trace_file, blob_file, index_file, block_bytes, top_k, max_pending, max_inflight_mib, latency_requests, json } => {
+            match run_prefetch_replay(&trace_file, block_bytes, top_k, max_pending, max_inflight_mib, latency_requests, blob_file.as_deref(), index_file.as_deref()) {
+                Ok(report) if json => println!("{}", serde_json::to_string_pretty(&report).unwrap()),
+                Ok(report) => print_prefetch_replay_human(&report),
+                Err(error) => {
+                    eprintln!("prefetch replay failed: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::ExpertIo { file, block_bytes, requests, runs, seed, json } => {
+            match run_expert_io(&file, block_bytes, requests, runs, seed) {
+                Ok(report) if json => println!("{}", serde_json::to_string_pretty(&report).unwrap()),
+                Ok(report) => print_expert_io_human(&report),
+                Err(error) => {
+                    eprintln!("expert I/O benchmark failed: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+    }
+}
+
+
+#[cfg(test)]
+mod expert_io_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn fixture() -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "kiln-expert-io-{}-{}.bin",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut file = std::fs::File::create(&path).unwrap();
+        let bytes: Vec<u8> = (0..=255).cycle().take(64 * 1024).collect();
+        file.write_all(&bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn expert_io_report_measures_sequential_and_random_reads() {
+        let path = fixture();
+        let report = run_expert_io(&path, 1024, 8, 2, 42).unwrap();
+        assert_eq!(report.patterns.len(), 2);
+        assert_eq!(report.patterns[0].access_pattern, "sequential");
+        assert_eq!(report.patterns[1].access_pattern, "random");
+        assert_eq!(report.patterns[0].total_bytes_read, 16 * 1024);
+        assert!(report.patterns.iter().all(|p| p.throughput_mib_s > 0.0));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn expert_io_rejects_a_block_larger_than_the_file() {
+        let path = fixture();
+        assert!(run_expert_io(&path, 128 * 1024, 1, 1, 42).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod expert_cache_bench_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn fixture() -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "kiln-expert-cache-bench-{}-{}.bin",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bytes: Vec<u8> = (0..=255).cycle().take(64 * 1024).collect();
+        std::fs::File::create(&path).unwrap().write_all(&bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn expert_cache_replay_compares_policies_on_same_trace_and_budget() {
+        let path = fixture();
+        let report = run_expert_cache(&path, 1024, 500, 1, 42, "stationary-hot", None, None).unwrap();
+        assert_eq!(report.patterns.len(), 4);
+        assert_eq!(report.patterns[0].policy, "none");
+        assert_eq!(report.patterns[0].misses, 500);
+        assert_eq!(report.patterns[0].hits, 0);
+        assert!(report.patterns[1..].iter().all(|p| p.cache_capacity_bytes == 1024 * 1024));
+        assert!(report.patterns[1..].iter().all(|p| p.cache_used_bytes <= p.cache_capacity_bytes));
+        assert!(report.patterns[1..].iter().any(|p| p.hits > 0));
+        assert!(report.patterns.iter().all(|p| p.checksum == report.patterns[0].checksum));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn expert_cache_replays_supplied_json_trace_and_rejects_unknown_ids() {
+        let path = fixture();
+        let trace_path = std::env::temp_dir().join(format!(
+            "kiln-expert-trace-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&trace_path, "[0,0,1,1,0]").unwrap();
+        let report = run_expert_cache(
+            &path, 1024, 0, 1, 42, "uniform", Some(&trace_path), None
+        ).unwrap();
+        assert_eq!(report.requests, 5);
+        assert_eq!(report.workload, "trace-file");
+        assert_eq!(report.trace_source, trace_path.display().to_string());
+        assert!(report.patterns.iter().all(|p| p.checksum == report.patterns[0].checksum));
+
+        std::fs::write(&trace_path, "[64]").unwrap();
+        assert!(run_expert_cache(
+            &path, 1024, 10, 1, 42, "uniform", Some(&trace_path), None
+        ).is_err());
+        std::fs::write(&trace_path, "[]").unwrap();
+        assert!(run_expert_cache(
+            &path, 1024, 10, 1, 42, "uniform", Some(&trace_path), None
+        ).is_err());
+
+        std::fs::remove_file(trace_path).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn expert_cache_uses_validated_index_and_layer_aware_trace() {
+        let path = fixture();
+        let index_path = std::env::temp_dir().join(format!(
+            "kiln-expert-index-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let trace_path = std::env::temp_dir().join(format!(
+            "kiln-indexed-trace-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let table = ExpertTable {
+            blob_version: 1,
+            blob_size: std::fs::metadata(&path).unwrap().len(),
+            ranges: vec![
+                ExpertRange { layer: 0, expert_id: 0, byte_offset: 0, byte_length: 1024 },
+                ExpertRange { layer: 0, expert_id: 1, byte_offset: 1024, byte_length: 2048 },
+                ExpertRange { layer: 1, expert_id: 0, byte_offset: 3072, byte_length: 512 },
+            ],
+        };
+        std::fs::write(&index_path, serde_json::to_vec(&table).unwrap()).unwrap();
+        std::fs::write(
+            &trace_path,
+            "[{\"layer\":0,\"expert_id\":0},{\"layer\":1,\"expert_id\":0},{\"layer\":0,\"expert_id\":0}]",
+        ).unwrap();
+
+        let report = run_expert_cache(
+            &path, 0, 0, 1, 42, "uniform", Some(&trace_path), Some(&index_path)
+        ).unwrap();
+        assert_eq!(report.block_bytes, None);
+        assert_eq!(report.index_file, Some(index_path.display().to_string()));
+        assert_eq!(report.expert_entries_available, 3);
+        assert_eq!(report.requests, 3);
+        assert_eq!(report.patterns[0].misses, 3);
+        assert_eq!(report.patterns[0].estimated_backing_bytes_read, 2560);
+        assert_eq!(report.patterns[1].hits, 1);
+        assert_eq!(report.patterns[1].misses, 2);
+        assert!(report.patterns.iter().all(|p| p.checksum == report.patterns[0].checksum));
+
+        std::fs::write(&trace_path, "[{\"layer\":9,\"expert_id\":99}]").unwrap();
+        assert!(run_expert_cache(
+            &path, 0, 1, 1, 42, "uniform", Some(&trace_path), Some(&index_path)
+        ).is_err());
+        std::fs::remove_file(trace_path).unwrap();
+        std::fs::remove_file(index_path).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn prefetch_replay_reports_predictions_and_rejects_invalid_traces() {
+        let trace_path = std::env::temp_dir().join(format!(
+            "kiln-prefetch-trace-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&trace_path, "[0,1,0,1,0,1,0,1]").unwrap();
+        let report = run_prefetch_replay(&trace_path, 1024, 1, 4, 1, 0, None, None).unwrap();
+        assert_eq!(report.trace_events, 8);
+        assert_eq!(report.distinct_experts_in_trace, 2);
+        std::fs::write(&trace_path, "[[0,1],[1,1],[0,1],[1,2],[0,1]]").unwrap();
+        let layered = run_prefetch_replay(&trace_path, 1024, 1, 4, 1, 0, None, None).unwrap();
+        assert_eq!(layered.trace_events, 5);
+        assert_eq!(layered.distinct_experts_in_trace, 3);
+        assert!(report.next_event_coverage > 0.0);
+        assert!(report.predicted_candidates > 0);
+        assert_eq!(report.stats.scheduled, report.stats.useful + report.stats.late + report.stats.unused + report.stats.cancelled);
+        std::fs::write(&trace_path, "[]").unwrap();
+        assert!(run_prefetch_replay(&trace_path, 1024, 1, 4, 1, 0, None, None).is_err());
+        std::fs::remove_file(trace_path).unwrap();
+    }
+
+    #[test]
+    fn expert_cache_replay_rejects_invalid_inputs() {
+        let path = fixture();
+        assert!(run_expert_cache(&path, 0, 10, 1, 42, "uniform", None, None).is_err());
+        assert!(run_expert_cache(&path, 1024, 10, 0, 42, "uniform", None, None).is_err());
+        assert!(run_expert_cache(&path, 1024, 10, 1, 42, "unknown", None, None).is_err());
+        std::fs::remove_file(path).unwrap();
     }
 }
