@@ -40,6 +40,7 @@ pub struct ExpertPrefetcher {
     max_in_flight_requests: usize,
     max_in_flight_bytes: u64,
     in_flight: HashMap<ExpertKey, u64>,
+    ready: HashMap<ExpertKey, u64>,
     order: VecDeque<ExpertKey>,
     stats: PrefetchStats,
 }
@@ -53,6 +54,7 @@ impl ExpertPrefetcher {
             max_in_flight_requests,
             max_in_flight_bytes,
             in_flight: HashMap::new(),
+            ready: HashMap::new(),
             order: VecDeque::new(),
             stats: PrefetchStats::default(),
         }
@@ -65,10 +67,14 @@ impl ExpertPrefetcher {
             *self.totals.entry(previous).or_default() += 1;
         }
         self.previous = Some(actual);
-        if self.in_flight.remove(&actual).is_some() {
+        if self.ready.remove(&actual).is_some() {
+            self.stats.useful = self.stats.useful.saturating_add(1);
+        } else if self.in_flight.remove(&actual).is_some() {
+            // The expert was demanded before the caller reported the prefetch
+            // as ready, so it did not hide the miss.
             self.order.retain(|key| *key != actual);
             self.refresh_in_flight();
-            self.stats.useful = self.stats.useful.saturating_add(1);
+            self.stats.late = self.stats.late.saturating_add(1);
         }
     }
 
@@ -128,6 +134,18 @@ impl ExpertPrefetcher {
         planned
     }
 
+    /// Report that a prefetched read completed before the expert was demanded.
+    /// Ready bytes are now expected to be owned/accounted for by the cache layer.
+    pub fn mark_ready(&mut self, key: ExpertKey) -> bool {
+        let Some(bytes) = self.in_flight.remove(&key) else {
+            return false;
+        };
+        self.order.retain(|item| *item != key);
+        self.ready.insert(key, bytes);
+        self.refresh_in_flight();
+        true
+    }
+
     /// Report that a planned request completed after its consumer needed it.
     pub fn mark_late(&mut self, key: ExpertKey) -> bool {
         if self.in_flight.remove(&key).is_none() {
@@ -141,7 +159,9 @@ impl ExpertPrefetcher {
 
     /// Report that a prefetched block was never used.
     pub fn mark_unused(&mut self, key: ExpertKey) -> bool {
-        if self.in_flight.remove(&key).is_none() {
+        let removed_in_flight = self.in_flight.remove(&key).is_some();
+        let removed_ready = self.ready.remove(&key).is_some();
+        if !removed_in_flight && !removed_ready {
             return false;
         }
         self.order.retain(|item| *item != key);
@@ -152,7 +172,9 @@ impl ExpertPrefetcher {
 
     /// Cancel a plan that became stale. Returns false for unknown keys.
     pub fn cancel(&mut self, key: ExpertKey) -> bool {
-        if self.in_flight.remove(&key).is_none() {
+        let removed_in_flight = self.in_flight.remove(&key).is_some();
+        let removed_ready = self.ready.remove(&key).is_some();
+        if !removed_in_flight && !removed_ready {
             return false;
         }
         self.order.retain(|item| *item != key);
@@ -228,6 +250,7 @@ mod tests {
         }
         let candidates = [(key(1), 100), (key(2), 100), (key(3), 100)];
         assert_eq!(p.predict(key(0), &candidates, 3).len(), 3);
+        assert!(p.mark_ready(key(1)));
         p.observe(key(1));
         assert!(p.mark_late(key(2)));
         assert!(p.mark_unused(key(3)));
