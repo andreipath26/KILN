@@ -92,3 +92,19 @@ Call `CachedExpertBlobReader::enable_access_trace(max_events)` before a workload
 This only records accesses that pass through `CachedExpertBlobReader`. The current llama.cpp backend does not route its internal MoE expert reads through this reader, so this API does not yet capture live llama.cpp routing. It creates a concrete trace-capture seam for a KILN-native expert-loading path and for tests.
 
 The predictor's transition table is also hard-bounded (65,536 source keys and 65,536 distinct transitions). When the edge table is full, it stops adding new transitions and continues counting observed transitions for already-tracked sources, keeping probabilities' denominator honest without unbounded map growth. Duplicate candidates and keys already in flight or marked ready are not scheduled twice.
+
+Example index shape (the values below are illustrative; `blob_size` must match the actual file and ranges must be valid):
+
+```json
+{
+  "blob_version": 1,
+  "blob_size": 4096,
+  "ranges": [
+    {"layer": 0, "expert_id": 0, "byte_offset": 0, "byte_length": 1024},
+    {"layer": 0, "expert_id": 1, "byte_offset": 1024, "byte_length": 2048},
+    {"layer": 1, "expert_id": 0, "byte_offset": 3072, "byte_length": 512}
+  ]
+}
+```
+
+The index parser rejects unsupported versions, blob-size mismatches, empty/out-of-bounds ranges, unsorted or duplicate expert keys, and overlapping byte ranges. The benchmark also caps the JSON index and trace input files at 128 MiB before parsing.
