@@ -13,7 +13,9 @@
 use std::time::Instant;
 use std::path::PathBuf;
 
-use kiln_io::FileRangeReader;
+use kiln_io::{CachedExpertBlobReader, FileRangeReader};
+use kiln_mem::ExpertCachePolicy;
+use kiln_models::{ExpertRange, ExpertTable};
 
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -38,6 +40,30 @@ enum Commands {
     },
     /// Print what will be measured without running anything.
     Info,
+    /// Compare real-file expert reads with no cache and byte-bounded cache policies.
+    ExpertCache {
+        /// Path to an expert blob or representative large file.
+        #[arg(long)]
+        file: PathBuf,
+        /// Bytes per synthetic expert block (default 1 MiB).
+        #[arg(long, default_value_t = 1_048_576)]
+        block_bytes: usize,
+        /// Number of expert accesses to replay.
+        #[arg(long, default_value_t = 10_000)]
+        requests: usize,
+        /// Equal retained-cache budget for LRU, LFU and adaptive policies.
+        #[arg(long, default_value_t = 256)]
+        cache_mib: u64,
+        /// Seed for reproducible access traces.
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+        /// Synthetic access pattern; not a substitute for model routing traces.
+        #[arg(long, value_parser = ["phase-shift", "stationary-hot", "uniform", "round-robin"], default_value = "phase-shift")]
+        workload: String,
+        /// Emit JSON only.
+        #[arg(long)]
+        json: bool,
+    },
     /// Measure bounded random and sequential reads from a real model/expert blob.
     ExpertIo {
         /// Path to an expert blob or other representative large model file.
@@ -99,6 +125,39 @@ struct ExpertIoPattern {
     request_latency_p50_us: f64,
     request_latency_p95_us: f64,
     checksum: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ExpertCachePattern {
+    policy: String,
+    cache_capacity_bytes: u64,
+    requests: usize,
+    hits: u64,
+    misses: u64,
+    hit_rate: f64,
+    estimated_backing_bytes_read: u64,
+    elapsed_ms: f64,
+    requests_per_second: f64,
+    cache_used_bytes: u64,
+    entries: usize,
+    evictions: u64,
+    checksum: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ExpertCacheReport {
+    version: String,
+    phase_gate: String,
+    file: String,
+    file_size_bytes: u64,
+    block_bytes: usize,
+    experts_in_trace: u32,
+    requests: usize,
+    seed: u64,
+    workload: String,
+    page_cache_controlled: bool,
+    note: String,
+    patterns: Vec<ExpertCachePattern>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -218,6 +277,159 @@ fn run_expert_io(
         note: "Portable seek/read baseline. OS page cache is not controlled; repeated runs may be warm. This measures storage access only, not end-to-end model tokens/s.".to_string(),
         patterns: vec![sequential, random],
     })
+}
+
+fn make_expert_trace(experts: u32, requests: usize, seed: u64, workload: &str) -> Vec<u32> {
+    let mut trace = Vec::with_capacity(requests);
+    let mut state = seed;
+    let hot_count = (experts / 8).max(1);
+    let next = |state: &mut u64| {
+        *state = state.wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        *state
+    };
+    for i in 0..requests {
+        let expert = match workload {
+            "uniform" => (next(&mut state) % u64::from(experts)) as u32,
+            "round-robin" => (i as u64 % u64::from(experts)) as u32,
+            "stationary-hot" | "phase-shift" => {
+                let phase = if workload == "stationary-hot" || i < requests / 2 { 0 } else { 1 };
+                let hot_start = phase * (experts / 2);
+                if next(&mut state) % 100 < 85 {
+                    hot_start + (next(&mut state) % u64::from(hot_count)) as u32
+                } else {
+                    (next(&mut state) % u64::from(experts)) as u32
+                }
+            }
+            _ => unreachable!("workload validated by CLI and caller"),
+        };
+        trace.push(expert);
+    }
+    trace
+}
+
+fn run_expert_cache_policy(
+    file: &std::path::Path,
+    table: ExpertTable,
+    trace: &[u32],
+    block_bytes: usize,
+    cache_capacity_bytes: u64,
+    policy: ExpertCachePolicy,
+    policy_name: &str,
+) -> Result<ExpertCachePattern, Box<dyn std::error::Error>> {
+    let reader = CachedExpertBlobReader::open(file, table, cache_capacity_bytes, policy)?;
+    let started = Instant::now();
+    let mut checksum = 0u64;
+    for expert_id in trace {
+        let bytes = reader.read_expert(0, *expert_id)?;
+        if let Some(first) = bytes.first() {
+            checksum = checksum.rotate_left(5) ^ u64::from(*first);
+        }
+        if let Some(last) = bytes.last() {
+            checksum = checksum.rotate_left(3) ^ u64::from(*last);
+        }
+    }
+    let elapsed = started.elapsed();
+    let elapsed_secs = elapsed.as_secs_f64().max(f64::MIN_POSITIVE);
+    let stats = reader.cache_stats();
+    let requests = trace.len();
+    let total_lookups = stats.hits.saturating_add(stats.misses).max(1);
+    Ok(ExpertCachePattern {
+        policy: policy_name.to_string(),
+        cache_capacity_bytes,
+        requests,
+        hits: stats.hits,
+        misses: stats.misses,
+        hit_rate: stats.hits as f64 / total_lookups as f64,
+        estimated_backing_bytes_read: stats.misses.saturating_mul(block_bytes as u64),
+        elapsed_ms: elapsed.as_secs_f64() * 1000.0,
+        requests_per_second: requests as f64 / elapsed_secs,
+        cache_used_bytes: stats.used_bytes,
+        entries: stats.entries,
+        evictions: stats.evictions,
+        checksum,
+    })
+}
+
+fn run_expert_cache(
+    file: &std::path::Path,
+    block_bytes: usize,
+    requests: usize,
+    cache_mib: u64,
+    seed: u64,
+    workload: &str,
+) -> Result<ExpertCacheReport, Box<dyn std::error::Error>> {
+    if block_bytes == 0 || requests == 0 || cache_mib == 0 {
+        return Err("block-bytes, requests, and cache-mib must all be greater than zero".into());
+    }
+    if !["phase-shift", "stationary-hot", "uniform", "round-robin"].contains(&workload) {
+        return Err(format!("unsupported workload: {workload}").into());
+    }
+    let file_size = std::fs::metadata(file)?.len();
+    let block_bytes_u64 = u64::try_from(block_bytes)?;
+    let experts_u64 = file_size / block_bytes_u64;
+    if experts_u64 == 0 {
+        return Err(format!("file is {file_size} bytes; it must contain at least one full {block_bytes}-byte block").into());
+    }
+    if experts_u64 > u64::from(u32::MAX) + 1 {
+        return Err("file/block size yields more experts than the u32 expert ID format supports".into());
+    }
+    let experts = experts_u64 as u32;
+    let mut ranges = Vec::with_capacity(experts_u64 as usize);
+    for expert_id in 0..experts_u64 {
+        ranges.push(ExpertRange {
+            layer: 0,
+            expert_id: expert_id as u32,
+            byte_offset: expert_id.saturating_mul(block_bytes_u64),
+            byte_length: block_bytes_u64,
+        });
+    }
+    let table = ExpertTable { blob_version: 1, blob_size: file_size, ranges };
+    table.validate(file_size)?;
+    let trace = make_expert_trace(experts, requests, seed, workload);
+    let cache_capacity_bytes = cache_mib.checked_mul(1024 * 1024)
+        .ok_or("cache-mib is too large")?;
+    let mut patterns = Vec::new();
+    patterns.push(run_expert_cache_policy(
+        file, table.clone(), &trace, block_bytes, 0, ExpertCachePolicy::Lru, "none"
+    )?);
+    for (policy, name) in [
+        (ExpertCachePolicy::Lru, "lru"),
+        (ExpertCachePolicy::Lfu, "lfu"),
+        (ExpertCachePolicy::Adaptive, "adaptive"),
+    ] {
+        patterns.push(run_expert_cache_policy(
+            file, table.clone(), &trace, block_bytes, cache_capacity_bytes, policy, name
+        )?);
+    }
+    Ok(ExpertCacheReport {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        phase_gate: "5B-expert-cache-trace-replay".to_string(),
+        file: file.display().to_string(),
+        file_size_bytes: file_size,
+        block_bytes,
+        experts_in_trace: experts,
+        requests,
+        seed,
+        workload: workload.to_string(),
+        page_cache_controlled: false,
+        note: "Real file reads on this host with a synthetic trace. OS page cache is uncontrolled; cache budget counts retained expert bytes only, not returned buffers. This is not model inference or a target-hardware claim unless run on the target machine.".to_string(),
+        patterns,
+    })
+}
+
+fn print_expert_cache_human(report: &ExpertCacheReport) {
+    println!("KILN expert-cache trace replay");
+    println!("  phase gate: {} | file: {} ({} bytes)", report.phase_gate, report.file, report.file_size_bytes);
+    println!("  block: {} bytes | experts: {} | requests: {} | workload: {} | seed: {}",
+        report.block_bytes, report.experts_in_trace, report.requests, report.workload, report.seed);
+    println!("  OS page cache: uncontrolled");
+    for pattern in &report.patterns {
+        println!("  {}: {:.2}% hits, {:.2} requests/s, {} estimated backing bytes, {} retained bytes, {} evictions",
+            pattern.policy, pattern.hit_rate * 100.0, pattern.requests_per_second,
+            pattern.estimated_backing_bytes_read, pattern.cache_used_bytes, pattern.evictions);
+    }
+    println!("  {}", report.note);
 }
 
 fn print_expert_io_human(report: &ExpertIoReport) {
@@ -691,6 +903,16 @@ async fn main() {
         }
         Commands::Info => {
             print_info();
+        }
+        Commands::ExpertCache { file, block_bytes, requests, cache_mib, seed, workload, json } => {
+            match run_expert_cache(&file, block_bytes, requests, cache_mib, seed, &workload) {
+                Ok(report) if json => println!("{}", serde_json::to_string_pretty(&report).unwrap()),
+                Ok(report) => print_expert_cache_human(&report),
+                Err(error) => {
+                    eprintln!("expert cache benchmark failed: {error}");
+                    std::process::exit(2);
+                }
+            }
         }
         Commands::ExpertIo { file, block_bytes, requests, runs, seed, json } => {
             match run_expert_io(&file, block_bytes, requests, runs, seed) {
