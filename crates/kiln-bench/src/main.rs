@@ -529,7 +529,6 @@ fn run_prefetch_replay(
         .ok_or("max-inflight-mib is too large")?;
     let mut predictor = ExpertPrefetcher::new(max_pending, max_inflight_bytes);
     let mut scheduled_at: Vec<(ExpertKey, usize)> = Vec::new();
-    let mut all_scheduled = Vec::new();
     let mut predicted_candidates = 0u64;
     let mut correct_next_event_predictions = 0u64;
 
