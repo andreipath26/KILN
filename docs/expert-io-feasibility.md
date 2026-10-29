@@ -29,3 +29,16 @@ The JSON report includes file path and size, OS and architecture, block size, re
 - Random offsets are block-aligned and selected from complete blocks; this is a synthetic access pattern, not a real router trace.
 - The probe does not parse or validate `experts.index`, measure concurrent I/O/compute overlap, measure peak memory, or run a model.
 - A successful result is not the Phase 5A acceptance gate. Compare against a pinned representative expert layout on the Dell, then measure end-to-end inference before deciding whether an I/O backend or cache/prefetch policy is worthwhile.
+
+## Phase 5B cache foundation
+
+The current branch also adds a byte-bounded, thread-safe expert cache in `kiln-mem` and a `CachedExpertBlobReader` in `kiln-io`. The cache supports LRU, LFU with recency tie-breaking, and adaptive frequency aging. It exposes retained-byte, hit/miss, entry, and eviction counters. Oversized experts are returned from the backing blob but are not retained; invalidation and clearing release cache membership bytes.
+
+The reader rechecks a key after acquiring its serialized file-reader lock, preventing concurrent cold requests for the same cacheable key from all issuing duplicate reads. Cache policy tests cover byte accounting, eviction, oversized entries, duplicate-key insertion, concurrent access, and invalidation. Synthetic trace tests cover phase shift, stationary hot-set, uniform and round-robin regimes.
+
+Important limits:
+
+- This is an initial cache primitive and reader wrapper; no live KILN model execution path is wired to it yet.
+- The byte budget bounds bytes retained by the cache, not caller-owned copies returned by `read_expert`; consumers must account for those buffers separately.
+- The file reader serializes cold reads. Async I/O, routing-informed prefetch, and compute overlap remain later phases.
+- Synthetic traces are not model-routing traces. Do not choose a production policy or claim a speedup until measured traces and target-hardware results exist.
