@@ -877,6 +877,10 @@ fn print_info() {
     println!("    - wikitext2_perplexity:  per model");
     println!("    - mmlu_score:            per model");
     println!("");
+    println!("  Phase 5A: expert-io --file <path> measures bounded sequential/random file reads");
+    println!("  Phase 5B: expert-cache --file <path> replays synthetic expert traces across cache policies");
+    println!("  Both are storage/cache probes, not end-to-end model throughput benchmarks.");
+    println!("");
     println!("  Phase 2 through 6 extend the harness with the acceptance tests");
     println!("  AT-1 through AT-8 defined in Section 13 of the Master File.");
 }
