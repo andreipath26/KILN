@@ -233,9 +233,6 @@ pub async fn version() -> Json<VersionResponse> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::ApiState;
-    use crate::types::{ChatMessage, ChatRequest, GenerateRequest};
-    use axum::extract::State;
 
     #[test]
     fn options_reject_unsupported_values_instead_of_ignoring_them() {
