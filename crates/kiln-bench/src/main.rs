@@ -57,9 +57,12 @@ enum Commands {
         /// Seed for reproducible access traces.
         #[arg(long, default_value_t = 42)]
         seed: u64,
-        /// Synthetic access pattern; not a substitute for model routing traces.
+        /// Synthetic access pattern; ignored when --trace-file is supplied.
         #[arg(long, value_parser = ["phase-shift", "stationary-hot", "uniform", "round-robin"], default_value = "phase-shift")]
         workload: String,
+        /// Optional JSON array of expert IDs captured from a model router.
+        #[arg(long)]
+        trace_file: Option<PathBuf>,
         /// Emit JSON only.
         #[arg(long)]
         json: bool,
@@ -155,6 +158,7 @@ struct ExpertCacheReport {
     requests: usize,
     seed: u64,
     workload: String,
+    trace_source: String,
     page_cache_controlled: bool,
     note: String,
     patterns: Vec<ExpertCachePattern>,
@@ -358,6 +362,7 @@ fn run_expert_cache(
     cache_mib: u64,
     seed: u64,
     workload: &str,
+    trace_file: Option<&std::path::Path>,
 ) -> Result<ExpertCacheReport, Box<dyn std::error::Error>> {
     if block_bytes == 0 || requests == 0 || cache_mib == 0 {
         return Err("block-bytes, requests, and cache-mib must all be greater than zero".into());
@@ -389,7 +394,19 @@ fn run_expert_cache(
     }
     let table = ExpertTable { blob_version: 1, blob_size: file_size, ranges };
     table.validate(file_size)?;
-    let trace = make_expert_trace(experts, requests, seed, workload);
+    let (trace, trace_label, trace_source) = if let Some(trace_path) = trace_file {
+        let contents = std::fs::read(trace_path)?;
+        let ids: Vec<u32> = serde_json::from_slice(&contents)?;
+        if ids.is_empty() {
+            return Err("trace file must contain a non-empty JSON array of expert IDs".into());
+        }
+        if let Some(invalid) = ids.iter().find(|id| **id >= experts) {
+            return Err(format!("trace references expert ID {invalid}, but only IDs 0..{} are available", experts - 1).into());
+        }
+        (ids, "trace-file".to_string(), trace_path.display().to_string())
+    } else {
+        (make_expert_trace(experts, requests, seed, workload), workload.to_string(), format!("synthetic:{workload}"))
+    };
     let cache_capacity_bytes = cache_mib.checked_mul(1024 * 1024)
         .ok_or("cache-mib is too large")?;
     let mut patterns = Vec::new();
@@ -412,11 +429,12 @@ fn run_expert_cache(
         file_size_bytes: file_size,
         block_bytes,
         expert_blocks_available: experts,
-        requests,
+        requests: trace.len(),
         seed,
-        workload: workload.to_string(),
+        workload: trace_label,
+        trace_source,
         page_cache_controlled: false,
-        note: "Real file reads on this host with a synthetic trace. OS page cache is uncontrolled; cache budget counts retained expert bytes only, not returned buffers. This is not model inference or a target-hardware claim unless run on the target machine.".to_string(),
+        note: "Real file reads on this host. OS page cache is uncontrolled; cache budget counts retained expert bytes only, not returned buffers. The trace is synthetic unless a JSON expert-ID trace file is supplied. This is not model inference or a target-hardware claim unless run on the target machine.".to_string(),
         patterns,
     })
 }
@@ -911,8 +929,8 @@ async fn main() {
         Commands::Info => {
             print_info();
         }
-        Commands::ExpertCache { file, block_bytes, requests, cache_mib, seed, workload, json } => {
-            match run_expert_cache(&file, block_bytes, requests, cache_mib, seed, &workload) {
+        Commands::ExpertCache { file, block_bytes, requests, cache_mib, seed, workload, trace_file, json } => {
+            match run_expert_cache(&file, block_bytes, requests, cache_mib, seed, &workload, trace_file.as_deref()) {
                 Ok(report) if json => println!("{}", serde_json::to_string_pretty(&report).unwrap()),
                 Ok(report) => print_expert_cache_human(&report),
                 Err(error) => {
@@ -997,7 +1015,7 @@ mod expert_cache_bench_tests {
     #[test]
     fn expert_cache_replay_compares_policies_on_same_trace_and_budget() {
         let path = fixture();
-        let report = run_expert_cache(&path, 1024, 500, 1, 42, "stationary-hot").unwrap();
+        let report = run_expert_cache(&path, 1024, 500, 1, 42, "stationary-hot", None).unwrap();
         assert_eq!(report.patterns.len(), 4);
         assert_eq!(report.patterns[0].policy, "none");
         assert_eq!(report.patterns[0].misses, 500);
@@ -1012,9 +1030,9 @@ mod expert_cache_bench_tests {
     #[test]
     fn expert_cache_replay_rejects_invalid_inputs() {
         let path = fixture();
-        assert!(run_expert_cache(&path, 0, 10, 1, 42, "uniform").is_err());
-        assert!(run_expert_cache(&path, 1024, 10, 0, 42, "uniform").is_err());
-        assert!(run_expert_cache(&path, 1024, 10, 1, 42, "unknown").is_err());
+        assert!(run_expert_cache(&path, 0, 10, 1, 42, "uniform", None).is_err());
+        assert!(run_expert_cache(&path, 1024, 10, 0, 42, "uniform", None).is_err());
+        assert!(run_expert_cache(&path, 1024, 10, 1, 42, "unknown", None).is_err());
         std::fs::remove_file(path).unwrap();
     }
 }
