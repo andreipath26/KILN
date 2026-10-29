@@ -75,11 +75,13 @@ cargo run -p kiln-cli -- serve
 cargo run -p kiln-bench -- run
 # Measure sequential vs random expert-block reads on a real model/expert blob
 cargo run -p kiln-bench -- expert-io --file /path/to/experts.bin --block-bytes 1048576 --requests 256 --runs 5 --json
+# Replay synthetic expert access against no-cache/LRU/LFU/adaptive using real file reads
+cargo run -p kiln-bench -- expert-cache --file /path/to/experts.bin --block-bytes 1048576 --requests 10000 --cache-mib 256 --workload phase-shift --seed 42 --json
 ```
 
 ### Expert-block I/O feasibility probe
 
-`kiln-bench expert-io` reads bounded blocks from a real file and reports sequential and deterministic random-access throughput plus p50/p95 request latency. It is an initial storage-I/O feasibility probe, not a model inference benchmark: it does not control the operating-system page cache, validate an expert index, or prove end-to-end MoE throughput. Run it against a representative `experts.bin` or other large model blob on the target laptop before using the numbers for design decisions.
+`kiln-bench expert-io` reads bounded blocks from a real file and reports sequential and deterministic random-access throughput plus p50/p95 request latency. It is an initial storage-I/O feasibility probe, not a model inference benchmark: it does not control the operating-system page cache, validate an expert index, or prove end-to-end MoE throughput. Run it against a representative `experts.bin` or other large model blob on the target laptop before using the numbers for design decisions. `kiln-bench expert-cache` compares no-cache, LRU, LFU and adaptive policies with the same synthetic trace and equal retained-byte budgets while reading fixed-size blocks from a real file. Its trace is synthetic, OS page-cache state is uncontrolled, and returned buffers are outside the cache budget; it is not an inference benchmark. Both commands must be run on the target laptop to produce target-hardware measurements. See `docs/expert-io-feasibility.md` for details.
 
 ## Design documents
 
