@@ -333,6 +333,29 @@ pub async fn version() -> Json<VersionResponse> {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn streaming_generate_fails_closed_when_no_model_is_configured() {
+        let request = GenerateRequest {
+            model: "test-model".into(),
+            prompt: "hello".into(),
+            stream: Some(true),
+            options: None,
+        };
+        let error = generate(State(ApiState::unconfigured()), Json(request)).await.unwrap_err();
+        assert_eq!(error.0, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn streaming_chat_fails_closed_when_no_model_is_configured() {
+        let request = ChatRequest {
+            model: "test-model".into(),
+            messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }],
+            stream: Some(true),
+        };
+        let error = chat(State(ApiState::unconfigured()), Json(request)).await.unwrap_err();
+        assert_eq!(error.0, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
     #[test]
     fn options_reject_unsupported_values_instead_of_ignoring_them() {
         assert_eq!(max_tokens_from_options(Some(&json!({"temperature": 0.7}))).unwrap_err().0, StatusCode::BAD_REQUEST);
