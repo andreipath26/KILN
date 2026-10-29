@@ -461,3 +461,11 @@ Important limits:
 - Added tests for valid trace replay, checksum consistency, empty traces and out-of-range IDs.
 - Important boundary: the current reader benchmark maps each fixed-size file block to a synthetic ID at layer 0. A real router's (layer, expert_id) events must be translated using the model's actual expert-to-file layout first. Live routing collection is not implemented.
 - The latest cache benchmark and Rust cache code passed CI through commit `47efa8e89f48158a05d82d9ef0d9858976f5b190`; the real-file benchmark tests passed on `4c9c5d12871ad25ebd9f68ded1abd154edddd5ca`. CI for the trace-file extension is still running; latest observed code-test run is `40839927111`. Phase 5A remains open pending target-Dell measurements.
+
+### 2026-10-29 — latest CI verified; Phase 5C predictor primitive started
+
+- CI run `40840145028` completed successfully for trace-file replay and roadmap state at commit `543d5dfa3a7409de59bfbac93cd1526ba622b652`. The follow-up predictor code is newer and must receive its own green CI before it is accepted.
+- Added `kiln-mem::ExpertPrefetcher` as a standalone, deterministic trace-driven predictor primitive. It learns one-step expert transitions, ranks candidates by observed conditional frequency, accepts model-index-provided sizes, enforces request and byte budgets, and exposes counters for useful, late, unused and cancelled plans.
+- Tests cover empirical ranking/confidence, caps, outcome accounting and cancellation. This primitive does not perform I/O, observe live llama.cpp routing, or prove overlap; its output must be integrated and evaluated against no-prefetch baselines before use in inference.
+- PR #12 remains open. The latest trace-replay code passed CI, but Phase 5A is not accepted because the target Dell run is missing. Phase 5B's cache is not connected to live inference. Phase 5C is only a planner primitive at this stage.
+- Immediate next steps: get CI green for this predictor commit; inspect cache/prefetch API correctness; build a trace-driven comparative benchmark that records prediction coverage, useful/late/unused rates and bytes; then integrate trace capture into the pinned `kiln-llama` runtime. Do not start async I/O until synchronous trace replay and cache behavior are validated.
