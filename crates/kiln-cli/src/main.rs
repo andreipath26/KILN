@@ -59,6 +59,12 @@ enum Commands {
         /// Number of unreported warm-up runs before measurement.
         #[arg(long, default_value_t = 1)]
         warmup: usize,
+        /// Override the detected CPU thread count for controlled comparisons.
+        #[arg(long)]
+        threads: Option<u32>,
+        /// Override the detected batch size for controlled comparisons.
+        #[arg(long)]
+        batch: Option<u32>,
         /// Emit machine-readable JSON.
         #[arg(long)]
         json: bool,
@@ -628,7 +634,7 @@ async fn main() {
         Commands::Run { model } => not_implemented("run", &model),
         Commands::Pull { model } => not_implemented("pull", &model),
         Commands::List => not_implemented("list", ""),
-        Commands::Bench { model, prompt, tokens, runs, warmup, json } => {
+        Commands::Bench { model, prompt, tokens, runs, warmup, threads, batch, json } => {
             if runs == 0 {
                 eprintln!("bench: --runs must be at least 1");
                 std::process::exit(2);
@@ -639,7 +645,21 @@ async fn main() {
             }
 
             use kiln_runtime::{LlamaCppBackend, RuntimeDispatcher, RuntimeOp, RuntimeResult, SystemProfile};
-            let profile = SystemProfile::load_or_probe();
+            let mut profile = SystemProfile::load_or_probe();
+            if let Some(threads) = threads {
+                if threads == 0 {
+                    eprintln!("bench: --threads must be at least 1");
+                    std::process::exit(2);
+                }
+                profile.n_threads = threads;
+            }
+            if let Some(batch) = batch {
+                if batch == 0 {
+                    eprintln!("bench: --batch must be at least 1");
+                    std::process::exit(2);
+                }
+                profile.n_batch = batch;
+            }
             let mut dispatcher = RuntimeDispatcher::new();
             dispatcher.register(Box::new(LlamaCppBackend::new()));
 
@@ -696,6 +716,8 @@ async fn main() {
                 "prompt": prompt,
                 "max_new_tokens": tokens,
                 "warmup_runs": warmup_completed,
+                "requested_threads": profile.n_threads,
+                "requested_batch": profile.n_batch,
                 "measured_runs": runs,
                 "load_ms": load_ms,
                 "profile": {
