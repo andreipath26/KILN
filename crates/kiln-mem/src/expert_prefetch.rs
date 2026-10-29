@@ -4,6 +4,7 @@
 //! live llama.cpp routing, and does not claim that a planned read overlapped
 //! compute. The caller must execute, cancel, and measure these plans.
 use std::collections::{HashMap, VecDeque};
+use serde::{Deserialize, Serialize};
 
 use crate::expert_cache::ExpertKey;
 
@@ -17,7 +18,7 @@ pub struct PrefetchCandidate {
 }
 
 /// Bounded counters for prefetch plans and caller-reported outcomes.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrefetchStats {
     pub predictions: u64,
     pub scheduled: u64,
