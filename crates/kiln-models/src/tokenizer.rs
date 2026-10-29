@@ -521,6 +521,7 @@ mod tests {
             padding_token_id: None,
             add_bos_token: false,
             add_eos_token: false,
+            special_tokens: Vec::new(),
         };
         (metadata, tok)
     }

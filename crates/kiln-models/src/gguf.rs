@@ -819,7 +819,7 @@ mod tests {
         buf.extend_from_slice(b"tern");
         buf.extend_from_slice(&1u32.to_le_bytes());
         buf.extend_from_slice(&10u64.to_le_bytes());
-        buf.extend_from_slice(&1000u32.to_le_bytes()); // Tq1_0
+        buf.extend_from_slice(&34u32.to_le_bytes()); // Tq1_0
         buf.extend_from_slice(&0u64.to_le_bytes());
 
         let (tensors, _) = parse_tensor_table(&buf, 0, 1).unwrap();
@@ -886,7 +886,7 @@ mod tests {
         buf.extend_from_slice(tensor_name);
         buf.extend_from_slice(&1u32.to_le_bytes());
         buf.extend_from_slice(&10u64.to_le_bytes());
-        buf.extend_from_slice(&1000u32.to_le_bytes()); // Tq1_0
+        buf.extend_from_slice(&34u32.to_le_bytes()); // Tq1_0
         buf.extend_from_slice(&0u64.to_le_bytes());
         // Pad to alignment 32
         while buf.len() % 32 != 0 {

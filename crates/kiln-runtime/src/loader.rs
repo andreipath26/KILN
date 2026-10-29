@@ -49,7 +49,6 @@ pub fn search_paths() -> Vec<PathBuf> {
     if let Some(dir) = kiln_data_dir() {
         out.push(dir.join("llama.cpp").join(library_filename()));
     }
-    out.push(PathBuf::from("/home/andreipath/llama.cpp/build/bin").join(library_filename()));
     out
 }
 
