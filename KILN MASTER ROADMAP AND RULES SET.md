@@ -331,3 +331,69 @@ A “not beneficial” result is useful and must remain recorded with tested con
 - Added a `kiln-bench expert-io` command to compare sequential and deterministic random block reads against a real file, reporting throughput and p50/p95 per-request latency. The OS page cache is explicitly uncontrolled.
 - Added unit tests for exact range reads, invalid ranges, empty ranges at EOF, and the I/O probe's two access patterns.
 - This is an implementation milestone only. CI must pass before merge; the Dell measurements and the Phase 5A acceptance decision remain pending. No expert-streaming or 70B performance claim is made.
+
+
+## 15. CPU-only large-MoE execution plan (research-informed, evidence-gated)
+
+### 15.1 Target and non-negotiable measurement rules
+
+Target hardware is the user's Dell Latitude 7490 (Intel Core i7-8650U, 16 GB RAM, no discrete GPU, NVMe nominally around 2 GB/s). These are target specifications, not measured KILN results. Every hardware claim must identify the machine and exact setup; do not substitute hosted CI or another desktop.
+
+Primary stretch target: run a 70B-class MoE with approximately 4B active parameters at >=4 generated tokens/second while staying within the declared RAM budget and keeping WikiText-2 quality within 1% of the pinned FP16 reference under a documented protocol. This remains unproven. Also track the nearer Qwen3-30B-A3B target separately; do not silently substitute one for the other.
+
+Keep these quantities separate in every report:
+- total versus active parameters;
+- nominal bits versus effective on-disk bytes/parameter;
+- full model size versus expert bytes actually fetched per generated token;
+- OS page-cache hits versus physical-storage reads;
+- advertised versus measured sequential and random-read throughput;
+- prefetch requests versus timely, useful prefetches;
+- microbenchmark throughput versus sustained end-to-end generation;
+- prompt processing versus token generation;
+- model quality versus a single narrow proxy metric.
+
+Illustrative lower-bound arithmetic only: 4B active weights at 2 bits/weight are 1.0 GB/token before scales, metadata, shared weights and other overhead. At 4 tokens/s, that is 4 GB/s if all of those bytes must come from storage each token. If half of that traffic is served from RAM, the simplified storage demand falls to 2 GB/s. At 1.58 bits/weight the corresponding idealized values are 0.79 GB/token and 3.16 GB/s at 4 tokens/s before overhead. These are not forecasts; actual expert selection, reuse, cache residency, effective representation size and CPU compute must be measured.
+
+### 15.2 Research leads and how KILN will test them
+
+Research findings are hypotheses to reproduce or falsify, not claims about KILN performance.
+
+- **FlashMoE, arXiv:2601.17063 (Jan 2026), https://arxiv.org/abs/2601.17063.** Reports an SSD-resident MoE expert cache using adaptive recency/frequency and reports higher cache hit rates and speedups on its test platform. KILN hypothesis: recency plus frequency can outperform plain LRU on representative expert traces. Test against LRU and LFU using identical traces, cache budgets, cold/warm conditions and replayed routing sequences; report useful hit rate, bytes read, latency and end-to-end tokens/s. Do not import the paper's speedup claim as a KILN result.
+- **MoE-Infinity, arXiv:2401.14361, https://arxiv.org/abs/2401.14361.** Relevant techniques include expert tracing, caching and prefetching/offload. Its GPU-centric setup does not establish CPU-only laptop performance. KILN hypothesis: routing-history-aware prefetch can hide a measurable fraction of expert I/O. Compare no prefetch, simple next-use prediction and history-based prediction; record timely-useful, late, unused and evicted-before-use prefetches, plus I/O/compute overlap and end-to-end latency.
+- **Survey of I/O optimization for LLM inference, https://link.springer.com/article/10.1007/s10462-026-11651-1 (published 2026-07-24).** Use as a taxonomy and literature index for weight/KV/activation movement, caching, workload drift and routing-logit prefetch. Any technique selected from the survey must receive a concrete hypothesis, an ablation and a measured exit criterion.
+- **BitNet b1.58 2B4T technical report, arXiv:2504.12285, https://arxiv.org/abs/2504.12285; official inference framework: https://github.com/microsoft/BitNet.** This is a distinct native-ternary representation path, not evidence that an existing dense/MoE model can simply be stored at 1.58 bits without conversion or quality cost. Evaluate only with compatible model weights/kernel paths and a quality gate.
+- **PowerInfer and SSD/offload research** remain contextual leads only where their GPU assumptions, hardware, license and model format are explicitly checked. No wholesale vendoring based on paper results or headline speedups.
+
+Research log follow-up: add each lead using the Section 11 schema, including exact version/date, tested hardware, metric, risks, falsifiable hypothesis, artifact/commit and status. If full paper or artifact cannot be inspected, mark the lead as preliminary rather than fully reproduced.
+
+### 15.3 Required implementation sequence after Phase 5A
+
+1. **Close the Phase 5A correctness gate.** Review PR #12 for API compatibility, bounds-before-allocation, range-index invariants, tests and documentation. CI must pass. Then measure the command on the actual Dell against a real representative file, recording cold/warm caveats and random/sequential access. Do not call it a storage benchmark if page cache is uncontrolled.
+2. **Phase 5B — bounded expert cache.** Implement a cache interface and a deterministic trace-replay harness first. Compare no cache, LRU, LFU and an adaptive recency/frequency policy at identical byte budgets. Enforce a hard memory cap and test eviction, oversized entries, duplicate loads, concurrent access and cache invalidation. Choose a winner only from measured results.
+3. **Phase 5C — routing-informed prefetch.** Add an optional predictor interface and trace-driven tests before connecting it to live inference. Compare no prefetch and simple/history-based strategies. Cap in-flight requests and prefetched bytes; cancel or discard stale predictions. Track useful/late/unused prefetch and cache pollution.
+4. **Phase 5D — I/O/compute overlap.** Introduce bounded asynchronous reads and reusable buffers only after the synchronous path is correct. Compare synchronous versus overlapped operation on the same traces and workload. Measure queue depth, CPU utilization, bytes read, stalls, p50/p95 latency and sustained generation speed. Do not claim overlap from async APIs alone.
+5. **End-to-end model gate.** Integrate the smallest compatible MoE model first, verify tensor/index mapping and deterministic output, then test larger models. Record model hash, tokenizer/template, quantization, runtime commit, OS, CPU/thread settings, RAM, storage, prompt, generation settings, warm-up, repetitions and measurement window.
+6. **Quality gate.** Pin the FP16/reference model, dataset version/split, tokenizer, evaluation code, seed and metric. Report the full metric and confidence/variation, not just “within 1%”. Reject performance changes that violate the declared quality or memory limits.
+7. **Representation experiments remain separate.** TQ1.0, native ternary weights, ternary K/V/RSD and QTEA each need their own storage accounting, compatible kernels, quality tests and baseline. Do not combine optimizations until each has an isolated ablation; then test interactions.
+8. **Only then optimize product claims.** No README or release claim of >=4 tok/s, “no compromise on accuracy”, or specific model-size support without reproducible target-hardware evidence.
+
+### 15.4 Phase 5A implementation notes and known limitations
+
+The current PR #12 adds a portable seek/read range reader, expert-range table validation, an expert-blob reader and `kiln-bench expert-io` sequential/random access patterns. Its benchmark reports latency and throughput and explicitly does not control OS page cache. It is a baseline only: it does not implement direct I/O, io_uring, index-file parsing, cache/prefetch, I/O/compute overlap or end-to-end MoE inference. Dell measurements and formal Phase 5A acceptance remain pending.
+
+Before accepting the implementation, ensure range bounds are checked before allocating the requested buffer. A request larger than the file must fail cheaply instead of attempting an allocation first. Keep public API compatibility in mind when changing `ExpertTable`; search all crate usages before replacing existing shapes.
+
+### 15.5 Status snapshot (2026-10-29)
+
+- PR #11, streamed API generation/chat, was merged on 2026-10-29; GitHub Actions run 40835639935 succeeded. This does not establish full Ollama compatibility or end-to-end model performance.
+- PR #12, expert-block I/O feasibility, is open. Latest observed head: `3ab5e17427959faa0df26260ce9093d872d7f042`; CI run 40836786234 succeeded. Earlier intermediate commit 3673eb3 failed CI, then a later head passed; preserve that history and inspect current head before merging.
+- Phase 5A is implemented in a review branch, not accepted. The Dell benchmark and review of edge cases remain outstanding.
+- Next engineering action: close Phase 5A review findings, then implement Phase 5B cache using trace replay and hard memory bounds. Do not jump directly to a live predictor or claim the target is feasible before these gates.
+
+### 2026-10-29 — research-informed MoE plan and execution update
+
+- Added explicit target-machine context and separated theoretical bandwidth arithmetic from measurements.
+- Added FlashMoE, MoE-Infinity, the 2026 I/O survey and BitNet b1.58 as research leads with concrete KILN ablations and portability caveats.
+- Ordered implementation as expert I/O correctness/measurement, bounded cache, routing-informed prefetch, I/O/compute overlap, end-to-end model tests, then quality-gated representation experiments.
+- Added a prohibition on promoting paper-reported speedups into KILN claims without reproducing them on the target workload.
+- No Dell measurement or 70B-class performance result is claimed by this roadmap update.
