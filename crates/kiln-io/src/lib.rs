@@ -26,4 +26,4 @@ pub use source::{IoSource, BlockSize};
 pub use fallback::SyncIoSource;
 pub use range_reader::{FileRangeReader, RangeReadError};
 pub use expert_blob::{ExpertBlobError, ExpertBlobReader};
-pub use cached_expert_blob::CachedExpertBlobReader;
+pub use cached_expert_blob::{CachedExpertBlobReader, ExpertAccessTraceSnapshot};
