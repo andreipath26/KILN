@@ -98,16 +98,16 @@ impl ExpertCache {
 
     /// Return a copy of the cached block and update hit/miss/recency statistics.
     pub fn get(&self, key: ExpertKey) -> Option<Vec<u8>> {
-        self.get_impl(key, true)
+        self.get_impl(key, true, true)
     }
 
     /// Like `get`, but do not count an absent key as a miss. Useful for a
     /// second check after waiting for another thread to finish a disk read.
     pub fn get_if_present(&self, key: ExpertKey) -> Option<Vec<u8>> {
-        self.get_impl(key, false)
+        self.get_impl(key, false, false)
     }
 
-    fn get_impl(&self, key: ExpertKey, count_miss: bool) -> Option<Vec<u8>> {
+    fn get_impl(&self, key: ExpertKey, count_miss: bool, count_hit: bool) -> Option<Vec<u8>> {
         let mut inner = self.lock();
         let now = Self::tick(&mut inner);
         let value = if let Some(entry) = inner.entries.get_mut(&key) {
@@ -117,9 +117,9 @@ impl ExpertCache {
         } else {
             None
         };
-        if value.is_some() {
+        if value.is_some() && count_hit {
             inner.hits = inner.hits.saturating_add(1);
-        } else if count_miss {
+        } else if value.is_none() && count_miss {
             inner.misses = inner.misses.saturating_add(1);
         }
         value
@@ -307,6 +307,7 @@ mod tests {
         let stats = cache.stats();
         assert_eq!(stats.entries, 1);
         assert_eq!(stats.used_bytes, 128);
+        assert_eq!(stats.hits + stats.misses, 800);
         assert!(cache.get(key(1)).is_some());
     }
 
