@@ -241,10 +241,7 @@ pub async fn generate(
 pub async fn chat(
     State(state): State<ApiState>,
     Json(request): Json<ChatRequest>,
-) -> Result<Json<ChatResponse>, ErrorResponse> {
-    if request.stream.unwrap_or(false) {
-        return Err(error_response((StatusCode::NOT_IMPLEMENTED, "streaming responses are not implemented yet".into())));
-    }
+) -> Result<Response, ErrorResponse> {
     if request.messages.is_empty() {
         return Err(error_response((StatusCode::BAD_REQUEST, "messages must not be empty".into())));
     }
@@ -262,6 +259,39 @@ pub async fn chat(
     }
     prompt.push_str("assistant: ");
 
+    if request.stream.unwrap_or(false) {
+        {
+            let runtime = state.runtime.lock().map_err(|_| error_response((StatusCode::INTERNAL_SERVER_ERROR, "runtime state lock is poisoned".into())))?;
+            let session = runtime.as_ref().ok_or_else(|| error_response((StatusCode::SERVICE_UNAVAILABLE, "no model is configured; set KILN_MODEL_PATH before starting the server".into())))?;
+            if request.model != session.model_name {
+                return Err(error_response((StatusCode::NOT_FOUND, format!("model {} is not loaded; loaded model is {}", request.model, session.model_name))));
+            }
+        }
+        let model = request.model.clone();
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, Infallible>>(16);
+        tokio::task::spawn_blocking(move || {
+            let mut send_chunk = |chunk: &str| {
+                let line = serde_json::json!({"model": model, "message": {"role": "assistant", "content": chunk}, "done": false}).to_string() + "\\n";
+                tx.blocking_send(Ok(Bytes::from(line))).is_ok()
+            };
+            match infer_with_chunks(&state, &model, &prompt, 128, &mut send_chunk) {
+                Ok((actual_model, _)) => {
+                    let line = serde_json::json!({"model": actual_model, "message": {"role": "assistant", "content": ""}, "done": true}).to_string() + "\\n";
+                    let _ = tx.blocking_send(Ok(Bytes::from(line)));
+                }
+                Err((_, message)) => {
+                    let line = serde_json::json!({"error": message}).to_string() + "\\n";
+                    let _ = tx.blocking_send(Ok(Bytes::from(line)));
+                }
+            }
+        });
+        return Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/x-ndjson")
+            .body(Body::from_stream(ReceiverStream::new(rx)))
+            .expect("static streaming response headers are valid"));
+    }
+
     let started = Instant::now();
     let result = tokio::task::spawn_blocking(move || {
         infer(&state, &request.model, &prompt, 128)
@@ -272,7 +302,7 @@ pub async fn chat(
         model,
         message: ChatMessage { role: "assistant".into(), content },
         done: true,
-    }))
+    }).into_response())
 }
 
 /// GET /api/tags. The configured model is reported when one is loaded.
