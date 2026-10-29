@@ -69,9 +69,7 @@ impl CachedExpertBlobReader {
     pub fn enable_access_trace(&self, max_events: usize) {
         let mut trace = self.access_trace.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         trace.max_events = max_events;
-        trace.events.clear();
-        let additional = max_events.saturating_sub(trace.events.capacity());
-        trace.events.reserve(additional);
+        trace.events = Vec::with_capacity(max_events);
         trace.dropped_events = 0;
     }
 
