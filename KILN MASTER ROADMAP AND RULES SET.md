@@ -477,3 +477,9 @@ Important limits:
 - Tightened the predictor contract: a prediction is useful only if the caller marks it ready before demand; demand while still in-flight is late. Total tracked speculative plans are bounded, including ready metadata, and session reset clears both pending and ready metadata.
 - Added tests for predictor confidence, request/byte caps, useful-versus-late accounting, cleanup, replay metrics and malformed/empty traces. These latest changes still require a green CI run.
 - Next: review CI for the latest branch head; then integrate routing trace collection into the pinned `kiln-llama` runtime or establish a model-compatible external trace source. Only after real traces are available should predictor strategies be compared on real expert sequences and the synchronous cache path be integrated. Async I/O remains gated on validated synchronous behavior.
+
+### 2026-10-29 — layer-aware trace input
+
+- Extended the prefetch replay tool to accept flat expert IDs, `[layer, expert_id]` pairs, or `{layer, expert_id}` objects. This supports the shape of an externally captured router trace without pretending that the current llama.cpp wrapper collects one.
+- Candidate experts are limited to those present in the supplied trace and are assigned a uniform block size. The benchmark therefore measures transition prediction on a trace, not prediction over the full model expert inventory.
+- Added a regression test for layer-aware pair traces. Latest changes are awaiting CI.
