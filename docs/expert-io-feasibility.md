@@ -108,3 +108,5 @@ Example index shape (the values below are illustrative; `blob_size` must match t
 ```
 
 The index parser rejects unsupported versions, blob-size mismatches, empty/out-of-bounds ranges, unsorted or duplicate expert keys, and overlapping byte ranges. The benchmark also caps the JSON index and trace input files at 128 MiB before parsing.
+
+The runtime API now also exposes `ExpertBlobReader::open_indexed(blob, index)` and `CachedExpertBlobReader::open_indexed(blob, index, cache_bytes, policy)`. Both read a JSON `ExpertTable`, cap the index file at 128 MiB, and validate the table against the blob size before serving reads. They do not extract or repack experts from a GGUF; the blob and index must already use this layout.
