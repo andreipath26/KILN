@@ -295,6 +295,13 @@ A “not beneficial” result is useful and must remain recorded with tested con
 - Immediate execution order remains Git state verification, separate licensing review, Phase 3.5 baseline/profile, then Phase 5 representative expert-block feasibility benchmark.
 - This documentation update does not mark an engineering phase complete and does not claim a new performance result.
 
+### 2026-10-29 — runtime safety merge and API honesty fix
+
+- Merged PR #5 after CI succeeded, including the pinned llama.cpp static-library build and workspace tests. Merge commit: 418df7a21901ee5c512a6e09f9e334dd64282c79.
+- Audited the API routes and confirmed that `/api/generate` and `/api/chat` returned hard-coded placeholder text as successful responses, while `/api/tags` returned an empty model list.
+- Opened PR #6 to return explicit HTTP 501 JSON errors for generation/chat until real runtime-session wiring exists, and added regression tests for that behavior. CI validation is required before merge.
+- Updated README to state the current API limitation accurately. This does not mark API inference or any performance phase complete.
+
 ## 14. Acceptance criteria for roadmap changes
 
 - Existing rules, phase ordering, completed history and research leads remain unless an explicit evidence-based decision changes them.

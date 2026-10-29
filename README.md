@@ -162,6 +162,10 @@ The authoritative rules and their canonical history are maintained in the [maste
 - Keep external research results separate from KILN measurements. Do not assume independent optimization gains compose.
 - Before Git repair or branch cleanup, inspect status, logs, remotes, submodules, unreachable objects and backups; preserve uncommitted work.
 
+## API implementation status
+
+The HTTP server exposes Ollama-compatible route shapes, but inference is not yet wired through the API to an active runtime session. Until that integration is complete, `POST /api/generate` and `POST /api/chat` return HTTP 501 instead of fabricated successful answers. `GET /api/tags` currently reports an empty inventory because no model registry is connected. These are explicit limitations, not completed inference features.
+
 ## Current next steps
 
 1. Reproduce the dense-path baseline and profile the actual hot path for Phase 3.5.
