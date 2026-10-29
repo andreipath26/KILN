@@ -1140,8 +1140,8 @@ async fn main() {
         Commands::Info => {
             print_info();
         }
-        Commands::ExpertCache { file, block_bytes, requests, cache_mib, seed, workload, trace_file, json } => {
-            match run_expert_cache(&file, block_bytes, requests, cache_mib, seed, &workload, trace_file.as_deref()) {
+        Commands::ExpertCache { file, block_bytes, requests, cache_mib, seed, workload, index_file, trace_file, json } => {
+            match run_expert_cache(&file, block_bytes, requests, cache_mib, seed, &workload, trace_file.as_deref(), index_file.as_deref()) {
                 Ok(report) if json => println!("{}", serde_json::to_string_pretty(&report).unwrap()),
                 Ok(report) => print_expert_cache_human(&report),
                 Err(error) => {
@@ -1236,7 +1236,7 @@ mod expert_cache_bench_tests {
     #[test]
     fn expert_cache_replay_compares_policies_on_same_trace_and_budget() {
         let path = fixture();
-        let report = run_expert_cache(&path, 1024, 500, 1, 42, "stationary-hot", None).unwrap();
+        let report = run_expert_cache(&path, 1024, 500, 1, 42, "stationary-hot", None, None).unwrap();
         assert_eq!(report.patterns.len(), 4);
         assert_eq!(report.patterns[0].policy, "none");
         assert_eq!(report.patterns[0].misses, 500);
@@ -1261,7 +1261,7 @@ mod expert_cache_bench_tests {
         ));
         std::fs::write(&trace_path, "[0,0,1,1,0]").unwrap();
         let report = run_expert_cache(
-            &path, 1024, 999, 1, 42, "uniform", Some(&trace_path)
+            &path, 1024, 999, 1, 42, "uniform", Some(&trace_path), None
         ).unwrap();
         assert_eq!(report.requests, 5);
         assert_eq!(report.workload, "trace-file");
@@ -1270,7 +1270,7 @@ mod expert_cache_bench_tests {
 
         std::fs::write(&trace_path, "[64]").unwrap();
         assert!(run_expert_cache(
-            &path, 1024, 10, 1, 42, "uniform", Some(&trace_path)
+            &path, 1024, 10, 1, 42, "uniform", Some(&trace_path), None
         ).is_err());
         std::fs::write(&trace_path, "[]").unwrap();
         assert!(run_expert_cache(
@@ -1311,8 +1311,8 @@ mod expert_cache_bench_tests {
     fn expert_cache_replay_rejects_invalid_inputs() {
         let path = fixture();
         assert!(run_expert_cache(&path, 0, 10, 1, 42, "uniform", None).is_err());
-        assert!(run_expert_cache(&path, 1024, 10, 0, 42, "uniform", None).is_err());
-        assert!(run_expert_cache(&path, 1024, 10, 1, 42, "unknown", None).is_err());
+        assert!(run_expert_cache(&path, 1024, 10, 0, 42, "uniform", None, None).is_err());
+        assert!(run_expert_cache(&path, 1024, 10, 1, 42, "unknown", None, None).is_err());
         std::fs::remove_file(path).unwrap();
     }
 }
