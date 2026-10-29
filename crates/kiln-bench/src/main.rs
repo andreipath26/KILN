@@ -371,6 +371,9 @@ fn run_expert_cache(
     if experts_u64 == 0 {
         return Err(format!("file is {file_size} bytes; it must contain at least one full {block_bytes}-byte block").into());
     }
+    if experts_u64 > 1_000_000 {
+        return Err("benchmark index would exceed one million synthetic expert blocks; increase --block-bytes".into());
+    }
     if experts_u64 > u64::from(u32::MAX) {
         return Err("file/block size yields more experts than the u32 expert ID format supports".into());
     }
