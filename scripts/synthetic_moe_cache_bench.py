@@ -95,6 +95,7 @@ def simulate(trace, capacity, policy, expert_bytes, read_latency_us, bandwidth_g
     return {
         "policy": policy,
         "cache_capacity_experts": capacity,
+        "cache_capacity_bytes": capacity * expert_bytes,
         "requests": len(trace),
         "hits": hits,
         "misses": misses,
