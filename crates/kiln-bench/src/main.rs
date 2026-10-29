@@ -718,6 +718,14 @@ fn print_prefetch_replay_human(report: &PrefetchReplayReport) {
         report.stats.unused, report.stats.cancelled);
     println!("  max in-flight bytes: {} | current in-flight bytes: {}",
         report.max_inflight_bytes, report.stats.in_flight_bytes);
+    if let Some(block_bytes) = report.block_bytes {
+        println!("  sizing: fixed {block_bytes}-byte synthetic blocks");
+    } else {
+        println!("  sizing: indexed ranges from {} (blob {})",
+            report.index_file.as_deref().unwrap_or("<unknown>"),
+            report.blob_file.as_deref().unwrap_or("<unknown>"));
+    }
+    println!("  candidate bytes represented: {}", report.candidate_bytes_total);
     println!("  {}", report.note);
 }
 
@@ -1422,7 +1430,7 @@ mod expert_cache_bench_tests {
         assert_eq!(report.trace_events, 8);
         assert_eq!(report.distinct_experts_in_trace, 2);
         std::fs::write(&trace_path, "[[0,1],[1,1],[0,1],[1,2],[0,1]]").unwrap();
-        let layered = run_prefetch_replay(&trace_path, 1024, 1, 4, 1, 0).unwrap();
+        let layered = run_prefetch_replay(&trace_path, 1024, 1, 4, 1, 0, None, None).unwrap();
         assert_eq!(layered.trace_events, 5);
         assert_eq!(layered.distinct_experts_in_trace, 3);
         assert!(report.next_event_coverage > 0.0);
