@@ -101,7 +101,7 @@ impl CachedExpertBlobReader {
         expert_id: u32,
     ) -> Result<Vec<u8>, ExpertBlobError> {
         let key = ExpertKey { layer, expert_id };
-        if let Some(bytes) = self.cache.get(key) {
+        if let Some(bytes) = self.cache.get_if_present(key) {
             self.record_access(key);
             return Ok(bytes);
         }
@@ -114,6 +114,7 @@ impl CachedExpertBlobReader {
             return Ok(bytes);
         }
 
+        self.cache.record_miss();
         let bytes = reader.read_expert(layer, expert_id)?;
         self.cache.insert(key, bytes.clone());
         self.record_access(key);
@@ -214,7 +215,8 @@ mod tests {
         let stats = reader.cache_stats();
         assert_eq!(stats.entries, 1);
         assert_eq!(stats.used_bytes, 8);
-        assert_eq!(stats.hits + stats.misses, 8);
+        assert_eq!(stats.hits, 7);
+        assert_eq!(stats.misses, 1);
         assert!(stats.used_bytes <= stats.capacity_bytes);
         std::fs::remove_file(path).unwrap();
     }
