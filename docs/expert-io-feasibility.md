@@ -84,3 +84,9 @@ cargo run -p kiln-bench -- prefetch-replay \
 ```
 
 The input can be a JSON array of flat IDs (e.g. `[0, 1, 0]`, interpreted as layer 0), `[layer, expert_id]` pairs (e.g. `[[0, 1], [1, 3], [0, 1]]`), or `{layer, expert_id}` objects. Each candidate is assigned the fixed size given by `--block-bytes`; the candidate universe is limited to experts appearing in the trace. The replay reports top-k next-event coverage/precision and planner outcomes. `--latency-requests` simulates read completion in units of trace events; it is not a wall-clock I/O measurement. This is a diagnostic predictor experiment only. It does not issue file reads, model live routing, account for cache evictions of ready prefetched blocks, or measure tokens/s.
+
+## Bounded access trace capture from the cache-backed reader
+
+Call `CachedExpertBlobReader::enable_access_trace(max_events)` before a workload to record successful expert reads, including cache hits. Recording is disabled by default. The trace is bounded: once the configured event limit is reached, additional accesses increment `dropped_events` instead of growing memory. Use `access_trace_snapshot()` to inspect the recorded events and dropped count, or `write_access_trace_json(path)` to export a JSON array accepted by `kiln-bench expert-cache --trace-file` and `kiln-bench prefetch-replay --trace-file`.
+
+This only records accesses that pass through `CachedExpertBlobReader`. The current llama.cpp backend does not route its internal MoE expert reads through this reader, so this API does not yet capture live llama.cpp routing. It creates a concrete trace-capture seam for a KILN-native expert-loading path and for tests.
