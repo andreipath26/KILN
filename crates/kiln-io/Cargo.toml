@@ -10,3 +10,4 @@ serde.workspace = true
 serde_json.workspace = true
 kiln-hal = { path = "../kiln-hal" }
 kiln-mem = { path = "../kiln-mem" }
+kiln-models = { path = "../kiln-models" }
