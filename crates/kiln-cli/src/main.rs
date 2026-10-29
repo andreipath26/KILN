@@ -210,17 +210,20 @@ async fn main() {
                     println!("  output_norm: {} bytes", w.output_norm.len());
                     println!("  output:      {} bytes", w.output.len());
                     println!("  layers:      {}", w.layers.len());
-                    let l = &w.layers[0];
-                    println!("  layer 0:");
-                    println!("    attn_norm:   {} bytes", l.attn_norm.len());
-                    println!("    attn_q:      {} bytes", l.attn_q.len());
-                    println!("    attn_k:      {} bytes", l.attn_k.len());
-                    println!("    attn_v:      {} bytes", l.attn_v.len());
-                    println!("    attn_output: {} bytes", l.attn_output.len());
-                    println!("    ffn_norm:    {} bytes", l.ffn_norm.len());
-                    println!("    ffn_gate:    {} bytes", l.ffn_gate.len());
-                    println!("    ffn_up:      {} bytes", l.ffn_up.len());
-                    println!("    ffn_down:    {} bytes", l.ffn_down.len());
+                    if let Some(l) = w.layers.first() {
+                        println!("  layer 0:");
+                        println!("    attn_norm:   {} bytes", l.attn_norm.len());
+                        println!("    attn_q:      {} bytes", l.attn_q.len());
+                        println!("    attn_k:      {} bytes", l.attn_k.len());
+                        println!("    attn_v:      {} bytes", l.attn_v.len());
+                        println!("    attn_output: {} bytes", l.attn_output.len());
+                        println!("    ffn_norm:    {} bytes", l.ffn_norm.len());
+                        println!("    ffn_gate:    {} bytes", l.ffn_gate.len());
+                        println!("    ffn_up:      {} bytes", l.ffn_up.len());
+                        println!("    ffn_down:    {} bytes", l.ffn_down.len());
+                    } else {
+                        println!("  layer details: unavailable (model has no transformer layers)");
+                    }
                     let total = w.total_bytes();
                     println!("  total:       {} bytes ({:.2} GB)",
                         total, total as f64 / 1_073_741_824.0);
@@ -360,7 +363,7 @@ async fn main() {
             for k in keys {
                 let v = &g.metadata[k];
                 let s = format!("{:?}", v);
-                let short = if s.len() > 100 { format!("{}...", &s[..100]) } else { s };
+                let short = truncate_for_display(&s, 100);
                 println!("  {} = {}", k, short);
             }
             println!();
@@ -780,6 +783,30 @@ async fn main() {
             }
         },
         Commands::Plan { model } => not_implemented("plan", &model),
+    }
+}
+
+/// Truncate display text by Unicode scalar values, never by UTF-8 byte offset.
+fn truncate_for_display(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let prefix: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{}...", prefix)
+    } else {
+        prefix
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::truncate_for_display;
+
+    #[test]
+    fn display_truncation_preserves_unicode_boundaries() {
+        assert_eq!(truncate_for_display("é界x", 2), "é界...");
+        assert_eq!(truncate_for_display("é界", 2), "é界");
+        assert_eq!(truncate_for_display("abc", 0), "...");
+        assert_eq!(truncate_for_display("", 3), "");
     }
 }
 
