@@ -1003,7 +1003,7 @@ fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
         io::stdout().flush().map_err(|e| format!("response output failed: {}", e))?;
         let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
         let mut pending_utf8 = Vec::new();
-        for _ in 0..max_tokens {
+        for step in 0..max_tokens {
             let token = sampler.sample(&logits)
                 .ok_or_else(|| "sampler returned no token".to_string())? as i32;
             if token == eos {
@@ -1017,11 +1017,13 @@ fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
             };
             print!("{}", piece);
             io::stdout().flush().map_err(|e| format!("response output failed: {}", e))?;
-            logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
-                .map_err(|e| format!("decode step failed: {}", e))? {
-                RuntimeResult::Logits(logits) => logits,
-                _ => return Err("backend returned an unexpected decode result".to_string()),
-            };
+            if step + 1 < max_tokens {
+                logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
+                    .map_err(|e| format!("decode step failed: {}", e))? {
+                    RuntimeResult::Logits(logits) => logits,
+                    _ => return Err("backend returned an unexpected decode result".to_string()),
+                };
+            }
         }
         if !pending_utf8.is_empty() {
             print!("{}", String::from_utf8_lossy(&pending_utf8));
