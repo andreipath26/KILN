@@ -9,8 +9,10 @@ pub mod tier;
 pub mod manager;
 pub mod policy;
 pub mod error;
+pub mod expert_cache;
 
 pub use tier::Tier;
 pub use manager::{MemoryManager, TensorId};
 pub use policy::{RebalancePolicy, RebalanceReport};
 pub use error::{LoadError, EvictError};
+pub use expert_cache::{ExpertCache, ExpertCachePolicy, ExpertCacheStats, ExpertKey, InsertOutcome};
