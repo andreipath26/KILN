@@ -58,9 +58,13 @@ kiln_llama_t kiln_llama_load(const char* model_path, const struct kiln_llama_par
     k->ctx     = ctx;
     k->vocab   = vocab;
     k->n_vocab = n_vocab;
-    k->n_past  = 0;
-    k->batch_capacity = 512;
-    k->batch   = llama_batch_init(k->batch_capacity, 0, 1);
+    k->n_past = 0;
+    /* Keep the reusable batch at least as large as the configured
+     * context batch, otherwise valid caller batches can be rejected
+     * or overrun the allocated token arrays. */
+    k->batch_capacity = (cparams.n_batch > 0 && cparams.n_batch <= (uint32_t)INT32_MAX)
+        ? (int32_t)cparams.n_batch : 512;
+    k->batch = llama_batch_init(k->batch_capacity, 0, 1);
     return (kiln_llama_t)k;
 }
 
