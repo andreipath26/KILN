@@ -704,3 +704,44 @@ async fn main() {
         }
     }
 }
+
+
+#[cfg(test)]
+mod expert_io_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn fixture() -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "kiln-expert-io-{}-{}.bin",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut file = std::fs::File::create(&path).unwrap();
+        let bytes: Vec<u8> = (0..=255).cycle().take(64 * 1024).collect();
+        file.write_all(&bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn expert_io_report_measures_sequential_and_random_reads() {
+        let path = fixture();
+        let report = run_expert_io(&path, 1024, 8, 2, 42).unwrap();
+        assert_eq!(report.patterns.len(), 2);
+        assert_eq!(report.patterns[0].access_pattern, "sequential");
+        assert_eq!(report.patterns[1].access_pattern, "random");
+        assert_eq!(report.patterns[0].total_bytes_read, 16 * 1024);
+        assert!(report.patterns.iter().all(|p| p.throughput_mib_s > 0.0));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn expert_io_rejects_a_block_larger_than_the_file() {
+        let path = fixture();
+        assert!(run_expert_io(&path, 128 * 1024, 1, 1, 42).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+}
