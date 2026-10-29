@@ -331,31 +331,39 @@ fn run_expert_io(
     })
 }
 
-fn make_expert_trace(experts: u32, requests: usize, seed: u64, workload: &str) -> Vec<u32> {
+fn make_key_trace(
+    available: &[ExpertKey],
+    requests: usize,
+    seed: u64,
+    workload: &str,
+) -> Vec<ExpertKey> {
     let mut trace = Vec::with_capacity(requests);
+    if available.is_empty() {
+        return trace;
+    }
     let mut state = seed;
-    let hot_count = (experts / 8).max(1);
+    let hot_count = (available.len() / 8).max(1);
     let next = |state: &mut u64| {
         *state = state.wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
         *state
     };
     for i in 0..requests {
-        let expert = match workload {
-            "uniform" => (next(&mut state) % u64::from(experts)) as u32,
-            "round-robin" => (i as u64 % u64::from(experts)) as u32,
+        let index = match workload {
+            "uniform" => (next(&mut state) % available.len() as u64) as usize,
+            "round-robin" => i % available.len(),
             "stationary-hot" | "phase-shift" => {
                 let phase = if workload == "stationary-hot" || i < requests / 2 { 0 } else { 1 };
-                let hot_start = phase * (experts / 2);
+                let hot_start = phase * (available.len() / 2);
                 if next(&mut state) % 100 < 85 {
-                    hot_start + (next(&mut state) % u64::from(hot_count)) as u32
+                    hot_start + (next(&mut state) % hot_count as u64) as usize
                 } else {
-                    (next(&mut state) % u64::from(experts)) as u32
+                    (next(&mut state) % available.len() as u64) as usize
                 }
             }
             _ => unreachable!("workload validated by CLI and caller"),
         };
-        trace.push(expert);
+        trace.push(available[index]);
     }
     trace
 }
@@ -363,8 +371,7 @@ fn make_expert_trace(experts: u32, requests: usize, seed: u64, workload: &str) -
 fn run_expert_cache_policy(
     file: &std::path::Path,
     table: ExpertTable,
-    trace: &[u32],
-    block_bytes: usize,
+    trace: &[ExpertKey],
     cache_capacity_bytes: u64,
     policy: ExpertCachePolicy,
     policy_name: &str,
@@ -372,8 +379,15 @@ fn run_expert_cache_policy(
     let reader = CachedExpertBlobReader::open(file, table, cache_capacity_bytes, policy)?;
     let started = Instant::now();
     let mut checksum = 0u64;
-    for expert_id in trace {
-        let bytes = reader.read_expert(0, *expert_id)?;
+    let mut estimated_backing_bytes_read = 0u64;
+    let mut previous_misses = 0u64;
+    for key in trace {
+        let bytes = reader.read_expert(key.layer, key.expert_id)?;
+        let stats = reader.cache_stats();
+        if stats.misses > previous_misses {
+            estimated_backing_bytes_read = estimated_backing_bytes_read.saturating_add(bytes.len() as u64);
+            previous_misses = stats.misses;
+        }
         if let Some(first) = bytes.first() {
             checksum = checksum.rotate_left(5) ^ u64::from(*first);
         }
@@ -393,7 +407,7 @@ fn run_expert_cache_policy(
         hits: stats.hits,
         misses: stats.misses,
         hit_rate: stats.hits as f64 / total_lookups as f64,
-        estimated_backing_bytes_read: stats.misses.saturating_mul(block_bytes as u64),
+        estimated_backing_bytes_read,
         elapsed_ms: elapsed.as_secs_f64() * 1000.0,
         requests_per_second: requests as f64 / elapsed_secs,
         cache_used_bytes: stats.used_bytes,
@@ -411,55 +425,81 @@ fn run_expert_cache(
     seed: u64,
     workload: &str,
     trace_file: Option<&std::path::Path>,
+    index_file: Option<&std::path::Path>,
 ) -> Result<ExpertCacheReport, Box<dyn std::error::Error>> {
-    if block_bytes == 0 || requests == 0 || cache_mib == 0 {
-        return Err("block-bytes, requests, and cache-mib must all be greater than zero".into());
+    if requests == 0 || cache_mib == 0 {
+        return Err("requests and cache-mib must be greater than zero".into());
     }
-    if !["phase-shift", "stationary-hot", "uniform", "round-robin"].contains(&workload) {
+    if trace_file.is_none() && !["phase-shift", "stationary-hot", "uniform", "round-robin"].contains(&workload) {
         return Err(format!("unsupported workload: {workload}").into());
     }
     let file_size = std::fs::metadata(file)?.len();
-    let block_bytes_u64 = u64::try_from(block_bytes)?;
-    let experts_u64 = file_size / block_bytes_u64;
-    if experts_u64 == 0 {
-        return Err(format!("file is {file_size} bytes; it must contain at least one full {block_bytes}-byte block").into());
-    }
-    if experts_u64 > 1_000_000 {
-        return Err("benchmark index would exceed one million synthetic expert blocks; increase --block-bytes".into());
-    }
-    if experts_u64 > u64::from(u32::MAX) {
-        return Err("file/block size yields more experts than the u32 expert ID format supports".into());
-    }
-    let experts = experts_u64 as u32;
-    let mut ranges = Vec::with_capacity(experts_u64 as usize);
-    for expert_id in 0..experts_u64 {
-        ranges.push(ExpertRange {
-            layer: 0,
-            expert_id: expert_id as u32,
-            byte_offset: expert_id.saturating_mul(block_bytes_u64),
-            byte_length: block_bytes_u64,
-        });
-    }
-    let table = ExpertTable { blob_version: 1, blob_size: file_size, ranges };
-    table.validate(file_size)?;
-    let (trace, trace_label, trace_source) = if let Some(trace_path) = trace_file {
-        let contents = std::fs::read(trace_path)?;
-        let ids: Vec<u32> = serde_json::from_slice(&contents)?;
-        if ids.is_empty() {
-            return Err("trace file must contain a non-empty JSON array of expert IDs".into());
+    let (table, block_bytes_report) = if let Some(index_path) = index_file {
+        let contents = std::fs::read(index_path)?;
+        let table: ExpertTable = serde_json::from_slice(&contents)?;
+        table.validate(file_size)?;
+        if table.ranges.is_empty() {
+            return Err("expert index contains no entries".into());
         }
-        if let Some(invalid) = ids.iter().find(|id| **id >= experts) {
-            return Err(format!("trace references expert ID {invalid}, but only IDs 0..{} are available", experts - 1).into());
-        }
-        (ids, "trace-file".to_string(), trace_path.display().to_string())
+        (table, None)
     } else {
-        (make_expert_trace(experts, requests, seed, workload), workload.to_string(), format!("synthetic:{workload}"))
+        if block_bytes == 0 {
+            return Err("block-bytes must be greater than zero when --index-file is not supplied".into());
+        }
+        let block_bytes_u64 = u64::try_from(block_bytes)?;
+        let experts_u64 = file_size / block_bytes_u64;
+        if experts_u64 == 0 {
+            return Err(format!("file is {file_size} bytes; it must contain at least one full {block_bytes}-byte block").into());
+        }
+        if experts_u64 > 1_000_000 {
+            return Err("benchmark index would exceed one million synthetic expert blocks; increase --block-bytes".into());
+        }
+        let mut ranges = Vec::with_capacity(experts_u64 as usize);
+        for expert_id in 0..experts_u64 {
+            ranges.push(ExpertRange {
+                layer: 0,
+                expert_id: expert_id as u32,
+                byte_offset: expert_id.saturating_mul(block_bytes_u64),
+                byte_length: block_bytes_u64,
+            });
+        }
+        (ExpertTable { blob_version: 1, blob_size: file_size, ranges }, Some(block_bytes))
+    };
+    table.validate(file_size)?;
+    let available: Vec<ExpertKey> = table.ranges.iter()
+        .map(|range| ExpertKey { layer: range.layer, expert_id: range.expert_id })
+        .collect();
+    if available.len() > 1_000_000 {
+        return Err("expert index contains more than one million entries; split or reduce the index to bound benchmark memory".into());
+    }
+    let trace: Vec<ExpertKey> = if let Some(trace_path) = trace_file {
+        let input: ExpertTraceInput = serde_json::from_slice(&std::fs::read(trace_path)?)?;
+        let trace = match input {
+            ExpertTraceInput::FlatIds(ids) => ids.into_iter()
+                .map(|expert_id| ExpertKey { layer: 0, expert_id }).collect(),
+            ExpertTraceInput::ExpertKeys(keys) => keys,
+            ExpertTraceInput::Pairs(pairs) => pairs.into_iter()
+                .map(|(layer, expert_id)| ExpertKey { layer, expert_id }).collect(),
+        };
+        if trace.is_empty() {
+            return Err("trace file must be a non-empty JSON array of expert IDs, [layer, expert_id] pairs, or {layer, expert_id} objects".into());
+        }
+        if trace.len() > 10_000_000 {
+            return Err("trace contains more than 10 million events; split the trace to bound memory".into());
+        }
+        let available_set: std::collections::HashSet<ExpertKey> = available.iter().copied().collect();
+        if let Some(missing) = trace.iter().find(|key| !available_set.contains(key)) {
+            return Err(format!("trace references expert ({}, {}), which is absent from the selected index", missing.layer, missing.expert_id).into());
+        }
+        trace
+    } else {
+        make_key_trace(&available, requests, seed, workload)
     };
     let cache_capacity_bytes = cache_mib.checked_mul(1024 * 1024)
         .ok_or("cache-mib is too large")?;
     let mut patterns = Vec::new();
     patterns.push(run_expert_cache_policy(
-        file, table.clone(), &trace, block_bytes, 0, ExpertCachePolicy::Lru, "none"
+        file, table.clone(), &trace, 0, ExpertCachePolicy::Lru, "none"
     )?);
     for (policy, name) in [
         (ExpertCachePolicy::Lru, "lru"),
@@ -467,7 +507,7 @@ fn run_expert_cache(
         (ExpertCachePolicy::Adaptive, "adaptive"),
     ] {
         patterns.push(run_expert_cache_policy(
-            file, table.clone(), &trace, block_bytes, cache_capacity_bytes, policy, name
+            file, table.clone(), &trace, cache_capacity_bytes, policy, name
         )?);
     }
     Ok(ExpertCacheReport {
@@ -475,14 +515,15 @@ fn run_expert_cache(
         phase_gate: "5B-expert-cache-trace-replay".to_string(),
         file: file.display().to_string(),
         file_size_bytes: file_size,
-        block_bytes,
-        expert_blocks_available: experts,
+        block_bytes: block_bytes_report,
+        index_file: index_file.map(|path| path.display().to_string()),
+        expert_entries_available: available.len(),
         requests: trace.len(),
         seed,
-        workload: trace_label,
-        trace_source,
+        workload: if trace_file.is_some() { "trace-file".to_string() } else { workload.to_string() },
+        trace_source: trace_file.map_or_else(|| format!("synthetic:{}", workload), |path| path.display().to_string()),
         page_cache_controlled: false,
-        note: "Real file reads on this host. OS page cache is uncontrolled; cache budget counts retained expert bytes only, not returned buffers. The trace is synthetic unless a JSON expert-ID trace file is supplied. This is not model inference or a target-hardware claim unless run on the target machine.".to_string(),
+        note: "Real file reads on this host. If --index-file is supplied, each trace key maps through that validated ExpertTable to a variable-length byte range; otherwise fixed-size synthetic layer-0 blocks are used. OS page cache is uncontrolled, estimated backing bytes are summed requested range lengths on cache misses (not physical-device counters), and caller-owned buffers are outside the cache budget. This is not an inference benchmark or a target-hardware claim unless run on the target machine.".to_string(),
         patterns,
     })
 }
