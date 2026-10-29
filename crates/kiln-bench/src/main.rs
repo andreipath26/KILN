@@ -569,13 +569,42 @@ fn run_prefetch_replay(
     max_pending: usize,
     max_inflight_mib: u64,
     latency_requests: usize,
+    blob_file: Option<&std::path::Path>,
+    index_file: Option<&std::path::Path>,
 ) -> Result<PrefetchReplayReport, Box<dyn std::error::Error>> {
     use std::collections::HashSet;
 
-    if block_bytes == 0 || top_k == 0 || max_pending == 0 || max_inflight_mib == 0 {
-        return Err("block-bytes, top-k, max-pending and max-inflight-mib must be greater than zero".into());
+    if top_k == 0 || max_pending == 0 || max_inflight_mib == 0 {
+        return Err("top-k, max-pending and max-inflight-mib must be greater than zero".into());
     }
-    let input: ExpertTraceInput = serde_json::from_slice(&read_bounded_input(trace_file, MAX_EXPERT_TRACE_BYTES, "expert trace")?)?;
+    if (blob_file.is_some() != index_file.is_some()) {
+        return Err("--blob-file and --index-file must be supplied together".into());
+    }
+    let indexed_sizes: Option<HashMap<ExpertKey, u64>> = if let (Some(blob_path), Some(index_path)) = (blob_file, index_file) {
+        let blob_size = std::fs::metadata(blob_path)?.len();
+        let contents = read_bounded_input(index_path, MAX_EXPERT_INDEX_BYTES, "expert index")?;
+        let table: ExpertTable = serde_json::from_slice(&contents)?;
+        table.validate(blob_size)?;
+        if table.ranges.is_empty() {
+            return Err("expert index contains no entries".into());
+        }
+        if table.ranges.len() > 1_000_000 {
+            return Err("expert index contains more than one million entries; reduce the index to bound memory".into());
+        }
+        Some(table.ranges.into_iter().map(|range| (
+            ExpertKey { layer: range.layer, expert_id: range.expert_id },
+            range.byte_length,
+        )).collect())
+    } else {
+        if block_bytes == 0 {
+            return Err("block-bytes must be greater than zero without --index-file".into());
+        }
+        None
+    };
+
+    let input: ExpertTraceInput = serde_json::from_slice(
+        &read_bounded_input(trace_file, MAX_EXPERT_TRACE_BYTES, "expert trace")?
+    )?;
     let trace: Vec<ExpertKey> = match input {
         ExpertTraceInput::FlatIds(ids) => ids.into_iter()
             .map(|expert_id| ExpertKey { layer: 0, expert_id }).collect(),
@@ -590,12 +619,20 @@ fn run_prefetch_replay(
         return Err("trace contains more than 10 million events; split the trace to bound memory".into());
     }
     let distinct: HashSet<ExpertKey> = trace.iter().copied().collect();
-    let mut candidates: Vec<(ExpertKey, u64)> = distinct.iter()
-        .copied()
-        .map(|key| (key, block_bytes))
-        .collect();
+    let mut candidates: Vec<(ExpertKey, u64)> = distinct.iter().copied().map(|key| {
+        let bytes = indexed_sizes.as_ref()
+            .and_then(|sizes| sizes.get(&key).copied())
+            .unwrap_or(block_bytes);
+        (key, bytes)
+    }).collect();
+    if let Some(sizes) = &indexed_sizes {
+        if let Some(missing) = distinct.iter().find(|key| !sizes.contains_key(key)) {
+            return Err(format!("trace references expert ({}, {}), which is absent from the selected index", missing.layer, missing.expert_id).into());
+        }
+    }
     candidates.sort_by_key(|(key, _)| (key.layer, key.expert_id));
     let distinct_experts_in_trace = candidates.len();
+    let candidate_bytes_total = candidates.iter().fold(0u64, |sum, (_, bytes)| sum.saturating_add(*bytes));
     let max_inflight_bytes = max_inflight_mib.checked_mul(1024 * 1024)
         .ok_or("max-inflight-mib is too large")?;
     let mut predictor = ExpertPrefetcher::new(max_pending, max_inflight_bytes);
@@ -647,9 +684,12 @@ fn run_prefetch_replay(
         version: env!("CARGO_PKG_VERSION").to_string(),
         phase_gate: "5C-prefetch-trace-replay".to_string(),
         trace_file: trace_file.display().to_string(),
+        blob_file: blob_file.map(|path| path.display().to_string()),
+        index_file: index_file.map(|path| path.display().to_string()),
         trace_events: trace.len(),
         distinct_experts_in_trace,
-        block_bytes,
+        block_bytes: if indexed_sizes.is_some() { None } else { Some(block_bytes) },
+        candidate_bytes_total,
         top_k,
         max_pending,
         max_inflight_bytes,
@@ -659,7 +699,11 @@ fn run_prefetch_replay(
         predicted_candidates,
         correct_next_event_predictions,
         stats,
-        note: "Trace replay only. Latency is simulated in trace-access steps; no disk reads, live routing capture, or compute/I/O overlap are performed. Trace entries may be flat IDs (layer 0), [layer, expert_id] pairs, or {layer, expert_id} objects; fixed block sizes are assumed. Candidate universe is limited to experts present in the supplied trace. Compare diagnostic metrics with a no-prefetch baseline; do not treat them as inference performance.".to_string(),
+        note: if indexed_sizes.is_some() {
+            "Trace replay only, using validated variable-size expert ranges from --index-file and --blob-file. Latency is simulated in trace-access steps; no disk reads, live routing capture, or compute/I/O overlap are performed. The candidate universe is limited to experts present in the supplied trace. Do not treat these diagnostics as inference performance.".to_string()
+        } else {
+            "Trace replay only, using a fixed synthetic block size. Latency is simulated in trace-access steps; no disk reads, live routing capture, or compute/I/O overlap are performed. Trace entries may be flat IDs (layer 0), [layer, expert_id] pairs, or {layer, expert_id} objects; the candidate universe is limited to experts present in the supplied trace. Do not treat these diagnostics as inference performance.".to_string()
+        },
     })
 }
 
