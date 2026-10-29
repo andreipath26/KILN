@@ -327,6 +327,7 @@ A “not beneficial” result is useful and must remain recorded with tested con
 - Merged PR #11 after GitHub Actions succeeded; API generation/chat now support newline-delimited JSON streaming when requested. Full Ollama compatibility remains incomplete.
 - Started the Phase 5A feasibility work on a separate branch.
 - Added a portable, bounded random-access file reader that reads only requested ranges and rejects out-of-bounds/overflowing ranges before I/O.
+- Added expert-index validation for blob-size agreement, sorted layer/expert IDs, non-empty in-bounds ranges, and non-overlapping byte intervals.
 - Added a `kiln-bench expert-io` command to compare sequential and deterministic random block reads against a real file, reporting throughput and p50/p95 per-request latency. The OS page cache is explicitly uncontrolled.
 - Added unit tests for exact range reads, invalid ranges, empty ranges at EOF, and the I/O probe's two access patterns.
 - This is an implementation milestone only. CI must pass before merge; the Dell measurements and the Phase 5A acceptance decision remain pending. No expert-streaming or 70B performance claim is made.
