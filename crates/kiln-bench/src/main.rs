@@ -1028,6 +1028,39 @@ mod expert_cache_bench_tests {
     }
 
     #[test]
+    fn expert_cache_replays_supplied_json_trace_and_rejects_unknown_ids() {
+        let path = fixture();
+        let trace_path = std::env::temp_dir().join(format!(
+            "kiln-expert-trace-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&trace_path, "[0,0,1,1,0]").unwrap();
+        let report = run_expert_cache(
+            &path, 1024, 999, 1, 42, "uniform", Some(&trace_path)
+        ).unwrap();
+        assert_eq!(report.requests, 5);
+        assert_eq!(report.workload, "trace-file");
+        assert_eq!(report.trace_source, trace_path.display().to_string());
+        assert!(report.patterns.iter().all(|p| p.checksum == report.patterns[0].checksum));
+
+        std::fs::write(&trace_path, "[64]").unwrap();
+        assert!(run_expert_cache(
+            &path, 1024, 10, 1, 42, "uniform", Some(&trace_path)
+        ).is_err());
+        std::fs::write(&trace_path, "[]").unwrap();
+        assert!(run_expert_cache(
+            &path, 1024, 10, 1, 42, "uniform", Some(&trace_path)
+        ).is_err());
+
+        std::fs::remove_file(trace_path).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn expert_cache_replay_rejects_invalid_inputs() {
         let path = fixture();
         assert!(run_expert_cache(&path, 0, 10, 1, 42, "uniform", None).is_err());
