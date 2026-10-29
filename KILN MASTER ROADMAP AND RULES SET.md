@@ -312,3 +312,11 @@ A “not beneficial” result is useful and must remain recorded with tested con
 - Completed status is backed by repository, test or benchmark evidence.
 - README, design documents and this roadmap agree.
 - Session log is updated and changes are pushed successfully.
+
+
+### 2026-10-29 — API streaming implementation started
+
+- Began a separate feature branch to implement actual token-by-token streaming for `POST /api/generate` and `POST /api/chat` using newline-delimited JSON chunks.
+- Added UTF-8 boundary handling so token byte fragments do not split Unicode characters in emitted chunks.
+- Added fail-closed regression tests for streaming requests when no model is configured.
+- This work is not merged or CI-verified yet. It does not complete the model registry, pull lifecycle, chat-template handling, or full Ollama compatibility, and it does not mark any roadmap phase complete.
