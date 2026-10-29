@@ -42,3 +42,22 @@ Important limits:
 - The byte budget bounds bytes retained by the cache, not caller-owned copies returned by `read_expert`; consumers must account for those buffers separately.
 - The file reader serializes cold reads. Async I/O, routing-informed prefetch, and compute overlap remain later phases.
 - Synthetic traces are not model-routing traces. Do not choose a production policy or claim a speedup until measured traces and target-hardware results exist.
+
+## Phase 5B real-file cache replay
+
+After building the CLI, compare no-cache, LRU, LFU and adaptive cache policies against the same deterministic synthetic trace and identical retained-byte budgets:
+
+```sh
+cargo run -p kiln-bench -- expert-cache \
+  --file /path/to/representative-large-file.bin \
+  --block-bytes 1048576 \
+  --requests 10000 \
+  --cache-mib 256 \
+  --workload phase-shift \
+  --seed 42 \
+  --json
+```
+
+Workloads are `phase-shift`, `stationary-hot`, `uniform`, and `round-robin`. The command partitions the file into fixed-size synthetic expert blocks, replays the same trace for each policy, and reports elapsed time, request rate, hit rate, estimated backing bytes read, cache bytes and evictions. It performs real file reads on the machine where the command runs, but the access trace is synthetic and the OS page cache is uncontrolled. Run it on the target Dell for target-machine data; do not interpret a CI-host result as Dell performance.
+
+The reported backing bytes are inferred from cache misses multiplied by block size, not OS-level physical-device counters. The cache budget counts retained expert bytes only; returned buffers are outside that budget.
