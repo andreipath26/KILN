@@ -37,7 +37,7 @@ pub struct ExpertPrefetcher {
     transitions: HashMap<ExpertKey, HashMap<ExpertKey, u64>>,
     totals: HashMap<ExpertKey, u64>,
     previous: Option<ExpertKey>,
-    max_in_flight_requests: usize,
+    max_pending_requests: usize,
     max_in_flight_bytes: u64,
     in_flight: HashMap<ExpertKey, u64>,
     ready: HashMap<ExpertKey, u64>,
@@ -46,12 +46,12 @@ pub struct ExpertPrefetcher {
 }
 
 impl ExpertPrefetcher {
-    pub fn new(max_in_flight_requests: usize, max_in_flight_bytes: u64) -> Self {
+    pub fn new(max_pending_requests: usize, max_in_flight_bytes: u64) -> Self {
         Self {
             transitions: HashMap::new(),
             totals: HashMap::new(),
             previous: None,
-            max_in_flight_requests,
+            max_pending_requests,
             max_in_flight_bytes,
             in_flight: HashMap::new(),
             ready: HashMap::new(),
@@ -87,7 +87,7 @@ impl ExpertPrefetcher {
         top_k: usize,
     ) -> Vec<PrefetchCandidate> {
         self.stats.predictions = self.stats.predictions.saturating_add(1);
-        if top_k == 0 || self.max_in_flight_requests == 0 || self.max_in_flight_bytes == 0 {
+        if top_k == 0 || self.max_pending_requests == 0 || self.max_in_flight_bytes == 0 {
             return Vec::new();
         }
         let Some(total) = self.totals.get(&current).copied().filter(|v| *v > 0) else {
@@ -116,7 +116,7 @@ impl ExpertPrefetcher {
 
         let mut planned = Vec::new();
         for candidate in ranked.into_iter().take(top_k) {
-            if self.in_flight.len() >= self.max_in_flight_requests {
+            if self.in_flight.len() + self.ready.len() >= self.max_pending_requests {
                 self.stats.rejected_request_cap = self.stats.rejected_request_cap.saturating_add(1);
                 break;
             }
@@ -183,10 +183,13 @@ impl ExpertPrefetcher {
         true
     }
 
-    /// Explicitly clear all pending plans, e.g. when the prompt/session changes.
+    /// Explicitly clear all pending plans and tracked ready candidates, e.g.
+    /// when the prompt/session changes. Ready expert bytes themselves belong
+    /// to the cache layer and are not evicted by this planner.
     pub fn clear_pending(&mut self) -> usize {
-        let removed = self.in_flight.len();
+        let removed = self.in_flight.len() + self.ready.len();
         self.in_flight.clear();
+        self.ready.clear();
         self.order.clear();
         self.refresh_in_flight();
         self.stats.cancelled = self.stats.cancelled.saturating_add(removed as u64);
