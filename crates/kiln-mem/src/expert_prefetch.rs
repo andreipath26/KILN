@@ -321,6 +321,7 @@ mod tests {
         let plans = p.predict(key(0), &[(key(1), 100), (key(1), 100), (key(2), 100)], 3);
         assert_eq!(plans.len(), 2);
         assert!(p.mark_ready(key(1)));
+        assert!(p.mark_unused(key(2)));
         let plans = p.predict(key(0), &[(key(1), 100), (key(2), 100)], 2);
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].key, key(2));
