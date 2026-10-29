@@ -233,6 +233,18 @@ impl ExpertPrefetcher {
         removed
     }
 
+    /// Mark all still-pending plans as unused at the end of a replay/session.
+    /// The caller owns any ready bytes; this only releases planner bookkeeping.
+    pub fn mark_all_unused(&mut self) -> usize {
+        let removed = self.in_flight.len() + self.ready.len();
+        self.in_flight.clear();
+        self.ready.clear();
+        self.order.clear();
+        self.stats.unused = self.stats.unused.saturating_add(removed as u64);
+        self.refresh_in_flight();
+        removed
+    }
+
     pub fn stats(&self) -> PrefetchStats {
         self.stats
     }
@@ -337,6 +349,22 @@ mod tests {
         assert_eq!(plans[0].key, key(2));
         assert_eq!(p.stats().in_flight_requests, 1);
         assert_eq!(p.stats().scheduled, 4);
+    }
+
+    #[test]
+    fn mark_all_unused_releases_both_in_flight_and_ready_plans() {
+        let mut p = ExpertPrefetcher::new(3, 300);
+        for next in [1, 2, 1, 2, 3] {
+            p.observe(key(0));
+            p.observe(key(next));
+        }
+        let candidates = [(key(1), 100), (key(2), 100), (key(3), 100)];
+        assert_eq!(p.predict(key(0), &candidates, 3).len(), 3);
+        assert!(p.mark_ready(key(1)));
+        assert_eq!(p.mark_all_unused(), 3);
+        assert_eq!(p.stats().unused, 3);
+        assert_eq!(p.stats().in_flight_requests, 0);
+        assert_eq!(p.stats().in_flight_bytes, 0);
     }
 
     #[test]
