@@ -397,3 +397,38 @@ Before accepting the implementation, ensure range bounds are checked before allo
 - Ordered implementation as expert I/O correctness/measurement, bounded cache, routing-informed prefetch, I/O/compute overlap, end-to-end model tests, then quality-gated representation experiments.
 - Added a prohibition on promoting paper-reported speedups into KILN claims without reproducing them on the target workload.
 - No Dell measurement or 70B-class performance result is claimed by this roadmap update.
+
+
+### 2026-10-29 — first synthetic expert-cache experiment
+
+Added `scripts/synthetic_moe_cache_bench.py`. It deterministically generates 100,000 expert references across 128 experts in two phases, each with a distinct hot set (85% hot-set selection, 15% uniform selection). It compares no cache and LRU/LFU/adaptive recency-frequency policies at capacities of 4, 8, 16 and 32 experts. The default storage model assumes 16 MiB per expert, 100 microseconds fixed latency per miss and 1.5 GiB/s bandwidth. These are tunable assumptions, not measured properties of the Dell or the KILN runtime.
+
+Reproducible command:
+```bash
+python3 scripts/synthetic_moe_cache_bench.py --requests 100000 --seed 42
+```
+
+Observed synthetic results for the fixed seed:
+| Capacity | Policy | Hit rate | Modelled storage bytes read | Modelled serialized I/O time |
+|---:|---|---:|---:|---:|
+| 0 | none | 0.00% | 1,562.50 GiB | 1,051.67 s |
+| 4 | LRU | 18.76% | 1,269.33 GiB | 854.34 s |
+| 4 | LFU | 12.98% | 1,359.73 GiB | 915.19 s |
+| 4 | adaptive | 12.98% | 1,359.73 GiB | 915.19 s |
+| 8 | LRU | 36.84% | 986.81 GiB | 664.19 s |
+| 8 | LFU | 23.95% | 1,188.22 GiB | 799.75 s |
+| 8 | adaptive | 23.95% | 1,188.22 GiB | 799.75 s |
+| 16 | LRU | 68.50% | 492.20 GiB | 331.29 s |
+| 16 | LFU | 45.12% | 857.44 GiB | 577.11 s |
+| 16 | adaptive | 45.12% | 857.44 GiB | 577.11 s |
+| 32 | LRU | 88.70% | 176.62 GiB | 118.88 s |
+| 32 | LFU | 54.66% | 708.47 GiB | 476.85 s |
+| 32 | adaptive | 55.55% | 694.53 GiB | 467.47 s |
+
+Interpretation: this deliberately phase-shifting trace favours recency because the hot set changes halfway through. At 32 cached experts, LRU cuts simulated storage reads by about 88.7% against no cache under this synthetic trace. That is evidence only that the simulator and chosen trace respond as expected—not that real KILN will obtain an 88.7% speedup. The adaptive policy is close to LFU at smaller capacities, so it has not demonstrated an advantage here. Do not select an algorithm from this single trace.
+
+Important limits:
+- `modelled_serial_io_seconds` is arithmetic from assumed latency and bandwidth, not elapsed storage time. It excludes CPU compute, real SSD behaviour, kernel/filesystem effects, OS page cache, queueing, concurrency and overlap.
+- `simulator_wall_seconds` is only the Python simulation runtime, not model inference time.
+- The current trace is synthetic, not collected from a model router. The cache capacity is counted in experts, not enforced by actual byte size.
+- Next: add trace fixtures representing different reuse/skew and phase-drift regimes; test the cache policy implementation; then collect routing traces and compare against a real-file I/O measurement. Only then implement the cache in the runtime.
