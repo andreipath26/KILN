@@ -952,13 +952,23 @@ mod tests {
 
     #[test]
     fn q6k_check_quick() {
-        let path = "/home/andreipath/Desktop/KILN/models/tiny/qwen25-1.5b.gguf";
-        let data = std::fs::read(path).expect("read");
-        let file_pos = 5950976 + 191445504;
-        let block = &data[file_pos..file_pos + 210];
-        let out = q6k_dequant_block(block);
-        for k in 0..32 {
-            println!("q6k[{}] = {:.8}", k, out[k]);
+        // Keep this regression check hermetic: CI must not depend on a
+        // developer-specific model file or absolute filesystem path.
+        let mut block = [0u8; 210];
+        block[209] = 0x3C; // d = 1.0 (F16)
+        for byte in &mut block[0..128] {
+            *byte = 0x11; // low/high nibbles encode q = 1
+        }
+        for byte in &mut block[192..208] {
+            *byte = 0x01; // all scales = 1
+        }
+
+        let out = q6k_dequant_block(&block);
+        for (index, value) in out.iter().enumerate() {
+            assert!(
+                (*value - (-31.0)).abs() < 0.001,
+                "at index {index}: expected -31.0, got {value}"
+            );
         }
     }
 
