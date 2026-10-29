@@ -454,3 +454,10 @@ Important limits:
 - This is a real-file benchmark when run on a user's host, but its expert trace is still synthetic and OS page-cache state is uncontrolled. It does not prove physical SSD bytes read or model inference performance.
 - Current branch head at this note: `47efa8e89f48158a05d82d9ef0d9858976f5b190`. CI for the latest benchmark additions is still running. The earlier cache-core commit `63cf5a727be89c1a73e601eb2728c172572b5b5a` passed workspace tests after a borrow-checker issue was fixed. Do not merge PR #12 until the latest head is green.
 - Phase 5A remains unaccepted until the benchmark is run on the target Dell with a representative file and the evidence is recorded. The expert cache is not yet connected to the live llama.cpp model inference path.
+
+### 2026-10-29 — trace-file replay input
+
+- `kiln-bench expert-cache` now accepts `--trace-file` containing a non-empty JSON array of mapped block IDs. It validates every ID against the file's available synthetic blocks and uses the trace's length as the request count.
+- Added tests for valid trace replay, checksum consistency, empty traces and out-of-range IDs.
+- Important boundary: the current reader benchmark maps each fixed-size file block to a synthetic ID at layer 0. A real router's (layer, expert_id) events must be translated using the model's actual expert-to-file layout first. Live routing collection is not implemented.
+- The latest cache benchmark and Rust cache code passed CI through commit `47efa8e89f48158a05d82d9ef0d9858976f5b190`; the real-file benchmark tests passed on `4c9c5d12871ad25ebd9f68ded1abd154edddd5ca`. CI for the trace-file extension is still running; latest observed code-test run is `40839927111`. Phase 5A remains open pending target-Dell measurements.
