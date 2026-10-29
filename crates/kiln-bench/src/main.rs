@@ -194,7 +194,7 @@ struct PrefetchReplayReport {
     phase_gate: String,
     trace_file: String,
     trace_events: usize,
-    expert_ids_available: u32,
+    distinct_experts_in_trace: usize,
     block_bytes: u64,
     top_k: usize,
     max_pending: usize,
@@ -483,6 +483,14 @@ fn run_expert_cache(
     })
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ExpertTraceInput {
+    FlatIds(Vec<u32>),
+    ExpertKeys(Vec<ExpertKey>),
+    Pairs(Vec<(u32, u32)>),
+}
+
 fn run_prefetch_replay(
     trace_file: &std::path::Path,
     block_bytes: u64,
@@ -491,21 +499,32 @@ fn run_prefetch_replay(
     max_inflight_mib: u64,
     latency_requests: usize,
 ) -> Result<PrefetchReplayReport, Box<dyn std::error::Error>> {
+    use std::collections::HashSet;
+
     if block_bytes == 0 || top_k == 0 || max_pending == 0 || max_inflight_mib == 0 {
         return Err("block-bytes, top-k, max-pending and max-inflight-mib must be greater than zero".into());
     }
-    let trace: Vec<u32> = serde_json::from_slice(&std::fs::read(trace_file)?)?;
+    let input: ExpertTraceInput = serde_json::from_slice(&std::fs::read(trace_file)?)?;
+    let trace: Vec<ExpertKey> = match input {
+        ExpertTraceInput::FlatIds(ids) => ids.into_iter()
+            .map(|expert_id| ExpertKey { layer: 0, expert_id }).collect(),
+        ExpertTraceInput::ExpertKeys(keys) => keys,
+        ExpertTraceInput::Pairs(pairs) => pairs.into_iter()
+            .map(|(layer, expert_id)| ExpertKey { layer, expert_id }).collect(),
+    };
     if trace.is_empty() {
-        return Err("trace file must be a non-empty JSON array of expert IDs".into());
+        return Err("trace file must be a non-empty JSON array of expert IDs, [layer, expert_id] pairs, or {layer, expert_id} objects".into());
     }
-    let max_id = *trace.iter().max().unwrap();
-    if max_id > 999_999 {
-        return Err("trace expert IDs must be <= 999999 to bound candidate-index memory".into());
+    if trace.len() > 10_000_000 {
+        return Err("trace contains more than 10 million events; split the trace to bound memory".into());
     }
-    let expert_count = max_id + 1;
-    let candidates: Vec<(ExpertKey, u64)> = (0..expert_count)
-        .map(|expert_id| (ExpertKey { layer: 0, expert_id }, block_bytes))
+    let distinct: HashSet<ExpertKey> = trace.iter().copied().collect();
+    let mut candidates: Vec<(ExpertKey, u64)> = distinct.iter()
+        .copied()
+        .map(|key| (key, block_bytes))
         .collect();
+    candidates.sort_by_key(|(key, _)| (key.layer, key.expert_id));
+    let distinct_experts_in_trace = candidates.len();
     let max_inflight_bytes = max_inflight_mib.checked_mul(1024 * 1024)
         .ok_or("max-inflight-mib is too large")?;
     let mut predictor = ExpertPrefetcher::new(max_pending, max_inflight_bytes);
@@ -514,27 +533,23 @@ fn run_prefetch_replay(
     let mut predicted_candidates = 0u64;
     let mut correct_next_event_predictions = 0u64;
 
-    for (index, expert_id) in trace.iter().copied().enumerate() {
+    for (index, actual) in trace.iter().copied().enumerate() {
         let mut remaining = Vec::new();
         for (key, scheduled_index) in scheduled_at.drain(..) {
             if index.saturating_sub(scheduled_index) >= latency_requests {
-                if predictor.mark_ready(key) {
-                    // Completed before demand; keep it tracked until use/unused.
-                }
+                predictor.mark_ready(key);
             } else {
                 remaining.push((key, scheduled_index));
             }
         }
         scheduled_at = remaining;
 
-        let actual = ExpertKey { layer: 0, expert_id };
         predictor.observe(actual);
-
         if index + 1 < trace.len() {
             let plans = predictor.predict(actual, &candidates, top_k);
             predicted_candidates = predicted_candidates.saturating_add(plans.len() as u64);
             let next = trace[index + 1];
-            if plans.iter().any(|candidate| candidate.key.expert_id == next) {
+            if plans.iter().any(|candidate| candidate.key == next) {
                 correct_next_event_predictions = correct_next_event_predictions.saturating_add(1);
             }
             for plan in plans {
@@ -544,7 +559,6 @@ fn run_prefetch_replay(
         }
     }
 
-    // Any plan still pending at end-of-trace is an unused speculative read.
     for key in all_scheduled {
         predictor.mark_unused(key);
     }
@@ -565,7 +579,7 @@ fn run_prefetch_replay(
         phase_gate: "5C-prefetch-trace-replay".to_string(),
         trace_file: trace_file.display().to_string(),
         trace_events: trace.len(),
-        expert_ids_available: expert_count,
+        distinct_experts_in_trace,
         block_bytes,
         top_k,
         max_pending,
@@ -576,7 +590,7 @@ fn run_prefetch_replay(
         predicted_candidates,
         correct_next_event_predictions,
         stats,
-        note: "Trace replay only. Latency is simulated in trace-access steps; no disk reads, live routing capture, or compute/I/O overlap are performed. Expert IDs are interpreted as layer 0 IDs and fixed block sizes are assumed. Compare these diagnostic metrics with a no-prefetch baseline; do not treat them as inference performance.".to_string(),
+        note: "Trace replay only. Latency is simulated in trace-access steps; no disk reads, live routing capture, or compute/I/O overlap are performed. Trace entries may be flat IDs (layer 0), [layer, expert_id] pairs, or {layer, expert_id} objects; fixed block sizes are assumed. Candidate universe is limited to experts present in the supplied trace. Compare diagnostic metrics with a no-prefetch baseline; do not treat them as inference performance.".to_string(),
     })
 }
 
@@ -1237,7 +1251,7 @@ mod expert_cache_bench_tests {
         std::fs::write(&trace_path, "[0,1,0,1,0,1,0,1]").unwrap();
         let report = run_prefetch_replay(&trace_path, 1024, 1, 4, 1, 0).unwrap();
         assert_eq!(report.trace_events, 8);
-        assert_eq!(report.expert_ids_available, 2);
+        assert_eq!(report.distinct_experts_in_trace, 2);
         assert!(report.next_event_coverage > 0.0);
         assert!(report.predicted_candidates > 0);
         assert_eq!(report.stats.scheduled, report.stats.useful + report.stats.late + report.stats.unused + report.stats.cancelled);
