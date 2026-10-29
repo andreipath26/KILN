@@ -148,6 +148,7 @@ mod tests {
         let stats = reader.cache_stats();
         assert_eq!(stats.entries, 1);
         assert_eq!(stats.used_bytes, 8);
+        assert_eq!(stats.hits + stats.misses, 8);
         assert!(stats.used_bytes <= stats.capacity_bytes);
         std::fs::remove_file(path).unwrap();
     }
