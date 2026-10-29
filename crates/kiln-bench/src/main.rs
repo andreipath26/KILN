@@ -559,9 +559,7 @@ fn run_prefetch_replay(
         }
     }
 
-    for (key, _) in &candidates {
-        predictor.mark_unused(*key);
-    }
+    predictor.mark_all_unused();
     let stats = predictor.stats();
     let eligible_next_events = trace.len().saturating_sub(1) as f64;
     let next_event_coverage = if eligible_next_events == 0.0 {
