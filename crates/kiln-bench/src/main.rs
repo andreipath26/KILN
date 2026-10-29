@@ -11,6 +11,9 @@
 //!   kiln-bench info           # print what will be measured
 
 use std::time::Instant;
+use std::path::PathBuf;
+
+use kiln_io::FileRangeReader;
 
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -35,6 +38,27 @@ enum Commands {
     },
     /// Print what will be measured without running anything.
     Info,
+    /// Measure bounded random and sequential reads from a real model/expert blob.
+    ExpertIo {
+        /// Path to an expert blob or other representative large model file.
+        #[arg(long)]
+        file: PathBuf,
+        /// Bytes per expert-block read (default 1 MiB).
+        #[arg(long, default_value_t = 1_048_576)]
+        block_bytes: usize,
+        /// Number of block reads per repetition.
+        #[arg(long, default_value_t = 256)]
+        requests: usize,
+        /// Number of repetitions for each access pattern.
+        #[arg(long, default_value_t = 5)]
+        runs: usize,
+        /// Seed for reproducible random access offsets.
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+        /// Emit JSON only.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// The report structure. This is the format every phase gate produces.
@@ -61,6 +85,162 @@ pub struct Summary {
     pub total: u32,
     pub passed: u32,
     pub failed: u32,
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ExpertIoPattern {
+    access_pattern: String,
+    requests: usize,
+    block_bytes: usize,
+    total_bytes_read: u64,
+    elapsed_ms: f64,
+    throughput_mib_s: f64,
+    request_latency_p50_us: f64,
+    request_latency_p95_us: f64,
+    checksum: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ExpertIoReport {
+    version: String,
+    phase_gate: String,
+    file: String,
+    file_size_bytes: u64,
+    os: String,
+    architecture: String,
+    block_bytes: usize,
+    requests_per_run: usize,
+    repetitions: usize,
+    seed: u64,
+    page_cache_controlled: bool,
+    note: String,
+    patterns: Vec<ExpertIoPattern>,
+}
+
+fn percentile(sorted: &[u64], percentile: f64) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let index = ((sorted.len() - 1) as f64 * percentile).ceil() as usize;
+    sorted[index.min(sorted.len() - 1)] as f64 / 1_000.0
+}
+
+fn run_expert_io_pattern(
+    reader: &mut FileRangeReader,
+    offsets: &[u64],
+    block_bytes: usize,
+    repetitions: usize,
+    access_pattern: &str,
+) -> Result<ExpertIoPattern, Box<dyn std::error::Error>> {
+    let mut buffer = vec![0u8; block_bytes];
+    let mut latencies = Vec::with_capacity(offsets.len().saturating_mul(repetitions));
+    let mut checksum = 0u64;
+    let total_start = Instant::now();
+
+    for _ in 0..repetitions {
+        for offset in offsets {
+            let start = Instant::now();
+            reader.read_exact_at(*offset, &mut buffer)?;
+            latencies.push(start.elapsed().as_nanos().min(u64::MAX as u128) as u64);
+            // Touch a deterministic sample of the bytes to prevent this from
+            // becoming a pure seek-only benchmark.
+            for byte in buffer.iter().step_by(4096) {
+                checksum = checksum.rotate_left(5) ^ u64::from(*byte);
+            }
+        }
+    }
+
+    let elapsed = total_start.elapsed();
+    let elapsed_secs = elapsed.as_secs_f64().max(f64::MIN_POSITIVE);
+    let total_bytes_read = (block_bytes as u64)
+        .saturating_mul(offsets.len() as u64)
+        .saturating_mul(repetitions as u64);
+    latencies.sort_unstable();
+
+    Ok(ExpertIoPattern {
+        access_pattern: access_pattern.to_string(),
+        requests: offsets.len().saturating_mul(repetitions),
+        block_bytes,
+        total_bytes_read,
+        elapsed_ms: elapsed.as_secs_f64() * 1000.0,
+        throughput_mib_s: total_bytes_read as f64 / (1024.0 * 1024.0) / elapsed_secs,
+        request_latency_p50_us: percentile(&latencies, 0.50),
+        request_latency_p95_us: percentile(&latencies, 0.95),
+        checksum,
+    })
+}
+
+fn run_expert_io(
+    file: &std::path::Path,
+    block_bytes: usize,
+    requests: usize,
+    runs: usize,
+    seed: u64,
+) -> Result<ExpertIoReport, Box<dyn std::error::Error>> {
+    if block_bytes == 0 || requests == 0 || runs == 0 {
+        return Err("block-bytes, requests, and runs must all be greater than zero".into());
+    }
+    let mut reader = FileRangeReader::open(file)?;
+    let blocks_available = reader.file_size() / block_bytes as u64;
+    if blocks_available == 0 {
+        return Err(format!(
+            "file is {} bytes; it must contain at least one full {}-byte block",
+            reader.file_size(), block_bytes
+        ).into());
+    }
+
+    let mut sequential_offsets = Vec::with_capacity(requests);
+    let mut random_offsets = Vec::with_capacity(requests);
+    let mut state = seed;
+    for i in 0..requests {
+        sequential_offsets.push((i as u64 % blocks_available) * block_bytes as u64);
+        // Stable LCG: repeatable across platforms and Rust versions.
+        state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        random_offsets.push((state % blocks_available) * block_bytes as u64);
+    }
+
+    let sequential = run_expert_io_pattern(&mut reader, &sequential_offsets, block_bytes, runs, "sequential")?;
+    let random = run_expert_io_pattern(&mut reader, &random_offsets, block_bytes, runs, "random")?;
+
+    Ok(ExpertIoReport {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        phase_gate: "5A-expert-block-io-feasibility".to_string(),
+        file: file.display().to_string(),
+        file_size_bytes: reader.file_size(),
+        os: std::env::consts::OS.to_string(),
+        architecture: std::env::consts::ARCH.to_string(),
+        block_bytes,
+        requests_per_run: requests,
+        repetitions: runs,
+        seed,
+        page_cache_controlled: false,
+        note: "Portable seek/read baseline. OS page cache is not controlled; repeated runs may be warm. This measures storage access only, not end-to-end model tokens/s.".to_string(),
+        patterns: vec![sequential, random],
+    })
+}
+
+fn print_expert_io_human(report: &ExpertIoReport) {
+    println!("KILN expert-block I/O feasibility report");
+    println!("  phase gate:     {}", report.phase_gate);
+    println!("  file:           {}", report.file);
+    println!("  file size:      {} bytes", report.file_size_bytes);
+    println!("  host:           {} / {}", report.os, report.architecture);
+    println!("  block size:     {} bytes", report.block_bytes);
+    println!("  requests/run:   {}", report.requests_per_run);
+    println!("  repetitions:    {}", report.repetitions);
+    println!("  random seed:    {}", report.seed);
+    println!("  page cache:     uncontrolled");
+    for pattern in &report.patterns {
+        println!("");
+        println!("  {} access", pattern.access_pattern);
+        println!("    throughput:   {:.2} MiB/s", pattern.throughput_mib_s);
+        println!("    latency p50:  {:.2} us", pattern.request_latency_p50_us);
+        println!("    latency p95:  {:.2} us", pattern.request_latency_p95_us);
+        println!("    total read:   {} bytes", pattern.total_bytes_read);
+    }
+    println!("");
+    println!("  {}", report.note);
 }
 
 fn measure<F: FnOnce() -> f64>(name: &str, unit: &str, f: F) -> Measurement {
@@ -511,6 +691,16 @@ async fn main() {
         }
         Commands::Info => {
             print_info();
+        }
+        Commands::ExpertIo { file, block_bytes, requests, runs, seed, json } => {
+            match run_expert_io(&file, block_bytes, requests, runs, seed) {
+                Ok(report) if json => println!("{}", serde_json::to_string_pretty(&report).unwrap()),
+                Ok(report) => print_expert_io_human(&report),
+                Err(error) => {
+                    eprintln!("expert I/O benchmark failed: {error}");
+                    std::process::exit(2);
+                }
+            }
         }
     }
 }
