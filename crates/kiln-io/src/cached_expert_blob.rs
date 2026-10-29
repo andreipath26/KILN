@@ -1,11 +1,25 @@
 //! Expert blob reader with a byte-bounded expert cache.
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
+use serde::{Deserialize, Serialize};
 
 use kiln_mem::{ExpertCache, ExpertCachePolicy, ExpertCacheStats, ExpertKey};
 use kiln_models::ExpertTable;
 
 use crate::{ExpertBlobError, ExpertBlobReader};
+
+/// A bounded snapshot of successful expert access requests.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExpertAccessTraceSnapshot {
+    pub events: Vec<ExpertKey>,
+    pub dropped_events: u64,
+}
+
+struct AccessTraceState {
+    max_events: usize,
+    events: Vec<ExpertKey>,
+    dropped_events: u64,
+}
 
 /// Reads expert blocks from the blob and retains hot blocks under a strict
 /// cache-membership byte budget. Concurrent misses are rechecked after taking
@@ -13,6 +27,7 @@ use crate::{ExpertBlobError, ExpertBlobReader};
 pub struct CachedExpertBlobReader {
     reader: Mutex<ExpertBlobReader>,
     cache: ExpertCache,
+    access_trace: Mutex<AccessTraceState>,
 }
 
 impl CachedExpertBlobReader {
@@ -25,11 +40,55 @@ impl CachedExpertBlobReader {
         Ok(Self {
             reader: Mutex::new(ExpertBlobReader::open(path, table)?),
             cache: ExpertCache::new(cache_capacity_bytes, policy),
+            access_trace: Mutex::new(AccessTraceState {
+                max_events: 0,
+                events: Vec::new(),
+                dropped_events: 0,
+            }),
         })
     }
 
     fn lock_reader(&self) -> MutexGuard<'_, ExpertBlobReader> {
         self.reader.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn record_access(&self, key: ExpertKey) {
+        let mut trace = self.access_trace.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if trace.max_events == 0 {
+            return;
+        }
+        if trace.events.len() < trace.max_events {
+            trace.events.push(key);
+        } else {
+            trace.dropped_events = trace.dropped_events.saturating_add(1);
+        }
+    }
+
+    /// Enable bounded successful-read tracing. A zero limit disables tracing.
+    /// Existing events and the dropped-event counter are reset.
+    pub fn enable_access_trace(&self, max_events: usize) {
+        let mut trace = self.access_trace.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        trace.max_events = max_events;
+        trace.events.clear();
+        trace.events.reserve(max_events.saturating_sub(trace.events.capacity()));
+        trace.dropped_events = 0;
+    }
+
+    /// Return a stable snapshot of the recorded (layer, expert_id) sequence.
+    pub fn access_trace_snapshot(&self) -> ExpertAccessTraceSnapshot {
+        let trace = self.access_trace.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        ExpertAccessTraceSnapshot {
+            events: trace.events.clone(),
+            dropped_events: trace.dropped_events,
+        }
+    }
+
+    /// Write the recorded trace in the JSON format accepted by kiln-bench.
+    pub fn write_access_trace_json(&self, path: impl AsRef<Path>) -> std::io::Result<()> {
+        let snapshot = self.access_trace_snapshot();
+        let bytes = serde_json::to_vec_pretty(&snapshot.events)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        std::fs::write(path, bytes)
     }
 
     pub fn read_expert(
@@ -39,6 +98,7 @@ impl CachedExpertBlobReader {
     ) -> Result<Vec<u8>, ExpertBlobError> {
         let key = ExpertKey { layer, expert_id };
         if let Some(bytes) = self.cache.get(key) {
+            self.record_access(key);
             return Ok(bytes);
         }
 
@@ -46,11 +106,13 @@ impl CachedExpertBlobReader {
         // Another caller may have filled the cache while this caller waited
         // for the single file reader. Avoid duplicate disk reads in that case.
         if let Some(bytes) = self.cache.get_if_present(key) {
+            self.record_access(key);
             return Ok(bytes);
         }
 
         let bytes = reader.read_expert(layer, expert_id)?;
         self.cache.insert(key, bytes.clone());
+        self.record_access(key);
         Ok(bytes)
     }
 
@@ -150,6 +212,37 @@ mod tests {
         assert_eq!(stats.used_bytes, 8);
         assert_eq!(stats.hits + stats.misses, 8);
         assert!(stats.used_bytes <= stats.capacity_bytes);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn bounded_access_trace_records_successful_reads_and_exports_json() {
+        let (path, _, table) = fixture();
+        let reader = CachedExpertBlobReader::open(&path, table, 16, ExpertCachePolicy::Lru).unwrap();
+        reader.enable_access_trace(2);
+        reader.read_expert(0, 0).unwrap();
+        reader.read_expert(1, 0).unwrap();
+        reader.read_expert(0, 0).unwrap();
+        let snapshot = reader.access_trace_snapshot();
+        assert_eq!(snapshot.events, vec![
+            ExpertKey { layer: 0, expert_id: 0 },
+            ExpertKey { layer: 1, expert_id: 0 },
+        ]);
+        assert_eq!(snapshot.dropped_events, 1);
+
+        let trace_path = std::env::temp_dir().join(format!(
+            "kiln-access-trace-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        reader.write_access_trace_json(&trace_path).unwrap();
+        let exported: Vec<ExpertKey> = serde_json::from_slice(&std::fs::read(&trace_path).unwrap()).unwrap();
+        assert_eq!(exported, snapshot.events);
+        reader.enable_access_trace(0);
+        reader.read_expert(0, 1).unwrap();
+        assert!(reader.access_trace_snapshot().events.is_empty());
+        assert_eq!(reader.access_trace_snapshot().dropped_events, 0);
+        std::fs::remove_file(trace_path).unwrap();
         std::fs::remove_file(path).unwrap();
     }
 
