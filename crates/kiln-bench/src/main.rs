@@ -653,8 +653,13 @@ fn print_prefetch_replay_human(report: &PrefetchReplayReport) {
 fn print_expert_cache_human(report: &ExpertCacheReport) {
     println!("KILN expert-cache trace replay");
     println!("  phase gate: {} | file: {} ({} bytes)", report.phase_gate, report.file, report.file_size_bytes);
-    println!("  block: {} bytes | experts: {} | requests: {} | workload: {} | seed: {}",
-        report.block_bytes, report.expert_blocks_available, report.requests, report.workload, report.seed);
+    if let Some(block_bytes) = report.block_bytes {
+        println!("  synthetic block size: {block_bytes} bytes");
+    } else {
+        println!("  expert index: {}", report.index_file.as_deref().unwrap_or("<unknown>"));
+    }
+    println!("  entries: {} | requests: {} | workload: {} | seed: {}",
+        report.expert_entries_available, report.requests, report.workload, report.seed);
     println!("  OS page cache: uncontrolled");
     for pattern in &report.patterns {
         println!("  {}: {:.2}% hits, {:.2} requests/s, {} estimated backing bytes, {} retained bytes, {} evictions",
@@ -1274,7 +1279,7 @@ mod expert_cache_bench_tests {
         ).is_err());
         std::fs::write(&trace_path, "[]").unwrap();
         assert!(run_expert_cache(
-            &path, 1024, 10, 1, 42, "uniform", Some(&trace_path)
+            &path, 1024, 10, 1, 42, "uniform", Some(&trace_path), None
         ).is_err());
 
         std::fs::remove_file(trace_path).unwrap();
@@ -1310,7 +1315,7 @@ mod expert_cache_bench_tests {
     #[test]
     fn expert_cache_replay_rejects_invalid_inputs() {
         let path = fixture();
-        assert!(run_expert_cache(&path, 0, 10, 1, 42, "uniform", None).is_err());
+        assert!(run_expert_cache(&path, 0, 10, 1, 42, "uniform", None, None).is_err());
         assert!(run_expert_cache(&path, 1024, 10, 0, 42, "uniform", None, None).is_err());
         assert!(run_expert_cache(&path, 1024, 10, 1, 42, "unknown", None, None).is_err());
         std::fs::remove_file(path).unwrap();
