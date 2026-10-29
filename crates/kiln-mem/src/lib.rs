@@ -10,9 +10,11 @@ pub mod manager;
 pub mod policy;
 pub mod error;
 pub mod expert_cache;
+pub mod expert_prefetch;
 
 pub use tier::Tier;
 pub use manager::{MemoryManager, TensorId};
 pub use policy::{RebalancePolicy, RebalanceReport};
 pub use error::{LoadError, EvictError};
 pub use expert_cache::{ExpertCache, ExpertCachePolicy, ExpertCacheStats, ExpertKey, InsertOutcome};
+pub use expert_prefetch::{ExpertPrefetcher, PrefetchCandidate, PrefetchStats};
