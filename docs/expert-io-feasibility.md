@@ -69,3 +69,18 @@ To replay an externally captured routing trace, pass `--trace-file /path/to/trac
 The `kiln-mem::ExpertPrefetcher` learns one-step transitions from an observed `ExpertKey` sequence and ranks candidates by empirical conditional frequency. The caller supplies candidate block sizes. It enforces a cap on total tracked speculative requests (in-flight plus ready metadata) and a separate in-flight byte budget and exposes counters for scheduled predictions, cap rejections, useful, late, unused and cancelled requests. The integration caller must call `mark_ready` only after a read completes before demand; a demand that arrives while still in-flight is counted as late, not useful. Ready expert bytes are accounted for by the cache layer, not by the in-flight byte budget; the planner bounds ready metadata as well. Tests cover ranking/confidence, budget enforcement, outcome accounting and stale-plan cancellation.
 
 This is deliberately a predictor/planner primitive, not asynchronous I/O: it does not submit reads, fetch expert bytes, evict cache entries, observe live llama.cpp router events, or prove overlap. The integration layer must call `observe` for actual expert accesses, use the model's validated expert index for sizes and identities, execute returned plans, and report outcomes accurately. Compare against no-prefetch and naive baselines on the same captured trace before enabling it in inference.
+
+### Replaying prefetch predictions against an access trace
+
+```sh
+cargo run -p kiln-bench -- prefetch-replay \
+  --trace-file /path/to/expert-ids.json \
+  --block-bytes 1048576 \
+  --top-k 2 \
+  --max-pending 8 \
+  --max-inflight-mib 16 \
+  --latency-requests 1 \
+  --json
+```
+
+The input is a JSON array of expert IDs, e.g. `[0, 1, 0, 1, 0]`. IDs are interpreted as layer 0; each candidate is assigned the fixed size given by `--block-bytes`. The replay reports top-k next-event coverage/precision and planner outcomes. `--latency-requests` simulates read completion in units of trace events; it is not a wall-clock I/O measurement. This is a diagnostic predictor experiment only. It does not issue file reads, model live routing, account for cache evictions of ready prefetched blocks, or measure tokens/s.
