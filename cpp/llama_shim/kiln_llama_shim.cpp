@@ -15,6 +15,7 @@ struct kiln_llama {
     const struct llama_vocab* vocab;
     int32_t n_vocab;
     int32_t n_past;
+    int32_t batch_capacity;
     struct llama_batch batch;
 };
 
@@ -58,7 +59,8 @@ kiln_llama_t kiln_llama_load(const char* model_path, const struct kiln_llama_par
     k->vocab   = vocab;
     k->n_vocab = n_vocab;
     k->n_past  = 0;
-    k->batch   = llama_batch_init(512, 0, 1);
+    k->batch_capacity = 512;
+    k->batch   = llama_batch_init(k->batch_capacity, 0, 1);
     return (kiln_llama_t)k;
 }
 
@@ -85,7 +87,7 @@ int32_t kiln_llama_tokenize(
     int add_special, int parse_special)
 {
     struct kiln_llama* k = (struct kiln_llama*)h;
-    if (!k) return -1;
+    if (!k || !text || text_len < 0 || !out_tokens || out_cap <= 0) return -1;
     return llama_tokenize(
         k->vocab, text, text_len, out_tokens, out_cap,
         add_special != 0, parse_special != 0);
@@ -95,7 +97,7 @@ int32_t kiln_llama_decode(
     kiln_llama_t h, const int32_t* tokens, int32_t n_tokens, int32_t pos_offset)
 {
     struct kiln_llama* k = (struct kiln_llama*)h;
-    if (!k) return -1;
+    if (!k || !tokens || n_tokens <= 0 || n_tokens > k->batch_capacity || pos_offset < 0) return -1;
 
     /* Single-sequence decode. Every token belongs to sequence 0.
      * llama_batch_init already allocated seq_id[] as an array of
@@ -119,7 +121,7 @@ int32_t kiln_llama_decode(
 
 int32_t kiln_llama_logits(kiln_llama_t h, float* out, int32_t out_cap) {
     struct kiln_llama* k = (struct kiln_llama*)h;
-    if (!k) return -1;
+    if (!k || !out || out_cap <= 0) return -1;
     float* p = llama_get_logits(k->ctx);
     if (!p) return -2;
     int32_t n = k->n_vocab < out_cap ? k->n_vocab : out_cap;
