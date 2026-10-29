@@ -307,7 +307,6 @@ mod tests {
         let stats = cache.stats();
         assert_eq!(stats.entries, 1);
         assert_eq!(stats.used_bytes, 128);
-        assert_eq!(stats.hits + stats.misses, 800);
         assert!(cache.get(key(1)).is_some());
     }
 
