@@ -554,7 +554,6 @@ fn run_prefetch_replay(
             }
             for plan in plans {
                 scheduled_at.push((plan.key, index));
-                all_scheduled.push(plan.key);
             }
         }
     }
