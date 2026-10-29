@@ -726,30 +726,7 @@ async fn main() {
 
             // Report distribution statistics as well as means. A mean alone can
             // hide noisy runs and is insufficient for controlled comparisons.
-            let stats = |key: &str| -> serde_json::Value {
-                let mut values: Vec<f64> = measurements.iter()
-                    .filter_map(|run| run.get(key).and_then(serde_json::Value::as_f64))
-                    .collect();
-                if values.is_empty() {
-                    return serde_json::Value::Null;
-                }
-                values.sort_by(f64::total_cmp);
-                let count = values.len();
-                let mean = values.iter().sum::<f64>() / count as f64;
-                let median = if count % 2 == 0 {
-                    (values[count / 2 - 1] + values[count / 2]) / 2.0
-                } else {
-                    values[count / 2]
-                };
-                let variance = values.iter().map(|value| (value - mean).powi(2)).sum::<f64>() / count as f64;
-                serde_json::json!({
-                    "mean": mean,
-                    "median": median,
-                    "min": values[0],
-                    "max": values[count - 1],
-                    "stddev_population": variance.sqrt()
-                })
-            };
+            let stats = |key: &str| benchmark_stats(&measurements, key);
             let model_path = std::fs::canonicalize(&model)
                 .map(|path| path.display().to_string())
                 .unwrap_or_else(|_| model.clone());
@@ -832,6 +809,63 @@ async fn main() {
             }
         },
         Commands::Plan { model } => not_implemented("plan", &model),
+    }
+}
+
+/// Summarize one numeric metric across benchmark runs.
+fn benchmark_stats(measurements: &[serde_json::Value], key: &str) -> serde_json::Value {
+    let mut values: Vec<f64> = measurements.iter()
+        .filter_map(|run| run.get(key).and_then(serde_json::Value::as_f64))
+        .collect();
+    if values.is_empty() {
+        return serde_json::Value::Null;
+    }
+    values.sort_by(f64::total_cmp);
+    let count = values.len();
+    let mean = values.iter().sum::<f64>() / count as f64;
+    let median = if count % 2 == 0 {
+        (values[count / 2 - 1] + values[count / 2]) / 2.0
+    } else {
+        values[count / 2]
+    };
+    let variance = values.iter().map(|value| (value - mean).powi(2)).sum::<f64>() / count as f64;
+    serde_json::json!({
+        "mean": mean,
+        "median": median,
+        "min": values[0],
+        "max": values[count - 1],
+        "stddev_population": variance.sqrt()
+    })
+}
+
+#[cfg(test)]
+mod benchmark_stats_tests {
+    use super::benchmark_stats;
+    use serde_json::json;
+
+    #[test]
+    fn reports_median_range_and_population_spread() {
+        let runs = vec![
+            json!({"rate": 1.0}),
+            json!({"rate": 3.0}),
+            json!({"rate": 2.0}),
+        ];
+        let stats = benchmark_stats(&runs, "rate");
+        assert_eq!(stats["mean"].as_f64().unwrap(), 2.0);
+        assert_eq!(stats["median"].as_f64().unwrap(), 2.0);
+        assert_eq!(stats["min"].as_f64().unwrap(), 1.0);
+        assert_eq!(stats["max"].as_f64().unwrap(), 3.0);
+    }
+
+    #[test]
+    fn even_count_median_averages_middle_values() {
+        let runs = vec![json!({"rate": 1.0}), json!({"rate": 3.0})];
+        assert_eq!(benchmark_stats(&runs, "rate")["median"].as_f64().unwrap(), 2.0);
+    }
+
+    #[test]
+    fn missing_metric_returns_null() {
+        assert!(benchmark_stats(&[json!({"other": 1})], "rate").is_null());
     }
 }
 
