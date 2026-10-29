@@ -32,6 +32,7 @@ pub struct ExpertTable {
 /// Errors found when validating an expert index against its blob.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExpertTableError {
+    UnsupportedBlobVersion { version: u32 },
     BlobSizeMismatch { indexed: u64, actual: u64 },
     EmptyRange { layer: u32, expert_id: u32 },
     RangeOutOfBounds { layer: u32, expert_id: u32, offset: u64, length: u64, blob_size: u64 },
@@ -43,6 +44,9 @@ pub enum ExpertTableError {
 impl std::fmt::Display for ExpertTableError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::UnsupportedBlobVersion { version } => {
+                write!(f, "unsupported expert blob index version {version}; supported version is 1")
+            }
             Self::BlobSizeMismatch { indexed, actual } => {
                 write!(f, "expert index declares {indexed} blob bytes but file has {actual}")
             }
@@ -75,6 +79,12 @@ impl ExpertTable {
     /// Gaps are allowed; empty, overflowing, out-of-bounds, unsorted, or
     /// overlapping ranges are rejected.
     pub fn validate(&self, actual_blob_size: u64) -> Result<(), ExpertTableError> {
+        if self.blob_version != 1 {
+            return Err(ExpertTableError::UnsupportedBlobVersion {
+                version: self.blob_version,
+            });
+        }
+
         if self.blob_size != actual_blob_size {
             return Err(ExpertTableError::BlobSizeMismatch {
                 indexed: self.blob_size,
@@ -153,6 +163,16 @@ mod tests {
     fn accepts_sorted_non_overlapping_ranges_with_gaps() {
         let index = table(vec![range(0, 0, 0, 8), range(0, 1, 16, 8), range(1, 0, 8, 8)], 24);
         assert!(index.validate(24).is_ok());
+    }
+
+    #[test]
+    fn rejects_unsupported_blob_version() {
+        let mut index = table(vec![], 10);
+        index.blob_version = 2;
+        assert!(matches!(
+            index.validate(10),
+            Err(ExpertTableError::UnsupportedBlobVersion { version: 2 })
+        ));
     }
 
     #[test]
