@@ -371,7 +371,7 @@ fn run_expert_cache(
     if experts_u64 == 0 {
         return Err(format!("file is {file_size} bytes; it must contain at least one full {block_bytes}-byte block").into());
     }
-    if experts_u64 > u64::from(u32::MAX) + 1 {
+    if experts_u64 > u64::from(u32::MAX) {
         return Err("file/block size yields more experts than the u32 expert ID format supports".into());
     }
     let experts = experts_u64 as u32;
@@ -964,6 +964,50 @@ mod expert_io_tests {
     fn expert_io_rejects_a_block_larger_than_the_file() {
         let path = fixture();
         assert!(run_expert_io(&path, 128 * 1024, 1, 1, 42).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod expert_cache_bench_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn fixture() -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "kiln-expert-cache-bench-{}-{}.bin",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bytes: Vec<u8> = (0..=255).cycle().take(64 * 1024).collect();
+        std::fs::File::create(&path).unwrap().write_all(&bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn expert_cache_replay_compares_policies_on_same_trace_and_budget() {
+        let path = fixture();
+        let report = run_expert_cache(&path, 1024, 500, 1, 42, "stationary-hot").unwrap();
+        assert_eq!(report.patterns.len(), 4);
+        assert_eq!(report.patterns[0].policy, "none");
+        assert_eq!(report.patterns[0].misses, 500);
+        assert_eq!(report.patterns[0].hits, 0);
+        assert!(report.patterns[1..].iter().all(|p| p.cache_capacity_bytes == 1024 * 1024));
+        assert!(report.patterns[1..].iter().all(|p| p.cache_used_bytes <= p.cache_capacity_bytes));
+        assert!(report.patterns[1..].iter().any(|p| p.hits > 0));
+        assert!(report.patterns.iter().all(|p| p.checksum == report.patterns[0].checksum));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn expert_cache_replay_rejects_invalid_inputs() {
+        let path = fixture();
+        assert!(run_expert_cache(&path, 0, 10, 1, 42, "uniform").is_err());
+        assert!(run_expert_cache(&path, 1024, 10, 0, 42, "uniform").is_err());
+        assert!(run_expert_cache(&path, 1024, 10, 1, 42, "unknown").is_err());
         std::fs::remove_file(path).unwrap();
     }
 }
