@@ -431,4 +431,17 @@ Important limits:
 - `modelled_serial_io_seconds` is arithmetic from assumed latency and bandwidth, not elapsed storage time. It excludes CPU compute, real SSD behaviour, kernel/filesystem effects, OS page cache, queueing, concurrency and overlap.
 - `simulator_wall_seconds` is only the Python simulation runtime, not model inference time.
 - The current trace is synthetic, not collected from a model router. The cache capacity is counted in experts, not enforced by actual byte size.
-- Next: add trace fixtures representing different reuse/skew and phase-drift regimes; test the cache policy implementation; then collect routing traces and compare against a real-file I/O measurement. Only then implement the cache in the runtime.
+- Follow-up completed on this branch: added four synthetic trace regimes (`phase-shift`, `stationary-hot`, `uniform`, `round-robin`), deterministic Python regression tests wired into CI, and corrected LFU recency tie-breaking. The simulator remains synthetic; no production cache policy is selected from these traces.
+
+
+### 2026-10-29 — Phase 5A review fixes and Phase 5B cache foundation
+
+- Added explicit rejection of unsupported expert-index versions; the table validator now accepts only format version 1.
+- Expanded synthetic trace generation to phase-shift, stationary-hot-set, uniform-random and round-robin workloads; added deterministic unit tests and a CI step for those tests.
+- Corrected LFU's recency tie-break to use last-access time and made adaptive frequency aging periodic by access count.
+- Added `kiln-mem::ExpertCache`: byte-bounded retained cache, LRU/LFU/adaptive policies, hit/miss/eviction accounting, oversized-entry rejection, replacement accounting, invalidation and clear.
+- Added `kiln-io::CachedExpertBlobReader`, with a second cache check after acquiring the file-reader lock to avoid duplicate cold reads for a key that another caller just loaded.
+- Added Rust tests for eviction, oversized blocks, duplicate-key insertion, concurrent inserts/reads, byte caps, invalidation and warm-cache reads.
+- Cache budget applies to retained cache membership bytes. Caller-owned copies returned by the reader are outside that budget and must be accounted for by the eventual runtime.
+- This is still a cache primitive, not yet wired into live model inference. Routing traces, prefetch, asynchronous I/O, compute overlap, Dell measurements and end-to-end quality/performance gates remain outstanding.
+- CI passed for the synthetic trace test, unsupported-version validation, and their immediate commits. CI for the latest cache commits was still running at the time of this note; do not mark Phase 5A accepted or merge PR #12 until the latest head is green and reviewed.
