@@ -110,17 +110,19 @@ impl ExpertCache {
     fn get_impl(&self, key: ExpertKey, count_miss: bool) -> Option<Vec<u8>> {
         let mut inner = self.lock();
         let now = Self::tick(&mut inner);
-        if let Some(entry) = inner.entries.get_mut(&key) {
+        let value = if let Some(entry) = inner.entries.get_mut(&key) {
             entry.last_access = now;
             entry.frequency = entry.frequency.saturating_add(1);
-            inner.hits = inner.hits.saturating_add(1);
             Some(entry.bytes.clone())
         } else {
-            if count_miss {
-                inner.misses = inner.misses.saturating_add(1);
-            }
             None
+        };
+        if value.is_some() {
+            inner.hits = inner.hits.saturating_add(1);
+        } else if count_miss {
+            inner.misses = inner.misses.saturating_add(1);
         }
+        value
     }
 
     /// Insert a block while enforcing the retained-cache byte budget.
