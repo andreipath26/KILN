@@ -469,3 +469,11 @@ Important limits:
 - Tests cover empirical ranking/confidence, caps, outcome accounting and cancellation. This primitive does not perform I/O, observe live llama.cpp routing, or prove overlap; its output must be integrated and evaluated against no-prefetch baselines before use in inference.
 - PR #12 remains open. The latest trace-replay code passed CI, but Phase 5A is not accepted because the target Dell run is missing. Phase 5B's cache is not connected to live inference. Phase 5C is only a planner primitive at this stage.
 - Immediate next steps: get CI green for this predictor commit; inspect cache/prefetch API correctness; build a trace-driven comparative benchmark that records prediction coverage, useful/late/unused rates and bytes; then integrate trace capture into the pinned `kiln-llama` runtime. Do not start async I/O until synchronous trace replay and cache behavior are validated.
+
+### 2026-10-29 — Phase 5C trace-replay benchmark added
+
+- Added `kiln-bench prefetch-replay` to evaluate the one-step transition predictor on a mapped JSON expert-ID sequence. It reports next-event top-k coverage/precision, scheduled predictions and useful/late/unused/cancelled outcomes under configured request/byte caps.
+- Read latency is simulated in trace-event steps, not measured in milliseconds. The command does not issue disk reads, instrument live llama.cpp routing, model ready-cache eviction, or demonstrate I/O/compute overlap.
+- Tightened the predictor contract: a prediction is useful only if the caller marks it ready before demand; demand while still in-flight is late. Total tracked speculative plans are bounded, including ready metadata, and session reset clears both pending and ready metadata.
+- Added tests for predictor confidence, request/byte caps, useful-versus-late accounting, cleanup, replay metrics and malformed/empty traces. These latest changes still require a green CI run.
+- Next: review CI for the latest branch head; then integrate routing trace collection into the pinned `kiln-llama` runtime or establish a model-compatible external trace source. Only after real traces are available should predictor strategies be compared on real expert sequences and the synchronous cache path be integrated. Async I/O remains gated on validated synchronous behavior.
