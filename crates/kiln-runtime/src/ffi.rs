@@ -117,14 +117,20 @@ impl LlamaContext {
 
     pub fn tokenize(&self, text: &str) -> Result<Vec<i32>, LlamaError> {
         let ctext = CString::new(text).map_err(|e| LlamaError::Tokenize(e.to_string()))?;
-        let mut buf: Vec<i32> = vec![0; text.len() + 8];
+        let text_len = c_int::try_from(text.len())
+            .map_err(|_| LlamaError::Tokenize("input exceeds the C ABI length limit".to_string()))?;
+        let capacity = text.len().checked_add(8)
+            .ok_or_else(|| LlamaError::Tokenize("input length overflow".to_string()))?;
+        let capacity = c_int::try_from(capacity)
+            .map_err(|_| LlamaError::Tokenize("token buffer exceeds the C ABI capacity limit".to_string()))?;
+        let mut buf: Vec<i32> = vec![0; capacity as usize];
         let n = unsafe {
             kiln_llama_tokenize(
                 self.handle,
                 ctext.as_ptr(),
-                text.len() as c_int,
+                text_len,
                 buf.as_mut_ptr(),
-                buf.len() as c_int,
+                capacity,
                 0,
                 1,
             )
@@ -137,18 +143,25 @@ impl LlamaContext {
     }
 
     pub fn decode(&mut self, tokens: &[i32]) -> Result<(), LlamaError> {
+        if tokens.is_empty() {
+            return Err(LlamaError::Decode("cannot decode an empty token batch".to_string()));
+        }
+        let token_count = c_int::try_from(tokens.len())
+            .map_err(|_| LlamaError::Decode("token batch exceeds the C ABI length limit".to_string()))?;
+        let next_past = self.n_past.checked_add(token_count)
+            .ok_or_else(|| LlamaError::Decode("token position overflow".to_string()))?;
         let rc = unsafe {
             kiln_llama_decode(
                 self.handle,
                 tokens.as_ptr(),
-                tokens.len() as c_int,
+                token_count,
                 self.n_past,
             )
         };
         if rc != 0 {
             return Err(LlamaError::Decode(format!("shim returned {}", rc)));
         }
-        self.n_past += tokens.len() as i32;
+        self.n_past = next_past;
         Ok(())
     }
 
