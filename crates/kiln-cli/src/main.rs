@@ -1046,11 +1046,13 @@ fn bench_once(
     use kiln_runtime::{RuntimeOp, RuntimeResult};
 
     dispatcher.dispatch(RuntimeOp::Reset).map_err(|e| format!("reset failed: {}", e))?;
+    let tokenization_start = std::time::Instant::now();
     let prompt_tokens = match dispatcher.dispatch(RuntimeOp::Tokenize { text: prompt.to_string() })
         .map_err(|e| format!("tokenization failed: {}", e))? {
         RuntimeResult::Tokens(tokens) => tokens,
         _ => return Err("backend returned an unexpected tokenization result".to_string()),
     };
+    let tokenization_ms = tokenization_start.elapsed().as_secs_f64() * 1000.0;
     if prompt_tokens.is_empty() {
         return Err("prompt tokenized to an empty sequence".to_string());
     }
@@ -1065,28 +1067,37 @@ fn bench_once(
 
     let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
     let mut generated_tokens = 0usize;
+    let mut sampling_ms = 0.0_f64;
+    let mut token_conversion_ms = 0.0_f64;
+    let mut decode_forward_ms = 0.0_f64;
     let decode_start = std::time::Instant::now();
     for step in 0..max_tokens {
+        let sample_start = std::time::Instant::now();
         let token = sampler.sample(&next_logits)
             .ok_or_else(|| "sampler returned no token".to_string())? as i32;
+        sampling_ms += sample_start.elapsed().as_secs_f64() * 1000.0;
         if token == eos_token {
             break;
         }
 
+        let conversion_start = std::time::Instant::now();
         match dispatcher.dispatch(RuntimeOp::TokenToStr { token })
             .map_err(|e| format!("token-to-string failed: {}", e))? {
             RuntimeResult::Bytes(_) | RuntimeResult::Str(_) => {}
             _ => return Err("backend returned an unexpected token conversion result".to_string()),
         }
+        token_conversion_ms += conversion_start.elapsed().as_secs_f64() * 1000.0;
         generated_tokens += 1;
         // The final requested output token does not need a follow-up forward
         // pass. Counting that extra pass would distort the decode benchmark.
         if step + 1 < max_tokens {
+            let forward_start = std::time::Instant::now();
             next_logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
                 .map_err(|e| format!("decode forward pass failed: {}", e))? {
                 RuntimeResult::Logits(logits) => logits,
                 _ => return Err("backend returned an unexpected decode result".to_string()),
             };
+            decode_forward_ms += forward_start.elapsed().as_secs_f64() * 1000.0;
         }
     }
     let decode_seconds = decode_start.elapsed().as_secs_f64();
@@ -1100,7 +1111,11 @@ fn bench_once(
     Ok(serde_json::json!({
         "prompt_tokens": prompt_tokens.len(),
         "generated_tokens": generated_tokens,
+        "tokenization_ms": tokenization_ms,
         "prefill_ms": prefill_ms,
+        "sampling_ms": sampling_ms,
+        "token_conversion_ms": token_conversion_ms,
+        "decode_forward_ms": decode_forward_ms,
         "decode_ms": decode_ms,
         "decode_tokens_per_second": decode_tokens_per_second
     }))
