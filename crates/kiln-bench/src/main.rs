@@ -72,10 +72,16 @@ enum Commands {
     },
     /// Replay a mapped expert-ID trace through the bounded history prefetch predictor.
     PrefetchReplay {
-        /// JSON array of expert IDs in observed access order.
+        /// JSON array of expert IDs or layer-aware expert keys in observed access order.
         #[arg(long)]
         trace_file: PathBuf,
-        /// Fixed expert block size used for planner budget accounting.
+        /// Optional expert blob file; required together with --index-file for variable-size accounting.
+        #[arg(long)]
+        blob_file: Option<PathBuf>,
+        /// Optional JSON ExpertTable index; when supplied, candidate byte sizes come from indexed ranges.
+        #[arg(long)]
+        index_file: Option<PathBuf>,
+        /// Fixed expert block size used for planner budget accounting without --index-file.
         #[arg(long, default_value_t = 1_048_576)]
         block_bytes: u64,
         /// Maximum number of candidate experts to schedule per observed access.
@@ -197,9 +203,12 @@ struct PrefetchReplayReport {
     version: String,
     phase_gate: String,
     trace_file: String,
+    blob_file: Option<String>,
+    index_file: Option<String>,
     trace_events: usize,
     distinct_experts_in_trace: usize,
-    block_bytes: u64,
+    block_bytes: Option<u64>,
+    candidate_bytes_total: u64,
     top_k: usize,
     max_pending: usize,
     max_inflight_bytes: u64,
