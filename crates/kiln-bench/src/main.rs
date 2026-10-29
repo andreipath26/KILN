@@ -60,7 +60,10 @@ enum Commands {
         /// Synthetic access pattern; ignored when --trace-file is supplied.
         #[arg(long, value_parser = ["phase-shift", "stationary-hot", "uniform", "round-robin"], default_value = "phase-shift")]
         workload: String,
-        /// Optional JSON array of expert IDs captured from a model router.
+        /// Optional validated JSON ExpertTable mapping (layer, expert_id) to blob byte ranges.
+        #[arg(long)]
+        index_file: Option<PathBuf>,
+        /// Optional JSON array of expert IDs or layer-aware keys captured from a model router.
         #[arg(long)]
         trace_file: Option<PathBuf>,
         /// Emit JSON only.
@@ -177,8 +180,9 @@ struct ExpertCacheReport {
     phase_gate: String,
     file: String,
     file_size_bytes: u64,
-    block_bytes: usize,
-    expert_blocks_available: u32,
+    block_bytes: Option<usize>,
+    index_file: Option<String>,
+    expert_entries_available: usize,
     requests: usize,
     seed: u64,
     workload: String,
