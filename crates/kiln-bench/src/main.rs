@@ -559,8 +559,8 @@ fn run_prefetch_replay(
         }
     }
 
-    for key in all_scheduled {
-        predictor.mark_unused(key);
+    for (key, _) in &candidates {
+        predictor.mark_unused(*key);
     }
     let stats = predictor.stats();
     let eligible_next_events = trace.len().saturating_sub(1) as f64;
