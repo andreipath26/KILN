@@ -271,16 +271,16 @@ pub async fn chat(
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, Infallible>>(16);
         tokio::task::spawn_blocking(move || {
             let mut send_chunk = |chunk: &str| {
-                let line = serde_json::json!({"model": model, "message": {"role": "assistant", "content": chunk}, "done": false}).to_string() + "\\n";
+                let line = serde_json::json!({"model": model, "message": {"role": "assistant", "content": chunk}, "done": false}).to_string() + "\n";
                 tx.blocking_send(Ok(Bytes::from(line))).is_ok()
             };
             match infer_with_chunks(&state, &model, &prompt, 128, &mut send_chunk) {
                 Ok((actual_model, _)) => {
-                    let line = serde_json::json!({"model": actual_model, "message": {"role": "assistant", "content": ""}, "done": true}).to_string() + "\\n";
+                    let line = serde_json::json!({"model": actual_model, "message": {"role": "assistant", "content": ""}, "done": true}).to_string() + "\n";
                     let _ = tx.blocking_send(Ok(Bytes::from(line)));
                 }
                 Err((_, message)) => {
-                    let line = serde_json::json!({"error": message}).to_string() + "\\n";
+                    let line = serde_json::json!({"error": message}).to_string() + "\n";
                     let _ = tx.blocking_send(Ok(Bytes::from(line)));
                 }
             }
