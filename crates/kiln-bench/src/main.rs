@@ -1252,6 +1252,10 @@ mod expert_cache_bench_tests {
         let report = run_prefetch_replay(&trace_path, 1024, 1, 4, 1, 0).unwrap();
         assert_eq!(report.trace_events, 8);
         assert_eq!(report.distinct_experts_in_trace, 2);
+        std::fs::write(&trace_path, "[[0,1],[1,1],[0,1],[1,2],[0,1]]").unwrap();
+        let layered = run_prefetch_replay(&trace_path, 1024, 1, 4, 1, 0).unwrap();
+        assert_eq!(layered.trace_events, 5);
+        assert_eq!(layered.distinct_experts_in_trace, 3);
         assert!(report.next_event_coverage > 0.0);
         assert!(report.predicted_candidates > 0);
         assert_eq!(report.stats.scheduled, report.stats.useful + report.stats.late + report.stats.unused + report.stats.cancelled);
