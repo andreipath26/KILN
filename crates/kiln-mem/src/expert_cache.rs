@@ -4,9 +4,10 @@
 //! are owned copies and are not included in the cache budget after they leave it.
 use std::collections::HashMap;
 use std::sync::Mutex;
+use serde::{Deserialize, Serialize};
 
 /// Stable identity for an expert within a model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ExpertKey {
     pub layer: u32,
     pub expert_id: u32,
