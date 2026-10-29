@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::expert_cache::ExpertKey;
 
+const MAX_TRANSITION_SOURCES: usize = 65_536;
+const MAX_TRANSITION_EDGES: usize = 65_536;
+
 /// A candidate returned by the predictor.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PrefetchCandidate {
@@ -43,6 +46,7 @@ pub struct ExpertPrefetcher {
     in_flight: HashMap<ExpertKey, u64>,
     ready: HashMap<ExpertKey, u64>,
     order: VecDeque<ExpertKey>,
+    transition_edges: usize,
     stats: PrefetchStats,
 }
 
@@ -57,6 +61,7 @@ impl ExpertPrefetcher {
             in_flight: HashMap::new(),
             ready: HashMap::new(),
             order: VecDeque::new(),
+            transition_edges: 0,
             stats: PrefetchStats::default(),
         }
     }
@@ -64,8 +69,29 @@ impl ExpertPrefetcher {
     /// Observe an actual expert access. Training is online and deterministic.
     pub fn observe(&mut self, actual: ExpertKey) {
         if let Some(previous) = self.previous {
-            *self.transitions.entry(previous).or_default().entry(actual).or_default() += 1;
-            *self.totals.entry(previous).or_default() += 1;
+            let source_exists = self.transitions.contains_key(&previous);
+            let edge_exists = self.transitions.get(&previous)
+                .is_some_and(|next| next.contains_key(&actual));
+            if edge_exists {
+                if let Some(count) = self.transitions.get_mut(&previous).and_then(|next| next.get_mut(&actual)) {
+                    *count = count.saturating_add(1);
+                }
+                if let Some(total) = self.totals.get_mut(&previous) {
+                    *total = total.saturating_add(1);
+                }
+            } else if self.transition_edges < MAX_TRANSITION_EDGES
+                && (source_exists || self.transitions.len() < MAX_TRANSITION_SOURCES)
+            {
+                *self.transitions.entry(previous).or_default().entry(actual).or_default() = 1;
+                *self.totals.entry(previous).or_default() = self.totals.get(&previous).copied().unwrap_or(0).saturating_add(1);
+                self.transition_edges += 1;
+            } else if source_exists {
+                // Keep the denominator honest when the edge table is full, but
+                // do not allocate another source or edge beyond the hard cap.
+                if let Some(total) = self.totals.get_mut(&previous) {
+                    *total = total.saturating_add(1);
+                }
+            }
         }
         self.previous = Some(actual);
         if self.ready.remove(&actual).is_some() {
@@ -100,7 +126,7 @@ impl ExpertPrefetcher {
         let mut ranked: Vec<_> = candidate_sizes.iter()
             .filter_map(|(key, bytes)| {
                 let count = counts.get(key).copied()?;
-                if *bytes == 0 || self.in_flight.contains_key(key) {
+                if *bytes == 0 || self.in_flight.contains_key(key) || self.ready.contains_key(key) {
                     return None;
                 }
                 Some(PrefetchCandidate {
@@ -117,6 +143,10 @@ impl ExpertPrefetcher {
 
         let mut planned = Vec::new();
         for candidate in ranked.into_iter().take(top_k) {
+            // Candidate-size lists can contain duplicate keys; schedule each key at most once.
+            if self.in_flight.contains_key(&candidate.key) || self.ready.contains_key(&candidate.key) {
+                continue;
+            }
             if self.in_flight.len() + self.ready.len() >= self.max_pending_requests {
                 self.stats.rejected_request_cap = self.stats.rejected_request_cap.saturating_add(1);
                 break;
@@ -278,6 +308,35 @@ mod tests {
         assert_eq!(p.stats().unused, 1);
         assert_eq!(p.stats().in_flight_requests, 0);
         assert!(!p.cancel(key(99)));
+    }
+
+    #[test]
+    fn duplicate_and_ready_candidates_are_not_scheduled_twice() {
+        let mut p = ExpertPrefetcher::new(4, 400);
+        for next in [1, 1, 2, 1] {
+            p.observe(key(0));
+            p.observe(key(next));
+        }
+        let plans = p.predict(key(0), &[(key(1), 100), (key(1), 100), (key(2), 100)], 3);
+        assert_eq!(plans.len(), 2);
+        assert!(p.mark_ready(key(1)));
+        let plans = p.predict(key(0), &[(key(1), 100), (key(2), 100)], 2);
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].key, key(2));
+        assert_eq!(p.stats().in_flight_requests, 1);
+        assert_eq!(p.stats().scheduled, 3);
+    }
+
+    #[test]
+    fn transition_history_has_hard_source_and_edge_caps() {
+        let mut p = ExpertPrefetcher::new(1, 1024);
+        for id in 0..(MAX_TRANSITION_EDGES as u32 + 2) {
+            p.observe(key(id));
+            p.observe(key(id + 1));
+        }
+        assert!(p.transitions.len() <= MAX_TRANSITION_SOURCES);
+        assert!(p.transition_edges <= MAX_TRANSITION_EDGES);
+        assert!(p.totals.len() <= MAX_TRANSITION_SOURCES);
     }
 
     #[test]
