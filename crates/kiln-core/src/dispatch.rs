@@ -162,15 +162,18 @@ mod tests {
     }
 
     fn make_ctx<'a>(
-        w: &'a mut HashMap<TensorId, Vec<u8>>,
-        q: &'a mut HashMap<TensorId, QuantKind>,
         s: &'a mut Scratch,
         o: &'a mut [f32],
         a: &'a [f32],
     ) -> ExecContext<'a> {
         ExecContext {
-            weights: w, quants: q, scratch: s, out: o, activations: a,
-            seq_len: 1, position_offset: 0,
+            weight_bytes: &[],
+            quant: QuantKind::F32,
+            scratch: s,
+            out: o,
+            activations: a,
+            seq_len: 1,
+            position_offset: 0,
         }
     }
 
@@ -179,12 +182,10 @@ mod tests {
         let mut d = Dispatcher::new();
         d.register(Box::new(DummyBackend));
         assert_eq!(d.backend_count(), 1);
-        let mut w = HashMap::new();
-        let mut q = HashMap::new();
         let mut s = Scratch::new();
         let mut o = [0.0f32; 4];
         let a = [0.0f32; 4];
-        let mut ctx = make_ctx(&mut w, &mut q, &mut s, &mut o, &a);
+        let mut ctx = make_ctx(&mut s, &mut o, &a);
         let op = Operation::RmsNorm { size: 4 };
         assert!(d.dispatch(&op, &mut ctx).is_ok());
     }
@@ -192,12 +193,10 @@ mod tests {
     #[test]
     fn dispatcher_errors_without_backend() {
         let d = Dispatcher::new();
-        let mut w = HashMap::new();
-        let mut q = HashMap::new();
         let mut s = Scratch::new();
         let mut o = [0.0f32; 4];
         let a = [0.0f32; 4];
-        let mut ctx = make_ctx(&mut w, &mut q, &mut s, &mut o, &a);
+        let mut ctx = make_ctx(&mut s, &mut o, &a);
         let op = Operation::RmsNorm { size: 4 };
         assert!(matches!(d.dispatch(&op, &mut ctx), Err(DispatchError::NoBackend("rmsnorm"))));
     }
