@@ -48,6 +48,12 @@ class SyntheticTraceTests(unittest.TestCase):
         self.assertFalse(cache.access(1))
         self.assertFalse(cache.access(1))
 
+    def test_none_policy_never_retains_entries_even_if_capacity_is_positive(self):
+        cache = Cache(4, "none")
+        self.assertFalse(cache.access(1))
+        self.assertFalse(cache.access(1))
+        self.assertEqual(len(cache.items), 0)
+
     def test_cache_never_exceeds_capacity(self):
         for policy in ("lru", "lfu", "adaptive"):
             with self.subTest(policy=policy):
