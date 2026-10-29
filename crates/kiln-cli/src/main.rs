@@ -786,6 +786,52 @@ async fn main() {
     }
 }
 
+/// Buffer token bytes until complete UTF-8 characters are available.
+fn decode_utf8_piece(pending: &mut Vec<u8>, bytes: &[u8]) -> String {
+    pending.extend_from_slice(bytes);
+    match std::str::from_utf8(pending) {
+        Ok(text) => {
+            let decoded = text.to_string();
+            pending.clear();
+            decoded
+        }
+        Err(error) => {
+            let valid = error.valid_up_to();
+            let decoded = String::from_utf8_lossy(&pending[..valid]).into_owned();
+            if error.error_len().is_some() {
+                let remainder = String::from_utf8_lossy(&pending[valid..]).into_owned();
+                pending.clear();
+                format!("{}{}", decoded, remainder)
+            } else {
+                let remainder = pending.split_off(valid);
+                *pending = remainder;
+                decoded
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod utf8_stream_tests {
+    use super::decode_utf8_piece;
+
+    #[test]
+    fn handles_multibyte_character_split_across_tokens() {
+        let mut pending = Vec::new();
+        assert_eq!(decode_utf8_piece(&mut pending, &[0xe2]), "");
+        assert_eq!(decode_utf8_piece(&mut pending, &[0x82]), "");
+        assert_eq!(decode_utf8_piece(&mut pending, &[0xac]), "€");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn preserves_valid_prefix_while_buffering_incomplete_suffix() {
+        let mut pending = Vec::new();
+        assert_eq!(decode_utf8_piece(&mut pending, &[b'A', 0xc3]), "A");
+        assert_eq!(decode_utf8_piece(&mut pending, &[0xa9]), "é");
+    }
+}
+
 /// Truncate display text by Unicode scalar values, never by UTF-8 byte offset.
 fn truncate_for_display(text: &str, max_chars: usize) -> String {
     let mut chars = text.chars();
@@ -873,6 +919,7 @@ fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
         print!("kiln> ");
         io::stdout().flush().map_err(|e| format!("response output failed: {}", e))?;
         let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
+        let mut pending_utf8 = Vec::new();
         for _ in 0..max_tokens {
             let token = sampler.sample(&logits)
                 .ok_or_else(|| "sampler returned no token".to_string())? as i32;
@@ -881,7 +928,7 @@ fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
             }
             let piece = match dispatcher.dispatch(RuntimeOp::TokenToStr { token })
                 .map_err(|e| format!("token decoding failed: {}", e))? {
-                RuntimeResult::Bytes(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+                RuntimeResult::Bytes(bytes) => decode_utf8_piece(&mut pending_utf8, &bytes),
                 RuntimeResult::Str(text) => text,
                 _ => return Err("backend returned an unexpected token-string result".to_string()),
             };
@@ -892,6 +939,9 @@ fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
                 RuntimeResult::Logits(logits) => logits,
                 _ => return Err("backend returned an unexpected decode result".to_string()),
             };
+        }
+        if !pending_utf8.is_empty() {
+            print!("{}", String::from_utf8_lossy(&pending_utf8));
         }
         println!();
     }
