@@ -24,7 +24,20 @@ impl FileRangeReader {
   if end > self.file_size { return Err(RangeReadError::OutOfBounds { offset, length, file_size: self.file_size }); }
   self.file.seek(SeekFrom::Start(offset))?; self.file.read_exact(buffer)?; Ok(())
  }
- pub fn read_range(&mut self, offset: u64, length: u64) -> Result<Vec<u8>, RangeReadError> { let size = usize::try_from(length).map_err(|_| RangeReadError::LengthTooLarge { length })?; let mut bytes = vec![0; size]; self.read_exact_at(offset, &mut bytes)?; Ok(bytes) }
+ pub fn read_range(&mut self, offset: u64, length: u64) -> Result<Vec<u8>, RangeReadError> {
+  // Validate against the file before allocating. Otherwise an invalid request
+  // for a huge range could attempt a huge allocation before failing the read.
+  let end = offset.checked_add(length).ok_or(RangeReadError::OutOfBounds {
+   offset, length, file_size: self.file_size
+  })?;
+  if end > self.file_size {
+   return Err(RangeReadError::OutOfBounds { offset, length, file_size: self.file_size });
+  }
+  let size = usize::try_from(length).map_err(|_| RangeReadError::LengthTooLarge { length })?;
+  let mut bytes = vec![0; size];
+  self.read_exact_at(offset, &mut bytes)?;
+  Ok(bytes)
+ }
 }
 
 #[cfg(test)]
