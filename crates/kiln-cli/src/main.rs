@@ -1064,7 +1064,7 @@ fn bench_once(
     let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
     let mut generated_tokens = 0usize;
     let decode_start = std::time::Instant::now();
-    for _ in 0..max_tokens {
+    for step in 0..max_tokens {
         let token = sampler.sample(&next_logits)
             .ok_or_else(|| "sampler returned no token".to_string())? as i32;
         if token == eos_token {
@@ -1077,11 +1077,15 @@ fn bench_once(
             _ => return Err("backend returned an unexpected token conversion result".to_string()),
         }
         generated_tokens += 1;
-        next_logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
-            .map_err(|e| format!("decode forward pass failed: {}", e))? {
-            RuntimeResult::Logits(logits) => logits,
-            _ => return Err("backend returned an unexpected decode result".to_string()),
-        };
+        // The final requested output token does not need a follow-up forward
+        // pass. Counting that extra pass would distort the decode benchmark.
+        if step + 1 < max_tokens {
+            next_logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
+                .map_err(|e| format!("decode forward pass failed: {}", e))? {
+                RuntimeResult::Logits(logits) => logits,
+                _ => return Err("backend returned an unexpected decode result".to_string()),
+            };
+        }
     }
     let decode_seconds = decode_start.elapsed().as_secs_f64();
     let decode_ms = decode_seconds * 1000.0;
