@@ -151,7 +151,7 @@ struct ExpertCacheReport {
     file: String,
     file_size_bytes: u64,
     block_bytes: usize,
-    experts_in_trace: u32,
+    expert_blocks_available: u32,
     requests: usize,
     seed: u64,
     workload: String,
@@ -411,7 +411,7 @@ fn run_expert_cache(
         file: file.display().to_string(),
         file_size_bytes: file_size,
         block_bytes,
-        experts_in_trace: experts,
+        expert_blocks_available: experts,
         requests,
         seed,
         workload: workload.to_string(),
@@ -425,7 +425,7 @@ fn print_expert_cache_human(report: &ExpertCacheReport) {
     println!("KILN expert-cache trace replay");
     println!("  phase gate: {} | file: {} ({} bytes)", report.phase_gate, report.file, report.file_size_bytes);
     println!("  block: {} bytes | experts: {} | requests: {} | workload: {} | seed: {}",
-        report.block_bytes, report.experts_in_trace, report.requests, report.workload, report.seed);
+        report.block_bytes, report.expert_blocks_available, report.requests, report.workload, report.seed);
     println!("  OS page cache: uncontrolled");
     for pattern in &report.patterns {
         println!("  {}: {:.2}% hits, {:.2} requests/s, {} estimated backing bytes, {} retained bytes, {} evictions",
