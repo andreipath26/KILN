@@ -36,6 +36,7 @@ pub enum ExpertTableError {
     EmptyRange { layer: u32, expert_id: u32 },
     RangeOutOfBounds { layer: u32, expert_id: u32, offset: u64, length: u64, blob_size: u64 },
     UnsortedEntries { previous_layer: u32, previous_expert: u32, layer: u32, expert_id: u32 },
+    DuplicateExpert { layer: u32, expert_id: u32 },
     OverlappingRanges { first_offset: u64, first_end: u64, second_offset: u64 },
 }
 
@@ -56,6 +57,9 @@ impl std::fmt::Display for ExpertTableError {
                 f,
                 "expert index is not sorted: ({previous_layer}, {previous_expert}) precedes ({layer}, {expert_id})"
             ),
+            Self::DuplicateExpert { layer, expert_id } => {
+                write!(f, "expert index contains duplicate entry ({layer}, {expert_id})")
+            },
             Self::OverlappingRanges { first_offset, first_end, second_offset } => write!(
                 f,
                 "expert ranges overlap: first range ends at {first_end}, next starts at {second_offset} (first offset {first_offset})"
@@ -81,6 +85,12 @@ impl ExpertTable {
         for pair in self.ranges.windows(2) {
             let previous = &pair[0];
             let current = &pair[1];
+            if (current.layer, current.expert_id) == (previous.layer, previous.expert_id) {
+                return Err(ExpertTableError::DuplicateExpert {
+                    layer: current.layer,
+                    expert_id: current.expert_id,
+                });
+            }
             if (current.layer, current.expert_id) < (previous.layer, previous.expert_id) {
                 return Err(ExpertTableError::UnsortedEntries {
                     previous_layer: previous.layer,
@@ -169,6 +179,12 @@ mod tests {
             table(vec![range(0, 0, u64::MAX, 2)], u64::MAX).validate(u64::MAX),
             Err(ExpertTableError::RangeOutOfBounds { .. })
         ));
+    }
+
+    #[test]
+    fn rejects_duplicate_expert_entries() {
+        let index = table(vec![range(0, 0, 0, 8), range(0, 0, 8, 8)], 16);
+        assert!(matches!(index.validate(16), Err(ExpertTableError::DuplicateExpert { .. })));
     }
 
     #[test]
