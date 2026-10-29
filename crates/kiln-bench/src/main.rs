@@ -544,6 +544,8 @@ fn run_prefetch_replay(
         scheduled_at = remaining;
 
         predictor.observe(actual);
+        // Discard any stale completion record before this key can be scheduled again.
+        scheduled_at.retain(|(key, _)| *key != actual);
         if index + 1 < trace.len() {
             let plans = predictor.predict(actual, &candidates, top_k);
             predicted_candidates = predicted_candidates.saturating_add(plans.len() as u64);
