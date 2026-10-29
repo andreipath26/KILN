@@ -1225,6 +1225,28 @@ mod expert_cache_bench_tests {
     }
 
     #[test]
+    fn prefetch_replay_reports_predictions_and_rejects_invalid_traces() {
+        let trace_path = std::env::temp_dir().join(format!(
+            "kiln-prefetch-trace-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&trace_path, "[0,1,0,1,0,1,0,1]").unwrap();
+        let report = run_prefetch_replay(&trace_path, 1024, 1, 4, 1, 0).unwrap();
+        assert_eq!(report.trace_events, 8);
+        assert_eq!(report.expert_ids_available, 2);
+        assert!(report.next_event_coverage > 0.0);
+        assert!(report.predicted_candidates > 0);
+        assert_eq!(report.stats.scheduled, report.stats.useful + report.stats.late + report.stats.unused + report.stats.cancelled);
+        std::fs::write(&trace_path, "[]").unwrap();
+        assert!(run_prefetch_replay(&trace_path, 1024, 1, 4, 1, 0).is_err());
+        std::fs::remove_file(trace_path).unwrap();
+    }
+
+    #[test]
     fn expert_cache_replay_rejects_invalid_inputs() {
         let path = fixture();
         assert!(run_expert_cache(&path, 0, 10, 1, 42, "uniform", None).is_err());
