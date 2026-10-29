@@ -8,10 +8,13 @@ use kiln_models::ExpertTable;
 
 use crate::{ExpertBlobError, ExpertBlobReader};
 
+const MAX_ACCESS_TRACE_EVENTS: usize = 1_000_000;
+
 /// A bounded snapshot of successful expert access requests.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExpertAccessTraceSnapshot {
     pub events: Vec<ExpertKey>,
+    pub max_events: usize,
     pub dropped_events: u64,
 }
 
@@ -68,6 +71,7 @@ impl CachedExpertBlobReader {
     /// Existing events and the dropped-event counter are reset.
     pub fn enable_access_trace(&self, max_events: usize) {
         let mut trace = self.access_trace.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let max_events = max_events.min(MAX_ACCESS_TRACE_EVENTS);
         trace.max_events = max_events;
         trace.events = Vec::with_capacity(max_events);
         trace.dropped_events = 0;
@@ -78,6 +82,7 @@ impl CachedExpertBlobReader {
         let trace = self.access_trace.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         ExpertAccessTraceSnapshot {
             events: trace.events.clone(),
+            max_events: trace.max_events,
             dropped_events: trace.dropped_events,
         }
     }
@@ -227,6 +232,7 @@ mod tests {
             ExpertKey { layer: 0, expert_id: 0 },
             ExpertKey { layer: 1, expert_id: 0 },
         ]);
+        assert_eq!(snapshot.max_events, 2);
         assert_eq!(snapshot.dropped_events, 1);
 
         let trace_path = std::env::temp_dir().join(format!(
@@ -240,6 +246,7 @@ mod tests {
         reader.enable_access_trace(0);
         reader.read_expert(0, 1).unwrap();
         assert!(reader.access_trace_snapshot().events.is_empty());
+        assert_eq!(reader.access_trace_snapshot().max_events, 0);
         assert_eq!(reader.access_trace_snapshot().dropped_events, 0);
         std::fs::remove_file(trace_path).unwrap();
         std::fs::remove_file(path).unwrap();
