@@ -242,6 +242,21 @@ mod tests {
     }
 
     #[test]
+    fn byte_cap_rejects_candidate_without_exceeding_budget() {
+        let mut p = ExpertPrefetcher::new(4, 128);
+        for next in [1, 2, 1, 2] {
+            p.observe(key(0));
+            p.observe(key(next));
+        }
+        let plans = p.predict(key(0), &[(key(1), 64), (key(2), 128)], 2);
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].key, key(1));
+        assert_eq!(p.stats().in_flight_bytes, 64);
+        assert_eq!(p.stats().rejected_byte_cap, 1);
+        assert!(p.stats().in_flight_bytes <= 128);
+    }
+
+    #[test]
     fn outcomes_and_cancellation_release_capacity() {
         let mut p = ExpertPrefetcher::new(3, 300);
         for next in [1, 2, 1, 2, 3] {
