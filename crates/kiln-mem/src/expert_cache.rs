@@ -105,7 +105,7 @@ impl ExpertCache {
     /// Like `get`, but do not count an absent key as a miss. Useful for a
     /// second check after waiting for another thread to finish a disk read.
     pub fn get_if_present(&self, key: ExpertKey) -> Option<Vec<u8>> {
-        self.get_impl(key, false, false)
+        self.get_impl(key, false, true)
     }
 
     fn get_impl(&self, key: ExpertKey, count_miss: bool, count_hit: bool) -> Option<Vec<u8>> {
@@ -124,6 +124,13 @@ impl ExpertCache {
             inner.misses = inner.misses.saturating_add(1);
         }
         value
+    }
+
+    /// Record a miss only after a caller has completed its coalescing/recheck path.
+    /// This lets wrappers count one outcome per requested expert rather than one per probe.
+    pub fn record_miss(&self) {
+        let mut inner = self.lock();
+        inner.misses = inner.misses.saturating_add(1);
     }
 
     /// Insert a block while enforcing the retained-cache byte budget.
