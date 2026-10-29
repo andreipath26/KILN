@@ -724,13 +724,18 @@ async fn main() {
                 }
             }
 
-            let mean = |key: &str| -> f64 {
-                measurements.iter()
-                    .filter_map(|run| run.get(key).and_then(serde_json::Value::as_f64))
-                    .sum::<f64>() / measurements.len() as f64
-            };
+            // Report distribution statistics as well as means. A mean alone can
+            // hide noisy runs and is insufficient for controlled comparisons.
+            let stats = |key: &str| benchmark_stats(&measurements, key);
+            let model_path = std::fs::canonicalize(&model)
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|_| model.clone());
+            let model_size_bytes = std::fs::metadata(&model).map(|metadata| metadata.len()).ok();
+            let logical_cpus = std::thread::available_parallelism().map(|n| n.get()).ok();
             let output = serde_json::json!({
                 "model": model,
+                "model_path_canonical": model_path,
+                "model_size_bytes": model_size_bytes,
                 "prompt": prompt,
                 "max_new_tokens": tokens,
                 "warmup_runs": warmup_completed,
@@ -738,18 +743,23 @@ async fn main() {
                 "requested_batch": profile.n_batch,
                 "measured_runs": runs,
                 "load_ms": load_ms,
+                "environment": {
+                    "os": std::env::consts::OS,
+                    "architecture": std::env::consts::ARCH,
+                    "logical_cpus": logical_cpus
+                },
                 "profile": {
                     "tier": format!("{:?}", profile.tier),
                     "n_ctx": profile.n_ctx,
                     "n_batch": profile.n_batch,
                     "n_threads": profile.n_threads
                 },
-                "mean": {
-                    "prompt_tokens": mean("prompt_tokens"),
-                    "generated_tokens": mean("generated_tokens"),
-                    "prefill_ms": mean("prefill_ms"),
-                    "decode_ms": mean("decode_ms"),
-                    "decode_tokens_per_second": mean("decode_tokens_per_second")
+                "statistics": {
+                    "prompt_tokens": stats("prompt_tokens"),
+                    "generated_tokens": stats("generated_tokens"),
+                    "prefill_ms": stats("prefill_ms"),
+                    "decode_ms": stats("decode_ms"),
+                    "decode_tokens_per_second": stats("decode_tokens_per_second")
                 },
                 "runs": measurements
             });
@@ -765,11 +775,27 @@ async fn main() {
                 println!("  prompt:            {:?}", prompt);
                 println!("  warm-up runs:      {}", warmup_completed);
                 println!("  measured runs:     {}", runs);
-                println!("  mean prompt tokens:{:>8.2}", mean("prompt_tokens"));
-                println!("  mean prefill:      {:>8.2} ms", mean("prefill_ms"));
-                println!("  mean generated:    {:>8.2} tokens", mean("generated_tokens"));
-                println!("  mean decode:       {:>8.2} ms", mean("decode_ms"));
-                println!("  mean decode rate:  {:>8.2} tokens/s", mean("decode_tokens_per_second"));
+                println!("  model size:        {} bytes", model_size_bytes.map(|n| n.to_string()).unwrap_or_else(|| "unknown".into()));
+                println!("  environment:       {} / {}, logical CPUs={}",
+                    std::env::consts::OS, std::env::consts::ARCH,
+                    logical_cpus.map(|n| n.to_string()).unwrap_or_else(|| "unknown".into()));
+                for (label, key, unit) in [
+                    ("prompt tokens", "prompt_tokens", ""),
+                    ("prefill", "prefill_ms", " ms"),
+                    ("generated", "generated_tokens", " tokens"),
+                    ("decode", "decode_ms", " ms"),
+                    ("decode rate", "decode_tokens_per_second", " tokens/s"),
+                ] {
+                    let summary = stats(key);
+                    if let Some(summary) = summary.as_object() {
+                        println!("  {:<18} median {:>8.2}{} | mean {:>8.2} | range {:.2}–{:.2}",
+                            format!("{}:", label),
+                            summary["median"].as_f64().unwrap_or(0.0), unit,
+                            summary["mean"].as_f64().unwrap_or(0.0),
+                            summary["min"].as_f64().unwrap_or(0.0),
+                            summary["max"].as_f64().unwrap_or(0.0));
+                    }
+                }
                 println!();
                 for (index, run) in measurements.iter().enumerate() {
                     println!("  run {}: prefill {:.2} ms; decode {:.2} ms; {:.2} tokens/s ({} prompt, {} generated)",
@@ -783,6 +809,63 @@ async fn main() {
             }
         },
         Commands::Plan { model } => not_implemented("plan", &model),
+    }
+}
+
+/// Summarize one numeric metric across benchmark runs.
+fn benchmark_stats(measurements: &[serde_json::Value], key: &str) -> serde_json::Value {
+    let mut values: Vec<f64> = measurements.iter()
+        .filter_map(|run| run.get(key).and_then(serde_json::Value::as_f64))
+        .collect();
+    if values.is_empty() {
+        return serde_json::Value::Null;
+    }
+    values.sort_by(f64::total_cmp);
+    let count = values.len();
+    let mean = values.iter().sum::<f64>() / count as f64;
+    let median = if count % 2 == 0 {
+        (values[count / 2 - 1] + values[count / 2]) / 2.0
+    } else {
+        values[count / 2]
+    };
+    let variance = values.iter().map(|value| (value - mean).powi(2)).sum::<f64>() / count as f64;
+    serde_json::json!({
+        "mean": mean,
+        "median": median,
+        "min": values[0],
+        "max": values[count - 1],
+        "stddev_population": variance.sqrt()
+    })
+}
+
+#[cfg(test)]
+mod benchmark_stats_tests {
+    use super::benchmark_stats;
+    use serde_json::json;
+
+    #[test]
+    fn reports_median_range_and_population_spread() {
+        let runs = vec![
+            json!({"rate": 1.0}),
+            json!({"rate": 3.0}),
+            json!({"rate": 2.0}),
+        ];
+        let stats = benchmark_stats(&runs, "rate");
+        assert_eq!(stats["mean"].as_f64().unwrap(), 2.0);
+        assert_eq!(stats["median"].as_f64().unwrap(), 2.0);
+        assert_eq!(stats["min"].as_f64().unwrap(), 1.0);
+        assert_eq!(stats["max"].as_f64().unwrap(), 3.0);
+    }
+
+    #[test]
+    fn even_count_median_averages_middle_values() {
+        let runs = vec![json!({"rate": 1.0}), json!({"rate": 3.0})];
+        assert_eq!(benchmark_stats(&runs, "rate")["median"].as_f64().unwrap(), 2.0);
+    }
+
+    #[test]
+    fn missing_metric_returns_null() {
+        assert!(benchmark_stats(&[json!({"other": 1})], "rate").is_null());
     }
 }
 
@@ -920,7 +1003,7 @@ fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
         io::stdout().flush().map_err(|e| format!("response output failed: {}", e))?;
         let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
         let mut pending_utf8 = Vec::new();
-        for _ in 0..max_tokens {
+        for step in 0..max_tokens {
             let token = sampler.sample(&logits)
                 .ok_or_else(|| "sampler returned no token".to_string())? as i32;
             if token == eos {
@@ -934,11 +1017,13 @@ fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
             };
             print!("{}", piece);
             io::stdout().flush().map_err(|e| format!("response output failed: {}", e))?;
-            logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
-                .map_err(|e| format!("decode step failed: {}", e))? {
-                RuntimeResult::Logits(logits) => logits,
-                _ => return Err("backend returned an unexpected decode result".to_string()),
-            };
+            if step + 1 < max_tokens {
+                logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
+                    .map_err(|e| format!("decode step failed: {}", e))? {
+                    RuntimeResult::Logits(logits) => logits,
+                    _ => return Err("backend returned an unexpected decode result".to_string()),
+                };
+            }
         }
         if !pending_utf8.is_empty() {
             print!("{}", String::from_utf8_lossy(&pending_utf8));
@@ -961,11 +1046,13 @@ fn bench_once(
     use kiln_runtime::{RuntimeOp, RuntimeResult};
 
     dispatcher.dispatch(RuntimeOp::Reset).map_err(|e| format!("reset failed: {}", e))?;
+    let tokenization_start = std::time::Instant::now();
     let prompt_tokens = match dispatcher.dispatch(RuntimeOp::Tokenize { text: prompt.to_string() })
         .map_err(|e| format!("tokenization failed: {}", e))? {
         RuntimeResult::Tokens(tokens) => tokens,
         _ => return Err("backend returned an unexpected tokenization result".to_string()),
     };
+    let tokenization_ms = tokenization_start.elapsed().as_secs_f64() * 1000.0;
     if prompt_tokens.is_empty() {
         return Err("prompt tokenized to an empty sequence".to_string());
     }
@@ -980,25 +1067,38 @@ fn bench_once(
 
     let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
     let mut generated_tokens = 0usize;
+    let mut sampling_ms = 0.0_f64;
+    let mut token_conversion_ms = 0.0_f64;
+    let mut decode_forward_ms = 0.0_f64;
     let decode_start = std::time::Instant::now();
-    for _ in 0..max_tokens {
+    for step in 0..max_tokens {
+        let sample_start = std::time::Instant::now();
         let token = sampler.sample(&next_logits)
             .ok_or_else(|| "sampler returned no token".to_string())? as i32;
+        sampling_ms += sample_start.elapsed().as_secs_f64() * 1000.0;
         if token == eos_token {
             break;
         }
 
+        let conversion_start = std::time::Instant::now();
         match dispatcher.dispatch(RuntimeOp::TokenToStr { token })
             .map_err(|e| format!("token-to-string failed: {}", e))? {
             RuntimeResult::Bytes(_) | RuntimeResult::Str(_) => {}
             _ => return Err("backend returned an unexpected token conversion result".to_string()),
         }
+        token_conversion_ms += conversion_start.elapsed().as_secs_f64() * 1000.0;
         generated_tokens += 1;
-        next_logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
-            .map_err(|e| format!("decode forward pass failed: {}", e))? {
-            RuntimeResult::Logits(logits) => logits,
-            _ => return Err("backend returned an unexpected decode result".to_string()),
-        };
+        // The final requested output token does not need a follow-up forward
+        // pass. Counting that extra pass would distort the decode benchmark.
+        if step + 1 < max_tokens {
+            let forward_start = std::time::Instant::now();
+            next_logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
+                .map_err(|e| format!("decode forward pass failed: {}", e))? {
+                RuntimeResult::Logits(logits) => logits,
+                _ => return Err("backend returned an unexpected decode result".to_string()),
+            };
+            decode_forward_ms += forward_start.elapsed().as_secs_f64() * 1000.0;
+        }
     }
     let decode_seconds = decode_start.elapsed().as_secs_f64();
     let decode_ms = decode_seconds * 1000.0;
@@ -1011,7 +1111,11 @@ fn bench_once(
     Ok(serde_json::json!({
         "prompt_tokens": prompt_tokens.len(),
         "generated_tokens": generated_tokens,
+        "tokenization_ms": tokenization_ms,
         "prefill_ms": prefill_ms,
+        "sampling_ms": sampling_ms,
+        "token_conversion_ms": token_conversion_ms,
+        "decode_forward_ms": decode_forward_ms,
         "decode_ms": decode_ms,
         "decode_tokens_per_second": decode_tokens_per_second
     }))
