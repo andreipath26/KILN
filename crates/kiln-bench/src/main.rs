@@ -427,8 +427,8 @@ fn run_expert_cache(
     trace_file: Option<&std::path::Path>,
     index_file: Option<&std::path::Path>,
 ) -> Result<ExpertCacheReport, Box<dyn std::error::Error>> {
-    if requests == 0 || cache_mib == 0 {
-        return Err("requests and cache-mib must be greater than zero".into());
+    if (trace_file.is_none() && requests == 0) || cache_mib == 0 {
+        return Err("requests must be greater than zero without --trace-file, and cache-mib must be greater than zero".into());
     }
     if trace_file.is_none() && !["phase-shift", "stationary-hot", "uniform", "round-robin"].contains(&workload) {
         return Err(format!("unsupported workload: {workload}").into());
@@ -1283,7 +1283,7 @@ mod expert_cache_bench_tests {
         ));
         std::fs::write(&trace_path, "[0,0,1,1,0]").unwrap();
         let report = run_expert_cache(
-            &path, 1024, 999, 1, 42, "uniform", Some(&trace_path), None
+            &path, 1024, 0, 1, 42, "uniform", Some(&trace_path), None
         ).unwrap();
         assert_eq!(report.requests, 5);
         assert_eq!(report.workload, "trace-file");
@@ -1332,7 +1332,7 @@ mod expert_cache_bench_tests {
         ).unwrap();
 
         let report = run_expert_cache(
-            &path, 0, 999, 1, 42, "uniform", Some(&trace_path), Some(&index_path)
+            &path, 0, 0, 1, 42, "uniform", Some(&trace_path), Some(&index_path)
         ).unwrap();
         assert_eq!(report.block_bytes, None);
         assert_eq!(report.index_file, Some(index_path.display().to_string()));
