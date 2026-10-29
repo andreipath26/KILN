@@ -37,8 +37,14 @@ enum Commands {
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
     },
-    /// Start an interactive chat with a model. Not yet implemented.
-    Run { model: String },
+    /// Start an interactive chat session using the llama.cpp runtime.
+    Run {
+        /// Path to the GGUF model file.
+        model: String,
+        /// Maximum tokens generated per response.
+        #[arg(long, default_value_t = 128)]
+        max_tokens: usize,
+    },
     /// Download a model from the catalog. Not yet implemented.
     Pull { model: String },
     /// List installed models. Not yet implemented.
@@ -204,17 +210,20 @@ async fn main() {
                     println!("  output_norm: {} bytes", w.output_norm.len());
                     println!("  output:      {} bytes", w.output.len());
                     println!("  layers:      {}", w.layers.len());
-                    let l = &w.layers[0];
-                    println!("  layer 0:");
-                    println!("    attn_norm:   {} bytes", l.attn_norm.len());
-                    println!("    attn_q:      {} bytes", l.attn_q.len());
-                    println!("    attn_k:      {} bytes", l.attn_k.len());
-                    println!("    attn_v:      {} bytes", l.attn_v.len());
-                    println!("    attn_output: {} bytes", l.attn_output.len());
-                    println!("    ffn_norm:    {} bytes", l.ffn_norm.len());
-                    println!("    ffn_gate:    {} bytes", l.ffn_gate.len());
-                    println!("    ffn_up:      {} bytes", l.ffn_up.len());
-                    println!("    ffn_down:    {} bytes", l.ffn_down.len());
+                    if let Some(l) = w.layers.first() {
+                        println!("  layer 0:");
+                        println!("    attn_norm:   {} bytes", l.attn_norm.len());
+                        println!("    attn_q:      {} bytes", l.attn_q.len());
+                        println!("    attn_k:      {} bytes", l.attn_k.len());
+                        println!("    attn_v:      {} bytes", l.attn_v.len());
+                        println!("    attn_output: {} bytes", l.attn_output.len());
+                        println!("    ffn_norm:    {} bytes", l.ffn_norm.len());
+                        println!("    ffn_gate:    {} bytes", l.ffn_gate.len());
+                        println!("    ffn_up:      {} bytes", l.ffn_up.len());
+                        println!("    ffn_down:    {} bytes", l.ffn_down.len());
+                    } else {
+                        println!("  layer details: unavailable (model has no transformer layers)");
+                    }
                     let total = w.total_bytes();
                     println!("  total:       {} bytes ({:.2} GB)",
                         total, total as f64 / 1_073_741_824.0);
@@ -354,7 +363,7 @@ async fn main() {
             for k in keys {
                 let v = &g.metadata[k];
                 let s = format!("{:?}", v);
-                let short = if s.len() > 100 { format!("{}...", &s[..100]) } else { s };
+                let short = truncate_for_display(&s, 100);
                 println!("  {} = {}", k, short);
             }
             println!();
@@ -631,7 +640,16 @@ async fn main() {
                 }
             }
         }
-        Commands::Run { model } => not_implemented("run", &model),
+        Commands::Run { model, max_tokens } => {
+            if max_tokens == 0 {
+                eprintln!("run: --max-tokens must be at least 1");
+                std::process::exit(2);
+            }
+            if let Err(error) = run_interactive(&model, max_tokens) {
+                eprintln!("run: {}", error);
+                std::process::exit(1);
+            }
+        },
         Commands::Pull { model } => not_implemented("pull", &model),
         Commands::List => not_implemented("list", ""),
         Commands::Bench { model, prompt, tokens, runs, warmup, threads, batch, json } => {
@@ -766,6 +784,170 @@ async fn main() {
         },
         Commands::Plan { model } => not_implemented("plan", &model),
     }
+}
+
+/// Buffer token bytes until complete UTF-8 characters are available.
+fn decode_utf8_piece(pending: &mut Vec<u8>, bytes: &[u8]) -> String {
+    pending.extend_from_slice(bytes);
+    match std::str::from_utf8(pending) {
+        Ok(text) => {
+            let decoded = text.to_string();
+            pending.clear();
+            decoded
+        }
+        Err(error) => {
+            let valid = error.valid_up_to();
+            let decoded = String::from_utf8_lossy(&pending[..valid]).into_owned();
+            if error.error_len().is_some() {
+                let remainder = String::from_utf8_lossy(&pending[valid..]).into_owned();
+                pending.clear();
+                format!("{}{}", decoded, remainder)
+            } else {
+                let remainder = pending.split_off(valid);
+                *pending = remainder;
+                decoded
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod utf8_stream_tests {
+    use super::decode_utf8_piece;
+
+    #[test]
+    fn handles_multibyte_character_split_across_tokens() {
+        let mut pending = Vec::new();
+        assert_eq!(decode_utf8_piece(&mut pending, &[0xe2]), "");
+        assert_eq!(decode_utf8_piece(&mut pending, &[0x82]), "");
+        assert_eq!(decode_utf8_piece(&mut pending, &[0xac]), "€");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn preserves_valid_prefix_while_buffering_incomplete_suffix() {
+        let mut pending = Vec::new();
+        assert_eq!(decode_utf8_piece(&mut pending, &[b'A', 0xc3]), "A");
+        assert_eq!(decode_utf8_piece(&mut pending, &[0xa9]), "é");
+    }
+}
+
+/// Truncate display text by Unicode scalar values, never by UTF-8 byte offset.
+fn truncate_for_display(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let prefix: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{}...", prefix)
+    } else {
+        prefix
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::truncate_for_display;
+
+    #[test]
+    fn display_truncation_preserves_unicode_boundaries() {
+        assert_eq!(truncate_for_display("é界x", 2), "é界...");
+        assert_eq!(truncate_for_display("é界", 2), "é界");
+        assert_eq!(truncate_for_display("abc", 0), "...");
+        assert_eq!(truncate_for_display("", 3), "");
+    }
+}
+
+/// Run a real interactive text session using the runtime dispatcher.
+fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
+    use kiln_core::chat::{Sampler, SamplingStrategy};
+    use kiln_runtime::{LlamaCppBackend, RuntimeDispatcher, RuntimeOp, RuntimeResult, SystemProfile};
+    use std::io::{self, Write};
+
+    let profile = SystemProfile::load_or_probe();
+    let mut dispatcher = RuntimeDispatcher::new();
+    dispatcher.register(Box::new(LlamaCppBackend::new()));
+    dispatcher.dispatch(RuntimeOp::Load {
+        path: std::path::PathBuf::from(model),
+        n_ctx: profile.n_ctx,
+        n_batch: profile.n_batch,
+        n_threads: profile.n_threads,
+    }).map_err(|e| format!("model load failed: {}", e))?;
+
+    let eos = match dispatcher.dispatch(RuntimeOp::EosToken)
+        .map_err(|e| format!("could not read EOS token: {}", e))? {
+        RuntimeResult::Int(token) => token,
+        _ => return Err("backend returned an unexpected EOS-token result".to_string()),
+    };
+
+    println!("KILN interactive session — model: {}", model);
+    println!("Type /exit to quit. Profile: {:?}, threads={}, context={}",
+        profile.tier, profile.n_threads, profile.n_ctx);
+
+    let stdin = io::stdin();
+    loop {
+        print!("you> ");
+        io::stdout().flush().map_err(|e| format!("prompt output failed: {}", e))?;
+        let mut prompt = String::new();
+        let bytes = stdin.read_line(&mut prompt).map_err(|e| format!("input failed: {}", e))?;
+        if bytes == 0 {
+            break;
+        }
+        let prompt = prompt.trim();
+        if prompt.eq_ignore_ascii_case("/exit") || prompt.eq_ignore_ascii_case("/quit") {
+            break;
+        }
+        if prompt.is_empty() {
+            continue;
+        }
+
+        dispatcher.dispatch(RuntimeOp::Reset)
+            .map_err(|e| format!("session reset failed: {}", e))?;
+        let tokens = match dispatcher.dispatch(RuntimeOp::Tokenize { text: prompt.to_string() })
+            .map_err(|e| format!("tokenization failed: {}", e))? {
+            RuntimeResult::Tokens(tokens) => tokens,
+            _ => return Err("backend returned an unexpected tokenization result".to_string()),
+        };
+        if tokens.is_empty() {
+            eprintln!("warning: prompt tokenized to no tokens");
+            continue;
+        }
+        let mut logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens })
+            .map_err(|e| format!("prompt evaluation failed: {}", e))? {
+            RuntimeResult::Logits(logits) => logits,
+            _ => return Err("backend returned an unexpected prompt result".to_string()),
+        };
+
+        print!("kiln> ");
+        io::stdout().flush().map_err(|e| format!("response output failed: {}", e))?;
+        let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
+        let mut pending_utf8 = Vec::new();
+        for _ in 0..max_tokens {
+            let token = sampler.sample(&logits)
+                .ok_or_else(|| "sampler returned no token".to_string())? as i32;
+            if token == eos {
+                break;
+            }
+            let piece = match dispatcher.dispatch(RuntimeOp::TokenToStr { token })
+                .map_err(|e| format!("token decoding failed: {}", e))? {
+                RuntimeResult::Bytes(bytes) => decode_utf8_piece(&mut pending_utf8, &bytes),
+                RuntimeResult::Str(text) => text,
+                _ => return Err("backend returned an unexpected token-string result".to_string()),
+            };
+            print!("{}", piece);
+            io::stdout().flush().map_err(|e| format!("response output failed: {}", e))?;
+            logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
+                .map_err(|e| format!("decode step failed: {}", e))? {
+                RuntimeResult::Logits(logits) => logits,
+                _ => return Err("backend returned an unexpected decode result".to_string()),
+            };
+        }
+        if !pending_utf8.is_empty() {
+            print!("{}", String::from_utf8_lossy(&pending_utf8));
+        }
+        println!();
+    }
+    dispatcher.dispatch(RuntimeOp::Unload)
+        .map_err(|e| format!("model unload failed: {}", e))?;
+    Ok(())
 }
 
 /// Execute one benchmark sample through the same runtime dispatcher used by chat.
