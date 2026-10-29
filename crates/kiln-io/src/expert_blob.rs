@@ -73,9 +73,11 @@ impl ExpertBlobReader {
         layer: u32,
         expert_id: u32,
     ) -> Result<Vec<u8>, ExpertBlobError> {
-        let range = self.table.ranges.iter()
-            .find(|range| range.layer == layer && range.expert_id == expert_id)
-            .ok_or(ExpertBlobError::MissingExpert { layer, expert_id })?;
+        let index = self.table.ranges.binary_search_by_key(
+            &(layer, expert_id),
+            |range| (range.layer, range.expert_id),
+        ).map_err(|_| ExpertBlobError::MissingExpert { layer, expert_id })?;
+        let range = &self.table.ranges[index];
         Ok(self.reader.read_range(range.byte_offset, range.byte_length)?)
     }
 
@@ -86,9 +88,11 @@ impl ExpertBlobReader {
         expert_id: u32,
         buffer: &mut [u8],
     ) -> Result<(), ExpertBlobError> {
-        let range = self.table.ranges.iter()
-            .find(|range| range.layer == layer && range.expert_id == expert_id)
-            .ok_or(ExpertBlobError::MissingExpert { layer, expert_id })?;
+        let index = self.table.ranges.binary_search_by_key(
+            &(layer, expert_id),
+            |range| (range.layer, range.expert_id),
+        ).map_err(|_| ExpertBlobError::MissingExpert { layer, expert_id })?;
+        let range = &self.table.ranges[index];
         if buffer.len() as u64 != range.byte_length {
             return Err(ExpertBlobError::BufferLengthMismatch {
                 expected: range.byte_length,
