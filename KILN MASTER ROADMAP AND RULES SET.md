@@ -320,3 +320,13 @@ A “not beneficial” result is useful and must remain recorded with tested con
 - Added UTF-8 boundary handling so token byte fragments do not split Unicode characters in emitted chunks.
 - Added fail-closed regression tests for streaming requests when no model is configured.
 - This work is not merged or CI-verified yet. It does not complete the model registry, pull lifecycle, chat-template handling, or full Ollama compatibility, and it does not mark any roadmap phase complete.
+
+
+### 2026-10-29 — Phase 5A expert-block I/O implementation
+
+- Merged PR #11 after GitHub Actions succeeded; API generation/chat now support newline-delimited JSON streaming when requested. Full Ollama compatibility remains incomplete.
+- Started the Phase 5A feasibility work on a separate branch.
+- Added a portable, bounded random-access file reader that reads only requested ranges and rejects out-of-bounds/overflowing ranges before I/O.
+- Added a `kiln-bench expert-io` command to compare sequential and deterministic random block reads against a real file, reporting throughput and p50/p95 per-request latency. The OS page cache is explicitly uncontrolled.
+- Added unit tests for exact range reads, invalid ranges, empty ranges at EOF, and the I/O probe's two access patterns.
+- This is an implementation milestone only. CI must pass before merge; the Dell measurements and the Phase 5A acceptance decision remain pending. No expert-streaming or 70B performance claim is made.
