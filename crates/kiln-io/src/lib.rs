@@ -17,7 +17,9 @@
 pub mod request;
 pub mod source;
 pub mod fallback;
+pub mod range_reader;
 
 pub use request::{IoRequest, IoResult, IoOp};
 pub use source::{IoSource, BlockSize};
 pub use fallback::SyncIoSource;
+pub use range_reader::{FileRangeReader, RangeReadError};
