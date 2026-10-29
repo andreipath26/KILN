@@ -435,7 +435,7 @@ fn run_expert_cache(
     }
     let file_size = std::fs::metadata(file)?.len();
     let (table, block_bytes_report) = if let Some(index_path) = index_file {
-        let contents = std::fs::read(index_path)?;
+        let contents = read_bounded_input(index_path, MAX_EXPERT_INDEX_BYTES, "expert index")?;
         let table: ExpertTable = serde_json::from_slice(&contents)?;
         table.validate(file_size)?;
         if table.ranges.is_empty() {
@@ -473,7 +473,7 @@ fn run_expert_cache(
         return Err("expert index contains more than one million entries; split or reduce the index to bound benchmark memory".into());
     }
     let trace: Vec<ExpertKey> = if let Some(trace_path) = trace_file {
-        let input: ExpertTraceInput = serde_json::from_slice(&std::fs::read(trace_path)?)?;
+        let input: ExpertTraceInput = serde_json::from_slice(&read_bounded_input(trace_path, MAX_EXPERT_TRACE_BYTES, "expert trace")?)?;
         let trace = match input {
             ExpertTraceInput::FlatIds(ids) => ids.into_iter()
                 .map(|expert_id| ExpertKey { layer: 0, expert_id }).collect(),
@@ -528,6 +528,23 @@ fn run_expert_cache(
     })
 }
 
+const MAX_EXPERT_INDEX_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_EXPERT_TRACE_BYTES: u64 = 128 * 1024 * 1024;
+
+fn read_bounded_input(
+    path: &std::path::Path,
+    max_bytes: u64,
+    description: &str,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let size = std::fs::metadata(path)?.len();
+    if size > max_bytes {
+        return Err(format!(
+            "{description} file is {size} bytes; input limit is {max_bytes} bytes"
+        ).into());
+    }
+    Ok(std::fs::read(path)?)
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum ExpertTraceInput {
@@ -549,7 +566,7 @@ fn run_prefetch_replay(
     if block_bytes == 0 || top_k == 0 || max_pending == 0 || max_inflight_mib == 0 {
         return Err("block-bytes, top-k, max-pending and max-inflight-mib must be greater than zero".into());
     }
-    let input: ExpertTraceInput = serde_json::from_slice(&std::fs::read(trace_file)?)?;
+    let input: ExpertTraceInput = serde_json::from_slice(&read_bounded_input(trace_file, MAX_EXPERT_TRACE_BYTES, "expert trace")?)?;
     let trace: Vec<ExpertKey> = match input {
         ExpertTraceInput::FlatIds(ids) => ids.into_iter()
             .map(|expert_id| ExpertKey { layer: 0, expert_id }).collect(),
