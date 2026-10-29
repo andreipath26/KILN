@@ -73,7 +73,13 @@ cargo run -p kiln-cli -- doctor --help
 cargo run -p kiln-cli -- pipeline <input-file> --loader gguf
 cargo run -p kiln-cli -- serve
 cargo run -p kiln-bench -- run
+# Measure sequential vs random expert-block reads on a real model/expert blob
+cargo run -p kiln-bench -- expert-io --file /path/to/experts.bin --block-bytes 1048576 --requests 256 --runs 5 --json
 ```
+
+### Expert-block I/O feasibility probe
+
+`kiln-bench expert-io` reads bounded blocks from a real file and reports sequential and deterministic random-access throughput plus p50/p95 request latency. It is an initial storage-I/O feasibility probe, not a model inference benchmark: it does not control the operating-system page cache, validate an expert index, or prove end-to-end MoE throughput. Run it against a representative `experts.bin` or other large model blob on the target laptop before using the numbers for design decisions.
 
 ## Design documents
 
