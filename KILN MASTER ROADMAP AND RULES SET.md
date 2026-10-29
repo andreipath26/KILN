@@ -445,3 +445,12 @@ Important limits:
 - Cache budget applies to retained cache membership bytes. Caller-owned copies returned by the reader are outside that budget and must be accounted for by the eventual runtime.
 - This is still a cache primitive, not yet wired into live model inference. Routing traces, prefetch, asynchronous I/O, compute overlap, Dell measurements and end-to-end quality/performance gates remain outstanding.
 - CI passed for the synthetic trace test, unsupported-version validation, and their immediate commits. CI for the latest cache commits was still running at the time of this note; do not mark Phase 5A accepted or merge PR #12 until the latest head is green and reviewed.
+
+### 2026-10-29 — real-file Phase 5B trace-replay benchmark added
+
+- Added `kiln-bench expert-cache` to replay the same deterministic synthetic access trace against no cache, LRU, LFU and adaptive policies with equal byte budgets for cached policies.
+- The command partitions a representative file into fixed-size synthetic expert blocks and reports measured host elapsed time/request rate, cache hit/miss statistics, estimated bytes requested from the backing file, retained cache bytes, evictions and checksum.
+- Added command tests for policy comparison, identical trace checksum, byte-budget enforcement and invalid inputs. The command caps the synthetic index at one million blocks to avoid an unbounded index allocation.
+- This is a real-file benchmark when run on a user's host, but its expert trace is still synthetic and OS page-cache state is uncontrolled. It does not prove physical SSD bytes read or model inference performance.
+- Current branch head at this note: `47efa8e89f48158a05d82d9ef0d9858976f5b190`. CI for the latest benchmark additions is still running. The earlier cache-core commit `63cf5a727be89c1a73e601eb2728c172572b5b5a` passed workspace tests after a borrow-checker issue was fixed. Do not merge PR #12 until the latest head is green.
+- Phase 5A remains unaccepted until the benchmark is run on the target Dell with a representative file and the evidence is recorded. The expert cache is not yet connected to the live llama.cpp model inference path.
