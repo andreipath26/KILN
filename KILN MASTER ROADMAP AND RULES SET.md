@@ -483,3 +483,12 @@ Important limits:
 - Extended the prefetch replay tool to accept flat expert IDs, `[layer, expert_id]` pairs, or `{layer, expert_id}` objects. This supports the shape of an externally captured router trace without pretending that the current llama.cpp wrapper collects one.
 - Candidate experts are limited to those present in the supplied trace and are assigned a uniform block size. The benchmark therefore measures transition prediction on a trace, not prediction over the full model expert inventory.
 - Added a regression test for layer-aware pair traces. Latest changes are awaiting CI.
+
+### 2026-10-29 — bounded cache-backed expert access tracing
+
+- Added opt-in bounded access tracing to `CachedExpertBlobReader`. It records successful requested `(layer, expert_id)` events, including cache hits, without recording failed reads. The trace has a caller-configured event cap and counts dropped events rather than growing without bound.
+- Added snapshot and JSON export APIs; the JSON event array matches the layer-aware object format accepted by `kiln-bench prefetch-replay`. Export intentionally omits the dropped count from the event array; callers can inspect it in the in-memory snapshot.
+- Added a test for ordered events, bounded growth, dropped-event accounting, JSON round-trip, and disabling trace capture.
+- Corrected the documentation boundary: this captures real accesses only when code calls `CachedExpertBlobReader`. The current llama.cpp backend loads and executes through its own context and does not use this reader, so this does not yet capture live model routing or provide real MoE traces.
+- CI run `40842392964` failed on the initial trace commit due to a Rust borrow-checker conflict in the vector-capacity reservation expression. The expression was separated into a local calculation in follow-up commit `acdfe5c83205db01fab74ccd694d575e39715da1`; its CI is queued and must be checked before accepting the change.
+- Next: validate the trace API on the latest green CI head; then determine whether to instrument the pinned llama.cpp fork's model-specific router or build a KILN-native expert-loading path that can consume the index, cache, and trace recorder. Do not claim live routing capture or start async I/O before that boundary is resolved.
