@@ -11,12 +11,12 @@ if [[ ! -f "$MODEL" || ! -r "$MODEL" ]]; then
   echo "Readable representative file is required: $MODEL" >&2
   exit 2
 fi
+MODEL="$(realpath "$MODEL")"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 OUT="${2:-tier0-gate5a-$(date -u +%Y%m%dT%H%M%SZ)}"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
-MODEL="$(realpath "$MODEL")"
 {
  echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
  echo "kiln_commit=$(git rev-parse HEAD)"
