@@ -166,6 +166,12 @@ The authoritative rules and their canonical history are maintained in the [maste
 
 Set `KILN_MODEL_PATH` to a readable GGUF file before starting `kiln serve`. The server loads that model once at startup and routes `POST /api/generate` and `POST /api/chat` through the runtime dispatcher. Both routes support non-streaming JSON responses; the API-streaming branch adds newline-delimited JSON chunks when `stream: true`. The chat route currently builds a simple role-prefixed prompt rather than applying a model-specific chat template. Generation is greedy and only `options.num_predict` is accepted; unsupported options are rejected instead of silently ignored. `GET /api/tags` reports the configured model, but a multi-model registry, model pull lifecycle, and complete Ollama parity remain unimplemented.
 
+## Small language models (SLMs): complementary track
+
+KILN will evaluate resident, quantized **small language models** as a practical local-inference tier on ordinary hardware, while preserving the 70B-class MoE mission. Candidate 0.6B–4B models may be compared for structured tasks, tool-call quality and optional speculative drafting; larger candidates are comparisons, not shipping commitments.
+
+This is a **research and benchmarking decision, not an implemented feature or demonstrated speedup**. The Phase 3.5 plan first reproduces the dense baseline, then measures SLM end-to-end latency, tokens/s, peak RAM, task correctness and no-speculation versus n-gram versus small-drafter results. Any later model-level routing stays above per-layer dispatch and preserves deterministic authorization. Expert-prefetch prediction remains gated on Phase 5 I/O feasibility. See the [authoritative SLM integration decision and gates](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md#slm-integration-decision--complementary-local-inference-tier-2026-11-06).
+
 ## Current next steps
 
 1. Reproduce the dense-path baseline and profile the actual hot path for Phase 3.5.
