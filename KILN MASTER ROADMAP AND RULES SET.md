@@ -312,6 +312,38 @@ A “not beneficial” result is useful and must remain recorded with tested con
 - That independently measured optimization gains compose.
 - That an external system should be vendored wholesale.
 
+### SLM integration decision — complementary local-inference tier (2026-11-06)
+
+**Decision: Adopt small language models (SLMs) as an evaluated, first-class model-size tier, not as a replacement for KILN's 70B-class MoE mission.** Status: **research/benchmark proposal; no new performance or quality result**. Keep Phase 3.5 as the immediate execution priority and Phase 5 CPU-only expert streaming as the central mission; do not insert a blocking new phase.
+
+**Rationale and scope.** Resident 0.6B–4B quantized models may run without per-token model-weight SSD streaming on Tier 0 (Dell Latitude 7490, i7-8650U, 16 GB RAM, no dGPU), enabling practical low-latency local use while the oversize-model architecture matures. An SLM can serve simple classification, bounded structured-output and tool-selection requests, or be tested as a speculative drafter. It cannot substitute for the ≥4 tok/s 70B-class/~4B-active MoE acceptance demonstration or its quality and memory gates. Nominal Q4 parameter-size arithmetic excludes scales, metadata, embeddings, KV cache, runtime and OS memory; measure actual peak RSS.
+
+**Architectural boundary.** The SLM is a model/runtime client, not a new per-layer backend. Keep deterministic authorization, tool schema validation and existing `RuntimeDispatcher` / backend registry authoritative. Any future task-level policy may choose among a resident small model, a mid-sized local model and a streamed MoE, **above** the per-layer dispatcher. Maintain one API contract; fail safe if the selected model cannot meet policy/quality requirements. Do not put an SLM classifier in the inference hot path without demonstrated benefit. AI-generated tool arguments require independent policy validation, not autonomous permission.
+
+**Candidates (verify exact repository revision, GGUF/tokenizer compatibility, license and model card before testing):**
+
+| Candidate | Proposed use | Required comparison |
+| --- | --- | --- |
+| Qwen3 0.6B Q4 | Simple classification, structured extraction, optional drafter | Rule-based routing and draftless n-gram speculation |
+| Qwen3 1.7B Q4 | Resident lightweight assistant and routing | 0.6B and Qwen2.5-1.5B baseline |
+| IBM Granite 4.1 3B Q4 | Structured tool-use/agentic evaluation | Strict schema and task-success tests |
+| Qwen3 4B Q4 | Mid-size quality/speed comparison | 1.7B and 3B results |
+| IBM Granite 4.1 8B (optional) | Quality-oriented comparison only if memory budget permits | Smaller models on same task suite |
+
+Model versions, availability and architectures require fresh verification; inclusion here is **not** a claim of working KILN compatibility or ranking. For agentic work, require benchmarked tool-call correctness, abstention, hallucination rate, argument safety and fallback behavior; do not infer from generic language benchmarks.
+
+**Phase-contained execution and gates:**
+
+1. **Phase 3.5 / baseline first:** pin KILN and kiln-llama commits, model/tokenizer hashes, quantization, compiler, hardware, power and thermal conditions, prompt lengths, sampling settings and baseline model. Reproduce the existing Qwen2.5-1.5B Q4_K throughput before introducing any SLM model changes.
+2. **Resident-SLM comparison:** on Tier 0, benchmark cold/warm load, prefill and decode tok/s, time to first token, peak RSS, CPU and SSD bytes read, and sustained thermal behavior for the candidate small models. Test correctness and task quality on fixed prompts, with repetitions and failure cases. Report absolute metrics and a matched baseline.
+3. **Speculative decoding A/B:** test no speculation vs supported pinned-revision draftless n-gram vs a compatible small draft model. Record draft overhead, accepted tokens per verification pass, target-verification latency, output distribution/correctness under pinned decoding, total memory, and **net end-to-end tok/s**. Reject the draft model if it slows Tier 0 or compromises resource/quality limits; acceptance rate alone is not a success criterion.
+4. **Non-critical-path task routing (post-feasibility research):** compare deterministic routing alone with deterministic routing plus an optional SLM classifier across fixed simple/complex requests. Measure correct routing, harmful under-escalation, escalation cost, model-switch/loading latency, total time to satisfactory result, and privacy/policy safeguards. No automatic routing rollout before quality thresholds and fail-safe fallback are specified and passed.
+5. **Phase 5 predictor research (only after Gate 5A):** an SLM used to predict expert demand must outperform a simple predictor in useful prefetch hit/miss cost, bytes/token, peak memory, and sustained model tok/s. Predictor inference must be early enough to overlap expert I/O. Predictor accuracy alone does not justify integration.
+
+**Decision and exit rules.** Keep small-model support when it delivers a repeatable user-visible capability and does not regress existing runtime behavior. Merge speculative drafting or SLM-based routing/prefetch only with measured end-to-end improvements, defined quality/error budgets, CPU fallback, differential tests, and no unacceptable latency/memory/power cost. Preserve negative results. No standalone SLM training, multi-agent framework or general model-routing subsystem before the existing performance and streaming gates warrant it.
+
+**Prior-art and research references (pin versions for implementation):** llama.cpp speculative decoding documentation https://github.com/ggml-org/llama.cpp/blob/master/docs/speculative.md ; Qwen3 model family https://huggingface.co/Qwen ; IBM Granite family https://huggingface.co/ibm-granite . External model-card claims are not KILN measurements.
+
 ## 13. Session log
 
 ### 2026-10-29 — dense/MoE feasibility and synthetic cache experiment
@@ -337,6 +369,14 @@ A “not beneficial” result is useful and must remain recorded with tested con
 - Audited the API routes and confirmed that `/api/generate` and `/api/chat` returned hard-coded placeholder text as successful responses, while `/api/tags` returned an empty model list.
 - Opened PR #6 to return explicit HTTP 501 JSON errors for generation/chat until real runtime-session wiring exists, and added regression tests for that behavior. CI validation is required before merge.
 - Updated README to state the current API limitation accurately. This does not mark API inference or any performance phase complete.
+
+### 2026-11-06 — SLM strategy integrated without changing mission
+
+- Added small-language-model support as a complementary local-inference tier, not a replacement for the 70B-class MoE acceptance goal.
+- Defined 0.6B–4B resident models and an optional 8B comparison as unverified test candidates, with deterministic policy boundaries.
+- Added Phase 3.5 resident-model benchmark matrix, no-speculation/n-gram/draft-model A/B, and optional later task-routing and Phase 5 predictor experiments.
+- Required pinned model/build provenance, Tier 0 measurements, end-to-end improvement and quality/authorization gates; no new phase was declared complete and no performance result was claimed.
+- Preserved the immediate Phase 3.5 → Phase 5 feasibility order, backend registry hot path and model-level vs per-layer dispatch separation.
 
 ## 14. Acceptance criteria for roadmap changes
 
