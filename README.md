@@ -172,6 +172,14 @@ KILN will evaluate resident, quantized **small language models** as a practical 
 
 This is a **research and benchmarking decision, not an implemented feature or demonstrated speedup**. The Phase 3.5 plan first reproduces the dense baseline, then measures SLM end-to-end latency, tokens/s, peak RAM, task correctness and no-speculation versus n-gram versus small-drafter results. Any later model-level routing stays above per-layer dispatch and preserves deterministic authorization. Expert-prefetch prediction remains gated on Phase 5 I/O feasibility. See the [authoritative SLM integration decision and gates](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md#slm-integration-decision--complementary-local-inference-tier-2026-11-06).
 
+## November 2026 research audit — critical feasibility gates
+
+The [master roadmap](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md#15-research-and-repository-audit--2026-11-06-new-evidence-no-phase-reordering) now includes a source-level research assessment of MoE-CORE, APEX, BITCOS, Q-Strata, ZipMoE, SSD-LLaMA and related theoretical I/O work.
+
+**Two correctness/feasibility dependencies remain open:** the current `InMemoryManager` is a bookkeeping prototype that counts tensor entries rather than actual bytes, and the proposed UMF expert-relocation layout needs proof of compatibility with stock GGUF readers. Real SSD bytes/token, byte-bounded expert residency, format round trips, and end-to-end model quality are mandatory before any streaming performance claim.
+
+The literature suggests promising techniques—unequal layer cache allocation, confidence-aware *exact* prefetch, lossless expert compression and distribution-aware ternary layouts—but **none is a reproduced KILN speedup**. These are bounded experiments within existing phases, not a replacement for the 70B-class mission or an excuse to postpone Phase 3.5.
+
 ## Current next steps
 
 1. Reproduce the dense-path baseline and profile the actual hot path for Phase 3.5.
