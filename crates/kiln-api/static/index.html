@@ -57,9 +57,10 @@
               <div><h2>Chat</h2><span id="chat-subtitle" class="muted small">Waiting for a loaded model</span></div>
               <button id="clear-chat" class="button button-quiet" type="button" disabled>New chat</button>
             </div>
-            <div id="messages" class="messages" aria-live="polite" aria-relevant="additions text">
+            <div id="messages" class="messages" aria-live="off">
               <div class="empty-state" id="empty-chat"><div class="empty-glyph" aria-hidden="true">✳</div><strong>Your local chat starts here</strong><p>Choose a model in your KILN setup, then send a message.</p></div>
             </div>
+            <p id="chat-announcer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
             <form id="chat-form" class="composer">
               <label class="visually-hidden" for="prompt">Message your model</label>
               <textarea id="prompt" rows="1" placeholder="Message your model…" disabled></textarea>
