@@ -1221,7 +1221,7 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool) -> Result
                 // After evicting the old dialogue, restart the prompt without
                 // the continuation-only leading newline.
                 let fresh = match dispatcher.dispatch(RuntimeOp::Tokenize {
-                    text: format!("User: {prompt}\\nAssistant:"),
+                    text: format!("User: {prompt}\nAssistant:"),
                 }).map_err(|e| format!("fresh turn tokenization failed: {e}"))? {
                     RuntimeResult::Tokens(tokens) => tokens,
                     _ => return Err("backend returned an unexpected tokenization result".to_string()),
