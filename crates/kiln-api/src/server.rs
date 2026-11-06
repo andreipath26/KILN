@@ -35,7 +35,7 @@ fn build_router_with_state(state: ApiState) -> Router {
         .with_state(state)
 }
 
-async fn security_headers(request: Request<axum::body::Body>, next: Next<axum::body::Body>) -> axum::response::Response {
+async fn security_headers(request: Request<axum::body::Body>, next: Next) -> axum::response::Response {
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
     headers.insert(HeaderName::from_static("content-security-policy"), HeaderValue::from_static(
