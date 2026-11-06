@@ -367,6 +367,12 @@ pub async fn ui_capabilities(State(state): State<ApiState>) -> Json<Value> {
                 "detail": "The local API supports streamed text completion."
             },
             {
+                "id": "inference.sampling_controls",
+                "label": "Sampling controls",
+                "status": "limited",
+                "detail": "Chat currently uses greedy sampling with a fixed 128-token output limit; generation settings are not exposed in the UI."
+            },
+            {
                 "id": "model.session_switch",
                 "label": "Switch active model",
                 "status": "not_integrated",
