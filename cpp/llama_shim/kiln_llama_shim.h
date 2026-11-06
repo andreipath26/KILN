@@ -18,6 +18,7 @@ typedef void* kiln_llama_t;
 struct kiln_llama_params {
     int32_t n_ctx;
     int32_t n_batch;
+    int32_t n_ubatch;
     int32_t n_threads;
 };
 
