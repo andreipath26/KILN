@@ -91,7 +91,7 @@ enum Commands {
         /// Port to bind to. Default 11435.
         #[arg(long, default_value_t = 11435)]
         port: u16,
-        /// Host to bind to. Default 127.0.0.1.
+        /// Loopback IP to bind to. Only 127.0.0.1 or ::1 is accepted; remote access is unsupported.
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
     },
