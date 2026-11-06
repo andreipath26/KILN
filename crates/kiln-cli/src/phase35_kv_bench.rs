@@ -120,13 +120,17 @@ pub fn run(
         if full_logits.len() != cached_logits.len() {
             return Err("logit vector sizes differ between modes".into());
         }
+        let full_top = top_token(&full_logits)
+            .ok_or_else(|| "full-prefix returned empty/non-finite logits".to_string())?;
+        let cached_top = top_token(&cached_logits)
+            .ok_or_else(|| "cached path returned empty/non-finite logits".to_string())?;
         let max_abs_logit_delta = full_logits.iter().zip(&cached_logits)
             .map(|(a,b)| (f64::from(*a) - f64::from(*b)).abs())
             .fold(0.0, f64::max);
         records.push(serde_json::json!({
             "full_prefix_prefill_ms": full_time,
             "cached_second_turn_prefill_ms": cached_time,
-            "argmax_equal": top_token(&full_logits) == top_token(&cached_logits),
+            "argmax_equal": full_top == cached_top,
             "max_abs_logit_delta": max_abs_logit_delta,
         }));
     }
