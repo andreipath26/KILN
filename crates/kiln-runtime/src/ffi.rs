@@ -67,6 +67,8 @@ pub struct LlamaContext {
     handle: *mut c_void,
     n_vocab: i32,
     n_past: i32,
+    /// Physical reusable batch capacity configured in the C shim.
+    batch_capacity: usize,
 }
 
 unsafe impl Send for LlamaContext {}
@@ -93,7 +95,10 @@ impl LlamaContext {
             )));
         }
         let n_vocab = unsafe { kiln_llama_n_vocab(handle) };
-        Ok(Self { handle, n_vocab, n_past: 0 })
+        // The shim uses n_batch from the supplied params, or 512 by default.
+        // Keep this synchronized with the C shim's allocation contract.
+        let batch_capacity = params.map(|(_, n_batch, _)| n_batch as usize).unwrap_or(512);
+        Ok(Self { handle, n_vocab, n_past: 0, batch_capacity })
     }
 
     pub fn n_vocab(&self) -> i32 { self.n_vocab }
@@ -146,22 +151,35 @@ impl LlamaContext {
         if tokens.is_empty() {
             return Err(LlamaError::Decode("cannot decode an empty token batch".to_string()));
         }
-        let token_count = c_int::try_from(tokens.len())
+        let token_count = i32::try_from(tokens.len())
             .map_err(|_| LlamaError::Decode("token batch exceeds the C ABI length limit".to_string()))?;
-        let next_past = self.n_past.checked_add(token_count)
+        self.n_past.checked_add(token_count)
             .ok_or_else(|| LlamaError::Decode("token position overflow".to_string()))?;
-        let rc = unsafe {
-            kiln_llama_decode(
-                self.handle,
-                tokens.as_ptr(),
-                token_count,
-                self.n_past,
-            )
-        };
-        if rc != 0 {
-            return Err(LlamaError::Decode(format!("shim returned {}", rc)));
+        if self.batch_capacity == 0 {
+            return Err(LlamaError::Decode("native batch capacity must be positive".to_string()));
         }
-        self.n_past = next_past;
+        // A prompt can exceed n_batch even when it fits in n_ctx. The C shim
+        // uses one reusable llama_batch of exactly n_batch entries. Send
+        // bounded chunks while retaining KV state and token positions.
+        for chunk in tokens.chunks(self.batch_capacity) {
+            let count = i32::try_from(chunk.len())
+                .map_err(|_| LlamaError::Decode("token batch exceeds the C ABI limit".to_string()))?;
+            let rc = unsafe {
+                kiln_llama_decode(
+                    self.handle,
+                    chunk.as_ptr(),
+                    count,
+                    self.n_past,
+                )
+            };
+            if rc != 0 {
+                // Earlier chunks may already be committed to KV state. Never
+                // advance past the failed chunk; caller should reset the
+                // session before retrying after an error.
+                return Err(LlamaError::Decode(format!("shim returned {} (after {} tokens)", rc, self.n_past)));
+            }
+            self.n_past += count;
+        }
         Ok(())
     }
 
@@ -224,6 +242,7 @@ mod tests {
             handle: std::ptr::null_mut(),
             n_vocab: 1,
             n_past: 0,
+            batch_capacity: 512,
         };
         let err = ctx.decode(&[]).unwrap_err();
         assert!(matches!(err, LlamaError::Decode(message) if message.contains("empty")));
@@ -235,8 +254,30 @@ mod tests {
             handle: std::ptr::null_mut(),
             n_vocab: 1,
             n_past: i32::MAX,
+            batch_capacity: 512,
         };
         let err = ctx.decode(&[1]).unwrap_err();
         assert!(matches!(err, LlamaError::Decode(message) if message.contains("overflow")));
     }
+    #[test]
+    fn chunk_partition_never_exceeds_configured_batch() {
+        let sample: Vec<i32> = (0..1025).collect();
+        let sizes: Vec<usize> = sample.chunks(256).map(|chunk| chunk.len()).collect();
+        assert_eq!(sizes, vec![256, 256, 256, 256, 1]);
+        let concatenated: Vec<i32> = sample.chunks(256).flat_map(|chunk| chunk.iter().copied()).collect();
+        assert_eq!(concatenated, sample);
+    }
+
+    #[test]
+    fn zero_capacity_rejected_before_native_call() {
+        let mut ctx = LlamaContext {
+            handle: std::ptr::null_mut(),
+            n_vocab: 1,
+            n_past: 0,
+            batch_capacity: 0,
+        };
+        let err = ctx.decode(&[1]).unwrap_err();
+        assert!(matches!(err, LlamaError::Decode(message) if message.contains("capacity")));
+    }
+
 }
