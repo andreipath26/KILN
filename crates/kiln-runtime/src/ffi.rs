@@ -332,4 +332,52 @@ mod tests {
         assert!(max_error <= 0.1, "logits diverged; maximum absolute delta {max_error}");
     }
 
+    /// Hardware-dependent Phase 3.5 differential gate: no fake CI success.
+    /// Both sessions receive exactly the same token sequence; only the
+    /// grouping into prefill calls differs.
+    #[test]
+    #[ignore = "requires a pinned KILN_TEST_MODEL_PATH GGUF"]
+    fn append_only_kv_matches_full_prefix_logits() {
+        let model_path = std::env::var("KILN_TEST_MODEL_PATH")
+            .expect("set KILN_TEST_MODEL_PATH to a pinned GGUF file");
+        let path = std::path::Path::new(&model_path);
+        let options = Some((2048, 256, 128, 4));
+        let mut incremental = LlamaContext::load_with_ubatch(path, options)
+            .expect("load incremental context");
+        let mut full = LlamaContext::load_with_ubatch(path, options)
+            .expect("load full-prefix context");
+
+        let first = incremental.tokenize("User: Name two planets.\nAssistant:")
+            .expect("tokenize first prompt");
+        let assistant = incremental.tokenize(" Mars and Venus.")
+            .expect("tokenize fixed assistant continuation");
+        let second = incremental.tokenize("\nUser: Name one more.\nAssistant:")
+            .expect("tokenize next prompt");
+        assert!(!first.is_empty() && !assistant.is_empty() && !second.is_empty());
+        let mut full_tokens = first.clone();
+        full_tokens.extend_from_slice(&assistant);
+        full_tokens.extend_from_slice(&second);
+        assert!(full_tokens.len() < 2048);
+
+        incremental.forward(&first).expect("first prefill");
+        incremental.forward(&assistant).expect("assistant continuation");
+        let incremental_logits = incremental.forward(&second).expect("second prefill");
+        let full_logits = full.forward(&full_tokens).expect("full-prefix prefill");
+
+        assert_eq!(incremental.n_past(), full.n_past());
+        assert_eq!(incremental_logits.len(), full_logits.len());
+        fn argmax(xs: &[f32]) -> usize {
+            xs.iter().enumerate()
+                .filter(|(_, logit)| logit.is_finite())
+                .max_by(|left, right| left.1.total_cmp(right.1))
+                .expect("finite model logit").0
+        }
+        assert_eq!(argmax(&incremental_logits), argmax(&full_logits),
+            "incremental cache reuse changed most likely next token");
+        let max_diff = incremental_logits.iter().zip(full_logits.iter())
+            .map(|(a,b)| (f64::from(*a)-f64::from(*b)).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(max_diff <= 0.1, "incremental prefill logits drifted by {max_diff}");
+    }
+
 }

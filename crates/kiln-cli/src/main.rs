@@ -101,6 +101,9 @@ enum Commands {
         /// Maximum tokens generated per response.
         #[arg(long, default_value_t = 128)]
         max_tokens: usize,
+        /// Preserve executed KV tokens between turns; uses a generic text dialogue format.
+        #[arg(long)]
+        keep_context: bool,
     },
     /// Download a model from the catalog. Not yet implemented.
     Pull { model: String },
@@ -703,12 +706,12 @@ async fn main() {
                 }
             }
         }
-        Commands::Run { model, max_tokens } => {
+        Commands::Run { model, max_tokens, keep_context } => {
             if max_tokens == 0 {
                 eprintln!("run: --max-tokens must be at least 1");
                 std::process::exit(2);
             }
-            if let Err(error) = run_interactive(&model, max_tokens) {
+            if let Err(error) = run_interactive(&model, max_tokens, keep_context) {
                 eprintln!("run: {}", error);
                 std::process::exit(1);
             }
@@ -1036,7 +1039,20 @@ fn truncate_for_display(text: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod cli_tests {
-    use super::truncate_for_display;
+    use super::{truncate_for_display, Cli, Commands};
+    use clap::Parser;
+
+    #[test]
+    fn keep_context_is_explicit_opt_in() {
+        let regular = Cli::try_parse_from(["kiln", "run", "model.gguf"]).unwrap();
+        assert!(matches!(regular.command, Commands::Run { keep_context: false, .. }));
+        let opted = Cli::try_parse_from([
+            "kiln", "run", "model.gguf", "--keep-context", "--max-tokens", "32",
+        ]).unwrap();
+        assert!(matches!(opted.command, Commands::Run {
+            keep_context: true, max_tokens: 32, ..
+        }));
+    }
 
     #[test]
     fn display_truncation_preserves_unicode_boundaries() {
@@ -1047,8 +1063,105 @@ mod cli_tests {
     }
 }
 
+/// Track exactly which tokens were executed into the native KV cache.
+/// This state never guesses prefix equality from decoded text or retokenization.
+/// The most recently emitted token may not have been forwarded yet.
+#[derive(Debug, Default)]
+struct InteractiveKvState {
+    cached_tokens: usize,
+    pending_token: Option<i32>,
+}
+
+impl InteractiveKvState {
+    /// Return (must_reset, tokens_to_forward). A reset is required if
+    /// continuing would exceed the configured context including generation.
+    fn prepare(&mut self, turn_tokens: Vec<i32>, max_new: usize, ctx_limit: usize)
+        -> Result<(bool, Vec<i32>), String>
+    {
+        if turn_tokens.is_empty() {
+            return Err("empty turn tokenization".to_string());
+        }
+        let needed_fresh = turn_tokens.len().checked_add(max_new)
+            .ok_or_else(|| "context length arithmetic overflow".to_string())?;
+        if needed_fresh > ctx_limit {
+            return Err(format!(
+                "turn requires at least {needed_fresh} context tokens, but configured n_ctx is {ctx_limit}; shorten the prompt or lower --max-tokens"
+            ));
+        }
+        let needed_continued = self.cached_tokens
+            .checked_add(turn_tokens.len())
+            .and_then(|n| n.checked_add(usize::from(self.pending_token.is_some())))
+            .and_then(|n| n.checked_add(max_new))
+            .unwrap_or(usize::MAX);
+        if needed_continued > ctx_limit {
+            self.cached_tokens = 0;
+            self.pending_token = None;
+            return Ok((true, turn_tokens));
+        }
+        let mut tail = Vec::with_capacity(turn_tokens.len() + usize::from(self.pending_token.is_some()));
+        if let Some(pending) = self.pending_token.take() {
+            tail.push(pending);
+        }
+        tail.extend(turn_tokens);
+        Ok((false, tail))
+    }
+
+    fn forwarded(&mut self, count: usize) {
+        self.cached_tokens += count;
+    }
+
+    fn emitted(&mut self, token: i32) {
+        self.pending_token = Some(token);
+    }
+}
+
+#[cfg(test)]
+mod interactive_kv_tests {
+    use super::InteractiveKvState;
+
+    #[test]
+    fn appends_only_unexecuted_token_and_new_turn() {
+        let mut cache = InteractiveKvState::default();
+        let (reset, tail) = cache.prepare(vec![1, 2], 3, 20).unwrap();
+        assert!(!reset);
+        assert_eq!(tail, vec![1, 2]);
+        cache.forwarded(tail.len());
+        cache.emitted(7);
+        let (reset, tail) = cache.prepare(vec![3, 4], 3, 20).unwrap();
+        assert!(!reset);
+        assert_eq!(tail, vec![7, 3, 4]);
+        assert_eq!(cache.cached_tokens, 2);
+    }
+
+    #[test]
+    fn resets_before_context_overflow_and_drops_pending() {
+        let mut cache = InteractiveKvState { cached_tokens: 12, pending_token: Some(42) };
+        let (reset, tail) = cache.prepare(vec![1, 2], 4, 16).unwrap();
+        assert!(reset);
+        assert_eq!(tail, vec![1, 2]);
+        assert_eq!(cache.cached_tokens, 0);
+        assert_eq!(cache.pending_token, None);
+    }
+
+    #[test]
+    fn rejects_single_turn_too_large_without_mutating_state() {
+        let mut cache = InteractiveKvState { cached_tokens: 2, pending_token: Some(5) };
+        assert!(cache.prepare(vec![1, 2, 3], 6, 8).is_err());
+        assert_eq!(cache.cached_tokens, 2);
+        assert_eq!(cache.pending_token, Some(5));
+    }
+
+    #[test]
+    fn exact_fit_keeps_context() {
+        let mut cache = InteractiveKvState { cached_tokens: 3, pending_token: Some(8) };
+        let (reset, tail) = cache.prepare(vec![1, 2], 4, 10).unwrap();
+        assert!(!reset);
+        assert_eq!(tail, vec![8, 1, 2]);
+    }
+}
+
 /// Run a real interactive text session using the runtime dispatcher.
-fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
+fn run_interactive(model: &str, max_tokens: usize, keep_context: bool) -> Result<(), String> {
     use kiln_core::chat::{Sampler, SamplingStrategy};
     use kiln_runtime::{LlamaCppBackend, RuntimeDispatcher, RuntimeOp, RuntimeResult, SystemProfile};
     use std::io::{self, Write};
@@ -1075,6 +1188,8 @@ fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
         profile.tier, profile.n_threads, profile.n_ctx);
 
     let stdin = io::stdin();
+    let mut kv_state = InteractiveKvState::default();
+    let mut first_turn = true;
     loop {
         print!("you> ");
         io::stdout().flush().map_err(|e| format!("prompt output failed: {}", e))?;
@@ -1091,9 +1206,19 @@ fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
             continue;
         }
 
-        dispatcher.dispatch(RuntimeOp::Reset)
-            .map_err(|e| format!("session reset failed: {}", e))?;
-        let tokens = match dispatcher.dispatch(RuntimeOp::Tokenize { text: prompt.to_string() })
+        // Keep the existing independent, raw-prompt behavior by default.
+        // The opt-in mode builds a token stream incrementally and never
+        // re-prefills a prefix that already exists in the native KV cache.
+        let prompt_text = if keep_context {
+            if first_turn {
+                format!("User: {prompt}\nAssistant:")
+            } else {
+                format!("\nUser: {prompt}\nAssistant:")
+            }
+        } else {
+            prompt.to_string()
+        };
+        let tokens = match dispatcher.dispatch(RuntimeOp::Tokenize { text: prompt_text })
             .map_err(|e| format!("tokenization failed: {}", e))? {
             RuntimeResult::Tokens(tokens) => tokens,
             _ => return Err("backend returned an unexpected tokenization result".to_string()),
@@ -1102,11 +1227,49 @@ fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
             eprintln!("warning: prompt tokenized to no tokens");
             continue;
         }
+        let previous_cached = kv_state.cached_tokens;
+        let tokens = if keep_context {
+            let (must_reset, tail) = kv_state.prepare(tokens, max_tokens, profile.n_ctx as usize)?;
+            if must_reset {
+                // After evicting the old dialogue, restart the prompt without
+                // the continuation-only leading newline.
+                let fresh = match dispatcher.dispatch(RuntimeOp::Tokenize {
+                    text: format!("User: {prompt}\nAssistant:"),
+                }).map_err(|e| format!("fresh turn tokenization failed: {e}"))? {
+                    RuntimeResult::Tokens(tokens) => tokens,
+                    _ => return Err("backend returned an unexpected tokenization result".to_string()),
+                };
+                let (_, fresh) = kv_state.prepare(fresh, max_tokens, profile.n_ctx as usize)?;
+                dispatcher.dispatch(RuntimeOp::Reset)
+                    .map_err(|e| format!("KV reset on context boundary failed: {e}"))?;
+                eprintln!("note: context limit approached; starting a fresh conversation window");
+                fresh
+            } else {
+                tail
+            }
+        } else {
+            dispatcher.dispatch(RuntimeOp::Reset)
+                .map_err(|e| format!("session reset failed: {}", e))?;
+            tokens
+        };
+        let prefill_count = tokens.len();
+        let prefill_start = std::time::Instant::now();
         let mut logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens })
             .map_err(|e| format!("prompt evaluation failed: {}", e))? {
             RuntimeResult::Logits(logits) => logits,
             _ => return Err("backend returned an unexpected prompt result".to_string()),
         };
+        if keep_context {
+            kv_state.forwarded(prefill_count);
+            first_turn = false;
+            tracing::debug!(
+                prefill_tokens = prefill_count,
+                cached_before_turn = previous_cached,
+                cached_after_prefill = kv_state.cached_tokens,
+                prefill_ms = prefill_start.elapsed().as_secs_f64() * 1000.0,
+                "append-only interactive prefill"
+            );
+        }
 
         print!("kiln> ");
         io::stdout().flush().map_err(|e| format!("response output failed: {}", e))?;
@@ -1116,8 +1279,10 @@ fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
             let token = sampler.sample(&logits)
                 .ok_or_else(|| "sampler returned no token".to_string())? as i32;
             if token == eos {
+                if keep_context { kv_state.emitted(token); }
                 break;
             }
+            if keep_context { kv_state.emitted(token); }
             let piece = match dispatcher.dispatch(RuntimeOp::TokenToStr { token })
                 .map_err(|e| format!("token decoding failed: {}", e))? {
                 RuntimeResult::Bytes(bytes) => decode_utf8_piece(&mut pending_utf8, &bytes),
@@ -1132,6 +1297,10 @@ fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
                     RuntimeResult::Logits(logits) => logits,
                     _ => return Err("backend returned an unexpected decode result".to_string()),
                 };
+                if keep_context {
+                    kv_state.pending_token = None;
+                    kv_state.forwarded(1);
+                }
             }
         }
         if !pending_utf8.is_empty() {
