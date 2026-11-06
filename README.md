@@ -1,44 +1,66 @@
 # KILN
 
-**A local-first inference runtime designed to run models larger than available memory, using the hardware already in your system.**
+**Run models larger than your machine’s memory on the hardware you already own.**
 
-KILN is being built to coordinate model execution and memory across CPUs, GPUs, NPUs, APUs and integrated GPUs, RAM, NVMe storage, and accelerator memory. Its goal is a single runtime and model workflow that can adapt to different hardware configurations.
+KILN is an open-source local inference runtime in active development. It is designed to coordinate model execution and memory across CPU, GPU, NPU, APU/iGPU, RAM, NVMe storage, and accelerator memory. Its central challenge is making large sparse models practical on a wide range of machines without treating any one hardware tier as the whole product.
 
-## The idea
+## What is in the repository
 
-Large models often exceed the memory available on a personal computer. Mixture-of-experts (MoE) models activate only part of their weights for each token, creating an opportunity to keep the full model on storage while bringing the experts in use into faster memory.
+- A Rust workspace with a per-layer runtime dispatcher and a llama.cpp integration.
+- GGUF model loading, a TQ1_0 ternary path, CLI and Ollama-compatible API.
+- Benchmarking and quality-checking tools for controlled runtime experiments.
+- Design work for MoE expert prediction, caching and streaming across the memory hierarchy.
 
-KILN aims to combine per-layer hardware dispatch, expert prediction and caching, and a tiered memory hierarchy to make that practical while preserving model quality. These are engineering goals; KILN has not yet demonstrated its full large-model performance target.
+KILN is not yet a stable, general-purpose runtime. End-to-end MoE streaming and performance across the intended hardware tiers are still under development.
 
-## Project status
+## Performance
 
-KILN is an active engineering project and is not yet a stable, production-ready runtime. The codebase includes a Rust workspace, llama.cpp integration, runtime dispatch, GGUF model support, TQ1.0 ternary support, a CLI, an API, and benchmarking and quality-checking tools. Dense-path performance and end-to-end MoE streaming remain under development.
+The project’s mission target is a 70B-class MoE model with about 4B active parameters at **4 tokens/s or better**, with WikiText-2 accuracy within 1% of an FP16 reference. This is a target, not an achieved result.
 
-The initial acceptance machine is a Dell Latitude 7490 with 16 GB RAM and no discrete GPU. It is a minimum validation target, not a limit on the hardware KILN is designed to support.
+| Workload | Recorded result | Status |
+|---|---:|---|
+| Qwen2.5-1.5B Q4_K, Dell Latitude 7490 | 10.57 tok/s | Historical dense-path measurement; rerun needed for a current comparison |
+| Qwen3-30B-A3B MoE streaming | 3 tok/s target | End-to-end result not yet demonstrated |
+| 70B-class MoE, about 4B active parameters | 4 tok/s target | Mission target; not yet demonstrated |
 
-The project’s mission target is to run a 70B-class MoE model with about 4B active parameters at 4 tokens per second while staying within 1% of an FP16 reference on WikiText-2. This is a target, not a result.
+The historical dense comparison with Ollama used different prompt-cache behavior, so its numbers should not be read as a controlled head-to-head result. The [roadmap](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md) contains the benchmark record and its qualifications.
 
-## Platform approach
+## Hardware
 
-KILN is intended to be platform agnostic. The runtime should use the CPU, GPU, NPU, APU or integrated GPU capabilities available on a system, with appropriate backend implementations and safe fallback behavior. Hardware-specific kernels and memory policies fit behind a common runtime contract; support and performance depend on the backend and device.
+The Dell Latitude 7490 (i7-8650U, 16 GB RAM, no discrete GPU) is KILN’s minimum acceptance machine. It is the test floor, not the limit of the project. The runtime is intended for heterogeneous systems too; backend support and measured performance vary by device and are being developed.
 
-## Explore the project
+## Build and run
 
-- [Master roadmap and engineering record](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md) — authoritative phases, acceptance criteria, research, decisions, and measured results.
-- [Architecture overview](docs/architecture.md)
-- [Quantization policy](docs/quantization-policy.md)
-- [Design documents](docs/)
-- [Source code](crates/)
-
-To inspect the current development CLI:
+The current development build links against the vendored `kiln-llama` submodule. On Linux, with Rust, CMake and a C/C++ toolchain installed:
 
 ```sh
+git clone --recurse-submodules https://github.com/andreipath26/KILN.git
+cd KILN
+
+cmake -S vendor/llama.cpp -B vendor/llama.cpp/build \
+  -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
+cmake --build vendor/llama.cpp/build --config Release -j
+
 cargo run -p kiln-cli -- --help
+cargo run -p kiln-cli -- run /path/to/model.gguf --max-tokens 50
 ```
 
-## Contributing
+To start the local API server, set `KILN_MODEL_PATH` to a readable GGUF file:
 
-KILN is open source under the [MIT License](LICENSE). Before proposing a runtime or performance change, review the roadmap and relevant design document so implementation and acceptance criteria stay aligned.
+```sh
+KILN_MODEL_PATH=/path/to/model.gguf cargo run -p kiln-cli -- serve
+```
 
-Performance claims should include reproducible measurements for the model, hardware, backend, workload, and build used.
+The CLI and backend interfaces are still changing. Check command help for the current options.
 
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Runtime dispatch design](docs/runtime-dispatch-design.md)
+- [GGUF design](docs/gguf-design.md)
+- [Quantization policy](docs/quantization-policy.md)
+- [Decode-rate measurement contract](docs/phase35-decode-rate-contract.md)
+- [MoE predictor training and evaluation](docs/training-pipeline-design.md)
+- [Master roadmap and engineering record](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md)
+
+KILN is licensed under MIT. See [LICENSE](LICENSE).
