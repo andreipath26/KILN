@@ -1088,6 +1088,22 @@ mod cli_tests {
     use clap::Parser;
 
     #[test]
+    fn native_greedy_remains_explicit_opt_in() {
+        let default = Cli::try_parse_from(["kiln", "run", "model.gguf"]).unwrap();
+        assert!(matches!(default.command,
+            Commands::Run { native_greedy: false, .. }));
+        let selected = Cli::try_parse_from(["kiln", "run", "model.gguf", "--native-greedy"]).unwrap();
+        assert!(matches!(selected.command,
+            Commands::Run { native_greedy: true, .. }));
+        let baseline_bench = Cli::try_parse_from(["kiln", "bench", "model.gguf"]).unwrap();
+        assert!(matches!(baseline_bench.command,
+            Commands::Bench { native_greedy: false, .. }));
+        let tuned = Cli::try_parse_from(["kiln", "bench", "model.gguf", "--native-greedy"]).unwrap();
+        assert!(matches!(tuned.command,
+            Commands::Bench { native_greedy: true, .. }));
+    }
+
+    #[test]
     fn keep_context_is_explicit_opt_in() {
         let regular = Cli::try_parse_from(["kiln", "run", "model.gguf"]).unwrap();
         assert!(matches!(regular.command, Commands::Run { keep_context: false, .. }));
