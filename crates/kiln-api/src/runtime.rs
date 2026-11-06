@@ -18,12 +18,16 @@ pub(crate) struct RuntimeSession {
 #[derive(Clone)]
 pub(crate) struct ApiState {
     pub runtime: Arc<Mutex<Option<RuntimeSession>>>,
+    pub activation_lock: Arc<Mutex<()>>,
+    pub download_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 impl ApiState {
     pub fn unconfigured() -> Self {
         Self {
             runtime: Arc::new(Mutex::new(None)),
+            activation_lock: Arc::new(Mutex::new(())),
+            download_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
         }
     }
 
@@ -39,6 +43,56 @@ impl ApiState {
         if !metadata.is_file() {
             return Err(format!("KILN_MODEL_PATH {} is not a file", path.display()));
         }
+
+        let session = load_session(path)?;
+
+        Ok(Self {
+            runtime: Arc::new(Mutex::new(Some(session))),
+            activation_lock: Arc::new(Mutex::new(())),
+            download_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
+        })
+    }
+
+    /// Replace the active model without ever leaving a partially initialized
+    /// session visible. If loading the new model fails, restore the prior one.
+    pub fn activate(&self, path: PathBuf) -> Result<String, String> {
+        let _activation = self.activation_lock.lock()
+            .map_err(|_| "model activation lock is poisoned".to_string())?;
+        let previous = {
+            let mut runtime = self.runtime.lock()
+                .map_err(|_| "runtime state lock is poisoned".to_string())?;
+            runtime.take().map(|session| (session.model_path.clone(), session.model_name.clone()))
+        };
+
+        match load_session(path.clone()) {
+            Ok(session) => {
+                let name = session.model_name.clone();
+                *self.runtime.lock().map_err(|_| "runtime state lock is poisoned".to_string())? = Some(session);
+                Ok(name)
+            }
+            Err(load_error) => {
+                if let Some((previous_path, previous_name)) = previous {
+                    match load_session(previous_path) {
+                        Ok(session) => {
+                            *self.runtime.lock().map_err(|_| "runtime state lock is poisoned".to_string())? = Some(session);
+                            Err(format!("model activation failed: {load_error}; restored previous model '{previous_name}'"))
+                        }
+                        Err(restore_error) => Err(format!("model activation failed: {load_error}; restoring previous model also failed: {restore_error}")),
+                    }
+                } else {
+                    Err(format!("model activation failed: {load_error}"))
+                }
+            }
+        }
+    }
+}
+
+fn load_session(path: PathBuf) -> Result<RuntimeSession, String> {
+    let metadata = std::fs::metadata(&path)
+        .map_err(|e| format!("model path {} is not readable: {}", path.display(), e))?;
+    if !metadata.is_file() {
+        return Err(format!("model path {} is not a file", path.display()));
+    }
 
         let profile = SystemProfile::load_or_probe();
         let mut dispatcher = RuntimeDispatcher::new();
@@ -71,13 +125,10 @@ impl ApiState {
             "loaded API inference model"
         );
 
-        Ok(Self {
-            runtime: Arc::new(Mutex::new(Some(RuntimeSession {
+        Ok(RuntimeSession {
                 dispatcher,
                 model_name,
                 model_path: path,
                 eos_token,
-            }))),
-        })
-    }
+            })
 }
