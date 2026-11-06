@@ -100,7 +100,7 @@ int32_t kiln_llama_tokenize(
 }
 
 int32_t kiln_llama_decode(
-    kiln_llama_t h, const int32_t* tokens, int32_t n_tokens, int32_t pos_offset)
+    kiln_llama_t h, const int32_t* tokens, int32_t n_tokens, int32_t pos_offset, int32_t request_last_logits)
 {
     struct kiln_llama* k = (struct kiln_llama*)h;
     if (!k || !tokens || n_tokens <= 0 || n_tokens > k->batch_capacity || pos_offset < 0) return -1;
@@ -116,7 +116,7 @@ int32_t kiln_llama_decode(
         k->batch.pos[i]         = pos_offset + i;
         k->batch.n_seq_id[i]    = 1;
         k->batch.seq_id[i][0]   = 0;
-        k->batch.logits[i]      = (i == n_tokens - 1) ? 1 : 0;
+        k->batch.logits[i]      = (request_last_logits != 0 && i == n_tokens - 1) ? 1 : 0;
     }
     k->batch.n_tokens = n_tokens;
 
