@@ -180,6 +180,12 @@ The [master roadmap](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md#15-research-
 
 The literature suggests promising techniques—unequal layer cache allocation, confidence-aware *exact* prefetch, lossless expert compression and distribution-aware ternary layouts—but **none is a reproduced KILN speedup**. These are bounded experiments within existing phases, not a replacement for the 70B-class mission or an excuse to postpone Phase 3.5.
 
+## Phase 3.5 measurement implementation (November 2026)
+
+KILN now includes bounded prompt prefill, a thread/logical-batch/physical-microbatch benchmark matrix, explicit real decode-forward throughput measurements and Linux process RSS checkpoints. Run `kiln bench <model.gguf> --threads 4 --batch 512 --ubatch 128 --tokens 128 --runs 5 --json` on a pinned local GGUF to capture a controlled sample. See [benchmark rate contract](docs/phase35-decode-rate-contract.md), [native microbatch protocol](docs/phase35-native-microbatch.md) and [Dell matrix script](scripts/run_tier0_dense_matrix.sh).
+
+**These implementations passed hosted CI; no new Dell benchmark or Ollama parity has been established.** The opt-in model differential test and the ≥27 tok/s target remain pending real target-machine validation.
+
 ## Current next steps
 
 1. Reproduce the dense-path baseline and profile the actual hot path for Phase 3.5.
