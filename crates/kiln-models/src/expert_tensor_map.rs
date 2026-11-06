@@ -62,19 +62,27 @@ fn invalid(s: impl Into<String>) -> ExpertMapError {
 /// overflow before a mapping is accepted. Unknown quantizers are rejected.
 fn checked_tensor_bytes(info: &GgufTensorInfo) -> Option<u64> {
     if info.shape.is_empty() || info.shape.contains(&0) { return None; }
-    let elements = info.shape.iter().try_fold(1u64, |n, d| n.checked_mul(*d))?;
-    match info.dtype {
-        GgufType::F32 => elements.checked_mul(4),
-        GgufType::F16 => elements.checked_mul(2),
-        GgufType::Tq1_0 => elements.checked_add(4).map(|n| n / 5),
-        GgufType::Unknown(_) => None,
+    // GGUF dimensions are recorded with the contiguous row dimension first.
+    // Quantization blocks are encoded independently in each row; flattening
+    // dimensions before ceil-dividing undercounts weights with partial rows.
+    let row_width = *info.shape.first()?;
+    let row_count = info.shape[1..].iter().try_fold(1u64, |n,d| n.checked_mul(*d))?;
+    let row_bytes = match info.dtype {
+        GgufType::F32 => row_width.checked_mul(4)?,
+        GgufType::F16 => row_width.checked_mul(2)?,
+        GgufType::Tq1_0 => row_width.checked_add(4)? / 5,
+        GgufType::Unknown(_) => return None,
         ref dtype => {
             let block = dtype.block_size()?;
             let bytes = dtype.block_bytes()?;
-            let count = elements.checked_add(block - 1)? / block;
-            count.checked_mul(bytes)
+            // Avoid accepting a partial block that the pinned native format
+            // cannot decode as a valid row. GGUF quantized row width must be
+            // an integral number of blocks, except for KILN TQ1.0 packing.
+            if row_width % block != 0 { return None; }
+            row_width.checked_div(block)?.checked_mul(bytes)?
         }
-    }
+    };
+    row_bytes.checked_mul(row_count)
 }
 
 /// Validate an explicitly supplied list of exact tensor names and return
@@ -168,6 +176,27 @@ mod tests {
         assert_eq!(result.components[0].source_byte_offset,1024);
         assert_eq!(result.components[1].source_byte_offset,1152);
     }
+    #[test]
+    fn tq1_partial_rows_count_each_row_separately() {
+        let src=[tensor("packed",0,&[6,3],GgufType::Tq1_0)];
+        let names=[NamedExpertTensor {
+            layer:0,expert_id:0,tensor_name:"packed".into(),
+        }];
+        let map=resolve_expert_tensor_components(&src,0,128,&names).unwrap();
+        // Three 6-trit rows each require ceil(6/5)=2 bytes; not
+        // ceil(18/5)=4 total bytes.
+        assert_eq!(map.components[0].byte_length,6);
+    }
+
+    #[test]
+    fn block_quantized_rows_must_be_complete() {
+        let src=[tensor("quant",0,&[257,2],GgufType::Q4_K)];
+        let names=[NamedExpertTensor {
+            layer:0,expert_id:0,tensor_name:"quant".into(),
+        }];
+        assert!(resolve_expert_tensor_components(&src,0,8192,&names).is_err());
+    }
+
     #[test]
     fn rejects_overlaps_missing_unknown_and_overflow() {
         let tensors=vec![
