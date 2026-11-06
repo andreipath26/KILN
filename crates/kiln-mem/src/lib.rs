@@ -24,3 +24,6 @@ pub use predictor_eval::{evaluate_predictor_holdout, PredictorHoldoutReport, Hol
 
 pub mod router_eval;
 pub use router_eval::{RouterEvent, GroupedHoldoutReport, RouterEvalError, evaluate_grouped_router_holdout};
+
+pub mod expert_commit_guard;
+pub use expert_commit_guard::{ExpertCommitGuard, CommitResult, CommitStats, StageResult};
