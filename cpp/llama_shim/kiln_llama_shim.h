@@ -44,7 +44,8 @@ int32_t kiln_llama_decode(
     kiln_llama_t h,
     const int32_t* tokens,
     int32_t n_tokens,
-    int32_t pos_offset);
+    int32_t pos_offset,
+    int32_t request_last_logits);
 
 /* Copy n_vocab logits for the last decoded position into out. */
 int32_t kiln_llama_logits(kiln_llama_t h, float* out, int32_t out_cap);

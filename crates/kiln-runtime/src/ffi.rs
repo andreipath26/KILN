@@ -52,6 +52,7 @@ extern "C" {
         tokens: *const c_int,
         n_tokens: c_int,
         pos_offset: c_int,
+        request_last_logits: c_int,
     ) -> c_int;
     fn kiln_llama_logits(h: *mut c_void, out: *mut f32, out_cap: c_int) -> c_int;
     fn kiln_llama_greedy_token(h: *mut c_void) -> c_int;
@@ -198,7 +199,8 @@ impl LlamaContext {
         // A prompt can exceed n_batch even when it fits in n_ctx. The C shim
         // uses one reusable llama_batch of exactly n_batch entries. Send
         // bounded chunks while retaining KV state and token positions.
-        for chunk in tokens.chunks(self.batch_capacity) {
+        let chunk_count = tokens.len().div_ceil(self.batch_capacity);
+        for (index, chunk) in tokens.chunks(self.batch_capacity).enumerate() {
             let count = i32::try_from(chunk.len())
                 .map_err(|_| LlamaError::Decode("token batch exceeds the C ABI limit".to_string()))?;
             let rc = unsafe {
@@ -207,6 +209,7 @@ impl LlamaContext {
                     chunk.as_ptr(),
                     count,
                     self.n_past,
+                    i32::from(index + 1 == chunk_count),
                 )
             };
             if rc != 0 {
@@ -331,6 +334,18 @@ mod tests {
         let err = ctx.decode(&[1]).unwrap_err();
         assert!(matches!(err, LlamaError::Decode(message) if message.contains("overflow")));
     }
+    #[test]
+    fn only_final_prompt_chunk_needs_logits() {
+        let tokens: Vec<i32> = (0..1025).collect();
+        let count = tokens.len().div_ceil(256);
+        let flags: Vec<_> = tokens.chunks(256).enumerate()
+            .map(|(index, _)| index + 1 == count).collect();
+        assert_eq!(flags, vec![false, false, false, false, true]);
+        let single: Vec<_> = tokens[..10].chunks(256).enumerate()
+            .map(|(index, _)| index + 1 == 1).collect();
+        assert_eq!(single, vec![true]);
+    }
+
     #[test]
     fn chunk_partition_never_exceeds_configured_batch() {
         let sample: Vec<i32> = (0..1025).collect();
