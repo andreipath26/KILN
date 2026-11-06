@@ -338,7 +338,8 @@ A “not beneficial” result is useful and must remain recorded with tested con
 6. **Representation validation:** verify TQ1.0 effective size and benchmark ternary K/V/RSD separately; evaluate QTEA as a controlled comparison.
 7. **Documentation:** update README claims only after verifying the representation or result. Label external paper results clearly.
 8. **Training pipeline design:** write docs/training-pipeline-design.md separately. Keep training out of inference critical path unless measurements justify coupling.
-9. **Productization:** only after runtime, correctness, performance and quality gates are satisfied.
+9. **Model lifecycle:** harden the initial GGUF discovery/search/pull workflow. Add model-card/license display, gated-repository handling, hardware-aware size estimates, resumable transfers, and an install flow that asks before choosing or downloading a model. Keep model-format/runtime compatibility checks explicit.
+10. **Productization:** only after runtime, correctness, performance and quality gates are satisfied.
 
 ### Not yet proven by this roadmap
 
@@ -532,7 +533,7 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 
 6. **The current build and the shipping-loader design conflict.** The default linked-llama feature and current build.rs unconditionally compile the C++ shim and link static libraries from the built vendor/llama.cpp submodule, plus Linux-specific stdc++/gomp libraries. loader.rs has path and dynamic-library helpers, but the active FFI/backend calls the linked shim. The dynamic-llama shipping flow in docs/runtime-loading-design.md is not implemented. Resolve this before claiming clean, repeatable cross-platform deployment builds.
 
-7. **The API and model lifecycle are limited.** The API loads one GGUF at startup from KILN_MODEL_PATH; generation is greedy and only a subset of request options is supported. Chat uses generic role-prefixed text rather than a model-specific template. CLI pull, list, and plan commands are marked not implemented. Document the supported local workflow or implement the promised lifecycle/API behavior before advertising those features.
+7. **The API and model lifecycle are limited.** The API loads one GGUF at startup from KILN_MODEL_PATH; generation is greedy and only a subset of request options is supported. Chat uses generic role-prefixed text rather than a model-specific template. The CLI now has initial local GGUF discovery, `run auto` when exactly one candidate is found, public Hugging Face GGUF search and verified single-file pull; it relies on system curl/SHA utilities, does not handle gated repositories or resumable downloads, does not rank/select among multiple models, and has no curated compatibility-ranked catalog. `plan` remains unimplemented. GGUF parsing is a structural check, not proof that the runtime can load every architecture. Document and test these boundaries before advertising broad model support.
 
 8. **Acceptance evidence and licensing/release qualification remain open.** The 10.57 tok/s dense result and comparison data are historical; Phase 3.5 still needs a pinned current Dell baseline and exit-gate evidence. Phase 5 still needs real-model correctness, sustained throughput, physical memory/I/O and quality evidence. Define the “within 1% of FP16” calculation; complete dependency/submodule/model license review; define the supported platform/backend matrix; and establish clean-machine release, upgrade/rollback and security checks before a public stable release.
 
@@ -611,3 +612,12 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - PR #19 (fast Python-only CI workflow) is the only closed-unmerged item not marked as superseded. Its branch is technically mergeable, but its closure records the owner’s instruction to defer workflow convenience work until roadmap milestones are complete. Those milestones remain open, so it remains deferred.
 - Updated current Phase 5 ledger and engineering-gap sections to distinguish merged sidecar/cache/async/dispatch primitives from the still-missing llama.cpp MoE graph integration and Dell end-to-end evidence.
 - Corrected the memory-manager, I/O, dispatch, build-loader and UMF status descriptions against current main. Older dated session notes are retained as historical records.
+
+
+### 2026-11-06 — Initial local model library workflow
+
+- Replaced the `kiln list` and `kiln pull` stubs with local GGUF discovery and public Hugging Face GGUF search/download commands; added `kiln search` and `kiln run auto` for model discovery and unambiguous local selection.
+- Local discovery scans KILN/Hugging Face/Ollama model locations and optional user paths, recognizes GGUF files, and validates them with KILN's GGUF parser. This is structural validation, not a guarantee of runtime architecture support.
+- Downloads require an explicit repository and GGUF filename, verify the Hub-provided SHA-256, parse the completed GGUF, and install it only after verification. No automatic model selection or gated-repository auth is introduced.
+- The initial transfer uses the system curl and SHA-256 utility; add a native cross-platform transfer layer, resumable downloads, richer license/model-card review and hardware-aware ranking before broad deployment claims.
+- Source and documentation changes are on the feature branch; compilation and CI have not been run in this environment.
