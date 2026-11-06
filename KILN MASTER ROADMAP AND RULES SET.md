@@ -1,7 +1,7 @@
 # KILN MASTER ROADMAP AND RULES SET
 
-**Version:** 9.0 — consolidated research integration  
-**Last updated:** 2026-10-29  
+**Version:** 9.1 — current repository reconciliation  
+**Last updated:** 2026-11-06  
 **Status:** Active master roadmap  
 **Repository:** https://github.com/andreipath26/KILN  
 **Runtime fork:** https://github.com/andreipath26/kiln-llama
@@ -83,7 +83,7 @@ The latest supplied project state records these statuses. Reconfirm against Git,
 | 3.5 | Dense-path speed run | **In progress / next execution phase** | Controlled baseline, profiling, prompt cache, speculation, thread and batch settings. |
 | 4 | Ternary weights / TQ1.0 path | Complete in supplied status | Verify effective storage and runtime representation. |
 | 4.5 | Sanity and quality guarantees | Complete in supplied status | Keep quality checks for lossy representations. |
-| 5 | MoE expert streaming across heterogeneous compute and tiered memory | **Core mission phase; full feasibility/end-to-end gates pending** | The CPU-only Tier 0 route is the minimum acceptance slice; preserve accelerator and unified-memory paths in the architecture. moe-stream branch of andreipath26/kiln-llama was reported to build on Tier 0; Qwen3-30B-A3B model test waited for data budget. |
+| 5 | MoE expert streaming across heterogeneous compute and tiered memory | **Core mission phase; full feasibility/end-to-end gates pending** | PRs #41–56 added GGUF sidecar, cache, guarded I/O, async reader, Linux io_uring and `cpu_moe_streamed` byte-operation dispatch components. The CPU-only Tier 0 route is the minimum acceptance slice. Actual llama.cpp MoE graph integration and real-model Dell acceptance remain open. |
 | 6 | Diffusion | Future / not started | Separate research track; not a drop-in autoregressive optimization. |
 | 7 | Hardware abstraction | Future / not started | Preserve common runtime contract and hardware-specific options. |
 | 8 | Productization | Future / not started | Packaging, support, quality, performance and user-facing acceptance. |
@@ -172,6 +172,15 @@ Evaluate against existing TQ1.0 using the same model, tokenizer, hardware and ev
 Phase 5 aims to stream MoE experts through the memory hierarchy while retaining a useful hot cache, predicting expert demand, and overlapping data movement with computation. The CPU-only Tier 0 path is the minimum acceptance route, not the product's hardware scope; the same per-layer runtime must use available CPU, GPU, NPU, APU/iGPU, and memory tiers where supported. Verify implementation and model-specific flags against the pinned andreipath26/kiln-llama revision. Preserve exact router execution as the primary correctness path; prediction schedules prefetch unless an explicitly separate approximation mode passes its own quality gate.
 
 **Janas comparison.** Janas (https://github.com/prabanta-dev/janas) is evidence that a practical RAM cache for oversized MoE weights can work as a baseline. The reviewed project does not establish a trained next-layer prerouter or FlashMoE-style ML cache replacement. KILN Phase 5.2's graph-based multi-layer prerouter plus Commit Guard and Phase 5.3's asynchronous I/O plus learned replacement are proposed improvements on top of that baseline, not capabilities to attribute to Janas. Treat all performance/quality benefits as hypotheses until KILN reproduces them.
+
+### Current Phase 5 implementation on main (reconciled 2026-11-06)
+
+- **Phase 5.1:** PRs #41–44 add explicit GGUF tensor-to-expert component maps, a 4 KiB-aligned separate sidecar pack, CRC32 verification, and component readers. The original GGUF remains unchanged. Mapping is explicit; fused expert tensors are not generally decomposed automatically.
+- **Phase 5.2/5.3:** PRs #47, #49–55 add source-backed reads, byte-bounded cache and admission, authoritative-router Commit Guard behavior, bounded asynchronous prefetch, and a Linux io_uring reader with buffered fallback.
+- **Phase 5.4:** PR #56 registers `MoEStreamBackend` (`cpu_moe_streamed`) for token-scoped expert-byte operations. A real-file test covers predictions, misses, router order, and stale epochs.
+- **Integration boundary:** These are real code and test milestones, not end-to-end streamed inference. The stock llama.cpp model graph does not call the new expert operations or materialize sidecar tensor components into its compute path. Dell real-model speed, physical RSS, SSD traffic per token, quality, and Phase 5 exit criteria remain open.
+
+
 
 ### Existing design targets (not universal guarantees)
 
@@ -509,13 +518,23 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 
 **Scope and status.** Reviewed the complete tracked KILN Git tree (147 entries), major runtime/CLI/API/quantization/I/O/memory files, the canonical roadmap and relevant designs, plus current primary papers and research artifacts. This is a source-level research audit, **not** a successful Tier 0 hardware benchmark, exhaustive manual review of every source line, or a claim that published results reproduce in KILN. The master roadmap remains authoritative. Preserve all existing phases/rules and the historical 2026-10-29 research addendum.
 
-### 15.1 Engineering gaps discovered in the current repository
+### 15.1 Current implementation and remaining deployment gaps (reconciled 2026-11-06)
 
-1. **Byte-accounted residency is a correctness prerequisite for Phase 5.** `crates/kiln-mem/src/manager.rs` presently defines `InMemoryManager` as an accounting-only prototype; `load` increments `used` by **one per tensor** and `rebalance` is a no-op. It does not enforce actual resident byte budgets, perform SSD reads, or guarantee peak RAM. Gate before streaming integration: record per-expert allocated bytes and alignment; byte-account all resident tensors, IO buffers, page-cache pressure where measurable, KV, activations, metadata and OS reserve; implement bounded admission, eviction/pinning and rollback with tests. Retain the 15 GB Tier 0 overall peak RSS acceptance goal. An expert cache hit count is not a memory-safety guarantee.
-2. **Prove format compatibility before UMF implementation.** `docs/umf-design.md` says both that experts are extracted out of the standard GGUF tensor area and that the resulting file loads unmodified in stock llama.cpp. These are not automatically compatible. Build two explicit alternatives and test: (A) complete valid GGUF with separately indexed sidecar expert pack, or (B) a new KILN-only container with documented lack of stock-GGUF compatibility. Do not assert compatibility until standard llama.cpp loads the resulting artifact and tensor offsets/checksums remain valid. Validate crash-safe conversion, partial files, bounds, duplicate/overlap expert ranges and endianness; compare exact tensor values with source.
-3. **IO feasibility must come before scheduling complexity.** `crates/kiln-io/src/source.rs` exposes the trait but the main branch does not show a production SSD expert-stream engine; `crates/kiln-models/src/experts.rs` records ranges only. Open PR #12 proposes a bounded expert-read probe, not an end-to-end implementation. Rebase/reconcile against main, pass CI, then run Dell NVMe measurements; distinguish OS-buffered versus direct I/O and warm versus cold page cache, small random reads versus coalesced ranges, P50/P95/P99, queue depth, read amplification and CPU/decompression costs. Default to buffered reads unless the measured alternative wins.
-4. **Measure actual per-layer dispatch and fallback rather than infer from type names.** A `RuntimeDispatcher` currently routes session operations through a registered llama.cpp backend, while the separate `kiln-core` per-operation `Dispatcher` is a different abstraction. Require a traced operation→backend map and differential comparison proving when the claimed heterogeneous per-layer dispatch is actually exercised versus delegated to llama.cpp. Do not equate the existence of both dispatchers with fully implemented cross-device selection.
-5. **Benchmark and deployment evidence remain distinct.** The `kiln-bench` infrastructure includes synthetic/kernel benchmarks while `kiln bench` provides model-run timings; neither alone closes Phase 3.5 or 5. Open PR #10 improves reporting. Require pinned model hashes, runtime/fork commits, warmup, threads, batches, prompt cache, thermals, median/spread, actual memory/IO and quality. No model-download assumption; respect available Tier 0 storage/data budget.
+1. **Memory admission is byte-accounted logically, but physical residency is not proven.** PR #14 changed InMemoryManager to require registered allocation sizes, enforce logical byte capacities and move reservations atomically. It does not allocate or free the actual expert tensors, measure process RSS, or account automatically for the OS page cache. PR #31 added shared Arc-backed expert blocks; handles that outlive cache membership remain outside the cache-membership budget. Measure the full live allocation/RSS envelope—including caller-held blocks, KV, activations, I/O buffers, metadata and OS reserve—before claiming the <15 GB Tier 0 limit.
+
+2. **The implemented artifact is a sidecar, not the proposed embedded UMF container.** PRs #41–44 add explicit GGUF tensor maps, aligned expert sidecar packing, per-expert CRC32 checks and verified component readers while leaving the source GGUF intact. Mapping requires an explicit model-aware tensor selection; fused expert tensors are not generally decomposed automatically. CRC32 detects accidental corruption, not authenticity. The embedded KUMF extension and automatic kiln convert workflow described in docs/umf-design.md remain proposals. Runtime materialization of sidecar components into llama.cpp inference is not implemented.
+
+3. **Expert I/O/cache tools and async readers exist; real-machine feasibility is still unverified.** PRs #15–17 provide indexed bounded file reads, cache/prefetch replay and Tier 0 evidence/traffic-budget tooling; PR #16 adds Linux /proc/self/io counters with page-cache/read-ahead limitations. PRs #53 and #55 add a Linux io_uring reader and bounded background prefetch with buffered fallback. These testable components do not establish cold physical NVMe bandwidth, SSD bytes per real-model token, total process RSS, or overlap in inference. Run the pinned Dell workload and record those separately.
+
+4. **The streamed-expert runtime seam exists but is not connected to the MoE compute graph.** PRs #47, #49 and #52–56 implement guarded source-backed expert bytes, prediction rejection, async coordination and a registered MoEStreamBackend. The resident llama.cpp backend deliberately declines MoE byte operations. The actual model router must still supply authoritative expert IDs, and llama.cpp must consume verified tensor components at the router boundary. Do not call cpu_moe_streamed an end-to-end inference backend until that integration passes model correctness and Tier 0 acceptance.
+
+5. **Per-layer heterogeneous dispatch must be demonstrated, not inferred from registered backends.** The standard inference session still runs through LlamaCppBackend; the separate kiln-core operation dispatcher and the streamed-expert byte-operation registry do not yet prove execution placement across CPU, GPU, NPU, APU/iGPU and memory tiers. Require operation-to-backend traces, supported-operation matrices, fallback behavior and differential correctness for every shipped backend.
+
+6. **The current build and the shipping-loader design conflict.** The default linked-llama feature and current build.rs unconditionally compile the C++ shim and link static libraries from the built vendor/llama.cpp submodule, plus Linux-specific stdc++/gomp libraries. loader.rs has path and dynamic-library helpers, but the active FFI/backend calls the linked shim. The dynamic-llama shipping flow in docs/runtime-loading-design.md is not implemented. Resolve this before claiming clean, repeatable cross-platform deployment builds.
+
+7. **The API and model lifecycle are limited.** The API loads one GGUF at startup from KILN_MODEL_PATH; generation is greedy and only a subset of request options is supported. Chat uses generic role-prefixed text rather than a model-specific template. CLI pull, list, and plan commands are marked not implemented. Document the supported local workflow or implement the promised lifecycle/API behavior before advertising those features.
+
+8. **Acceptance evidence and licensing/release qualification remain open.** The 10.57 tok/s dense result and comparison data are historical; Phase 3.5 still needs a pinned current Dell baseline and exit-gate evidence. Phase 5 still needs real-model correctness, sustained throughput, physical memory/I/O and quality evidence. Define the “within 1% of FP16” calculation; complete dependency/submodule/model license review; define the supported platform/backend matrix; and establish clean-machine release, upgrade/rollback and security checks before a public stable release.
 
 ### 15.2 New or newly actionable research, ranked by leverage
 
@@ -544,16 +563,16 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 
 **Accuracy-preserving vs approximate routing.** Separate exact original-router execution plus prefetch/cache (quality-preserving relative to the same quantized model) from route substitution, surrogate expert execution, training-derived prerouters and lossily compressed/quantized alternatives. Any approximate branch must demonstrate the pinned quality gate independently rather than borrow exact-path claims.
 
-**Stop/go after Gate 5A.** Do not expand multi-layer prediction, io_uring/SQPOLL, SLM-based expert prediction or lossless compressor integration until Tier 0 representative storage traces and measured byte-bounded residency show a credible path to the ≥3 tok/s Phase 5 pilot. If not credible, retain the full research record, preserve dense-only Tier 0 usability and evaluate changed model/tier assumptions through an explicit mission decision rather than quietly weakening the target.
+**Stop/go after Gate 5A.** The repository now contains Phase 5.2–5.4 cache, guarded-reader, async-I/O and expert-byte dispatch primitives. Do not expand those mechanisms further or wire prediction into the active model path until Tier 0 representative traces and measured physical memory residency show a credible path to the ≥3 tok/s Phase 5 pilot. The current primitives are not end-to-end streamed inference. If the measured path is not credible, preserve the evidence and evaluate any model/tier change through an explicit mission decision.
 
-### 15.4 Recommended immediate order (does not replace Section 12)
+### 15.4 Recommended immediate order (reconciled to current main; preserves Section 12)
 
-1. Reconcile open benchmarking PR #10 and I/O feasibility PR #12 with current `main`, including their CI and tests.
-2. Repair **real byte-accounted** memory management and record a phase-5 peak-memory test before storing large expert blocks.
-3. Establish representative SSD-read workload and cache/replacement baselines on Dell; analyze hard traffic budget and compression/overlap break-even.
-4. Resolve stock GGUF / UMF compatibility with a round-trip format proof and a selectable sidecar option.
-5. Prioritize MoE-CORE variable layer allocation and APEX confidence-adaptive exact prefetch *only if the traces indicate headroom*. Benchmark BITCOS separately in Phase 4.5 and quality-constrained Q-Strata offline.
-6. Preserve Phase 3.5 as the immediate inference-performance path and avoid introducing unmeasured multi-model/SLM critical-path behavior.
+1. Reconcile current-source facts and roadmap statuses; do not treat historical PR/branch notes as open work.
+2. Keep Phase 3.5 as the immediate execution priority: reproduce the pinned Dell dense baseline, profile the hot path, and close its measured speed/correctness gate.
+3. Complete Gate 5A using the merged expert-read/cache/evidence tools: real Dell reads on representative model expert ranges, physical-versus-cached traffic bounds, actual total RSS including external shared handles, and an evidence-based bytes-per-token budget.
+4. Validate the sidecar/tensor map against the pinned target MoE model, including exact component coverage, fused-tensor limitations, byte-for-byte parity and safe failure on malformed artifacts. Keep the original GGUF intact.
+5. Only after credible Gate 5A evidence, connect the Phase 5.1–5.4 building blocks to the pinned llama.cpp MoE router and tensor path; run exact-routing, cache/prefetch/I/O ablations and Phase 5D correctness/quality/performance acceptance.
+6. Before shipping, resolve the static-link versus dynamic-loader design, define the supported OS/backend matrix, complete licensing review, and add clean-machine packaging, upgrade/rollback and release qualification.
 
 ### 2026-11-06 — Phase 5A validated implementation and storage-counter follow-up
 
@@ -583,3 +602,12 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Reworked README after comparing project-native formats used by Janas and llama.cpp: direct project claim, concrete capability list, honest performance table, hardware context, source-build path, and focused documentation links.
 - Removed generic product-brief language. Clearly separated implemented repository components from the unfinished MoE streaming and platform-performance goals.
 - No phase status or benchmark result changed.
+
+
+### 2026-11-06 — Current repository and pull-request reconciliation
+
+- Audited all 58 pull requests visible in the repository: **47 merged, 11 closed unmerged, 0 open**.
+- Ten closed PRs are explicitly superseded by merged work: #1→#5, #12→#15, #23→#24, #26→#27, #38→#39, #46→#47, #48→#49, #51→#52, #54→#55, and #57 by the later Phase 5.3 async-prefetch implementation. Their branches remain historical; merging them would duplicate or conflict with the landed work.
+- PR #19 (fast Python-only CI workflow) is the only closed-unmerged item not marked as superseded. Its branch is technically mergeable, but its closure records the owner’s instruction to defer workflow convenience work until roadmap milestones are complete. Those milestones remain open, so it remains deferred.
+- Updated current Phase 5 ledger and engineering-gap sections to distinguish merged sidecar/cache/async/dispatch primitives from the still-missing llama.cpp MoE graph integration and Dell end-to-end evidence.
+- Corrected the memory-manager, I/O, dispatch, build-loader and UMF status descriptions against current main. Older dated session notes are retained as historical records.
