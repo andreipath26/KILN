@@ -482,7 +482,7 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 
 ### 2026-11-06 — source-level and frontier/theoretical research audit
 
-- Read the tracked repository tree and critical code paths; identified that `InMemoryManager` counts entries rather than actual resident bytes and that UMF stock-GGUF compatibility is unproven if experts are relocated.
+- At the pre-PR #14 audit snapshot, `InMemoryManager` counted entries rather than bytes. PR #14 later added byte-accounted logical admission and tier moves; it still does not measure physical RSS or page-cache residency. The audit also identified that stock-GGUF compatibility is unproven if expert bytes are relocated.
 - Researched MoE-CORE (2026-10), APEX, BITCOS, Q-Strata (EMNLP 2026-10), ZipMoE (ICML 2026), SSD-LLaMA, OLED-MoE and dynamic speculative drafting; retained earlier Edge0/FlashMoE/SPICE leads without claiming them as new.
 - Added Phase 5 byte-budget / weighted-paging and SSD traffic lower-bound gates; separate exact routing from approximation, and separate reported external speedups from KILN measurements.
 - Prioritized small, falsifiable Tier 0 experiments, licensing checks, measurable precision/quality gates and compatibility proof, not a wholesale runtime replacement or phase reorder.
