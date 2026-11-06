@@ -475,3 +475,18 @@ pub async fn pull_hugging_face_async_with_progress(
     result
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{valid_repo_file, valid_repo_id};
+
+    #[test]
+    fn model_library_rejects_traversal_and_non_gguf_files() {
+        assert!(valid_repo_id("owner/model-name"));
+        assert!(!valid_repo_id("../model"));
+        assert!(!valid_repo_id("owner/../model"));
+        assert!(valid_repo_file("nested/model.Q4_K_M.gguf"));
+        assert!(!valid_repo_file("../outside.gguf"));
+        assert!(!valid_repo_file("model.bin"));
+    }
+}
+
