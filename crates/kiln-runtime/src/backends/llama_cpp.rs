@@ -23,10 +23,6 @@ impl RuntimeBackend for LlamaCppBackend {
 
     fn supports(&self, op: &RuntimeOp) -> bool {
         match op {
-            RuntimeOp::MoEBeginToken { .. } | RuntimeOp::MoEPrefetch { .. }
-                | RuntimeOp::MoEPoll | RuntimeOp::MoECommit { .. } => {
-                Err(RuntimeError::NoBackend)
-            }
             RuntimeOp::Load { .. } => true,
             RuntimeOp::MoEBeginToken { .. } | RuntimeOp::MoEPrefetch { .. }
                 | RuntimeOp::MoEPoll | RuntimeOp::MoECommit { .. } => false,
@@ -38,6 +34,8 @@ impl RuntimeBackend for LlamaCppBackend {
 
     fn execute(&mut self, op: &RuntimeOp) -> Result<RuntimeResult, RuntimeError> {
         match op {
+            RuntimeOp::MoEBeginToken { .. } | RuntimeOp::MoEPrefetch { .. }
+                | RuntimeOp::MoEPoll | RuntimeOp::MoECommit { .. } => Err(RuntimeError::NoBackend),
             RuntimeOp::Load { path, n_ctx, n_batch, n_ubatch, n_threads } => {
                 let max = i32::MAX as u32;
                 if *n_ctx == 0 || *n_batch == 0 || *n_ubatch == 0 || *n_threads == 0
