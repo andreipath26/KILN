@@ -15,7 +15,7 @@ use std::time::Instant;
 use std::path::PathBuf;
 
 use kiln_io::{CachedExpertBlobReader, FileRangeReader};
-use kiln_mem::{ExpertCachePolicy, ExpertKey, ExpertPrefetcher, PrefetchStats};
+use kiln_mem::{evaluate_grouped_router_holdout, RouterEvent, ExpertCachePolicy, ExpertKey, ExpertPrefetcher, PrefetchStats};
 use kiln_models::{ExpertRange, ExpertTable};
 
 use clap::{Parser, Subcommand};
@@ -98,6 +98,20 @@ enum Commands {
         #[arg(long, default_value_t = 1)]
         latency_requests: usize,
         /// Emit JSON only.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Grouped MoE router-event next-expert holdout evaluation (top-k expert set).
+    RouterHoldout {
+        /// Chronological JSON array of {token_position,layer,active_experts}.
+        #[arg(long)]
+        trace_file: PathBuf,
+        /// All tokens before this index train the transition model.
+        #[arg(long)]
+        train_until_token: u64,
+        /// Number of simultaneous expert candidates.
+        #[arg(long, default_value_t = 2)]
+        top_k: usize,
         #[arg(long)]
         json: bool,
     },
@@ -1292,6 +1306,30 @@ async fn main() {
                 Ok(report) => print_prefetch_replay_human(&report),
                 Err(error) => {
                     eprintln!("prefetch replay failed: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::RouterHoldout { trace_file, train_until_token, top_k, json } => {
+            let report = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let raw=read_bounded_input(&trace_file, MAX_EXPERT_TRACE_BYTES, "router trace")?;
+                let events:Vec<RouterEvent>=serde_json::from_slice(&raw)?;
+                if events.len()>10_000_000 { return Err("router trace exceeds event limit".into()); }
+                Ok(evaluate_grouped_router_holdout(&events,train_until_token,top_k)?)
+            })();
+            match report {
+                Ok(report) if json => println!("{}", serde_json::to_string_pretty(&report).unwrap()),
+                Ok(report) => {
+                    println!("KILN Phase 5.0 grouped router holdout");
+                    println!("  Events train/test: {}/{}",report.train_events,report.test_events);
+                    println!("  Complete active-expert set accuracy@{}: {:.2}%",top_k,report.accuracy_at_k*100.0);
+                    println!("  Event coverage: {:.2}%",report.coverage*100.0);
+                    println!("  Individual active-expert recall: {:.2}%",report.active_expert_recall_at_k*100.0);
+                    println!("  Train-only unigram baseline: {:.2}%",report.unigram_baseline_accuracy_at_k*100.0);
+                    println!("  Real-model + Tier 0 validation remains required.");
+                }
+                Err(e) => {
+                    eprintln!("grouped router holdout failed: {e}");
                     std::process::exit(2);
                 }
             }
