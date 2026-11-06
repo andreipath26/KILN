@@ -91,7 +91,7 @@ kiln-bench expert-pack-verify \
 
 **Critical limitations:** This does **not** yet discover exact expert tensor ranges automatically from all GGUF/MoE variants. The source index must be produced by a trustworthy model-aware extractor or manually validated, not guessed. CRC32 detects accidental corruption but is **not** a cryptographic signature or authenticity guarantee. The format contains no trained prerouter, executable KILN-only tensor relocation instructions, or inference scheduler. No claims of running a stripped GGUF through stock llama.cpp or Phase 5 end-to-end MoE throughput are made.
 
-Hosted tests verify exact source/expert bytes after pack-roundtrip, 4 KiB offsets and zero-filled padding, CRC corruption rejection, no overwrite of pre-existing files, and fail-before-writing for bad ranges. The next Phase 5.1 code gate is a model-specific GGUF tensor/expert extraction map and exact quantization-preserving roundtrip validation. The original Dell/streaming performance gates remain open.
+Hosted tests verify exact source/expert bytes after pack-roundtrip, 4 KiB offsets and zero-filled padding, CRC corruption rejection, no overwrite of pre-existing files, and fail-before-writing for bad ranges. Later named-component work added explicit GGUF tensor maps plus TQ1_0/Q4_K size and roundtrip checks. Remaining Phase 5.1 gates are a complete map for the pinned target MoE, fused-tensor-aware extraction where required, and full model inference parity after sidecar materialization. The original Dell/streaming performance gates remain open.
 
 # Phase 5.1 — Named GGUF tensor components to verified expert sidecars
 
