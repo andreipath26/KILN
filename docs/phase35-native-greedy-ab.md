@@ -23,4 +23,4 @@ KILN_TEST_MODEL_PATH=/path/to/model.gguf cargo test -p kiln-runtime --lib \
   native_greedy_matches_full_logits_for_real_model -- --ignored --nocapture
 ```
 
-Hosted CI compiles the test but does not run it because the model is not available. Do not enable native sampling for regular `kiln run` or API inference until target-machine A/B shows measurable end-to-end benefit and the real-model differential gate passes. **No speedup or 27 tok/s gate is claimed by this code change.**
+Hosted CI compiles the test but does not run it because the model is not available. The experimental mode can also be enabled explicitly for interactive use with `kiln run /path/to/model.gguf --native-greedy` (optionally `--keep-context`), but the default remains the proven full-logits Rust sampler. Do not enable it by default, or in the HTTP API, until the Dell A/B and model parity gate both pass. **No speedup or 27 tok/s gate is claimed by this code change.**
