@@ -1039,7 +1039,20 @@ fn truncate_for_display(text: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod cli_tests {
-    use super::truncate_for_display;
+    use super::{truncate_for_display, Cli, Commands};
+    use clap::Parser;
+
+    #[test]
+    fn keep_context_is_explicit_opt_in() {
+        let regular = Cli::try_parse_from(["kiln", "run", "model.gguf"]).unwrap();
+        assert!(matches!(regular.command, Commands::Run { keep_context: false, .. }));
+        let opted = Cli::try_parse_from([
+            "kiln", "run", "model.gguf", "--keep-context", "--max-tokens", "32",
+        ]).unwrap();
+        assert!(matches!(opted.command, Commands::Run {
+            keep_context: true, max_tokens: 32, ..
+        }));
+    }
 
     #[test]
     fn display_truncation_preserves_unicode_boundaries() {
