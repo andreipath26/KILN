@@ -63,6 +63,7 @@ pub struct VerifiedExpertComponentReader {
     reader: CachedExpertBlobReader,
     // Byte offsets within the corresponding expert's cached allocation.
     components: HashMap<(u32, u32, String), (usize, usize)>,
+    grouped: HashMap<(u32, u32), Vec<(String, usize, usize)>>,
 }
 
 impl VerifiedExpertComponentReader {
@@ -80,6 +81,7 @@ impl VerifiedExpertComponentReader {
             blob, index, integrity, component_map,
         )?;
         let mut keys = HashMap::with_capacity(manifest.components.len());
+        let mut grouped: HashMap<(u32,u32),Vec<(String,usize,usize)>> = HashMap::new();
         let mut range_idx = 0usize;
         for component in manifest.components {
             while range_idx < table.ranges.len()
@@ -114,6 +116,7 @@ impl VerifiedExpertComponentReader {
                 ));
             }
             let key = (component.layer, component.expert_id, component.tensor_name);
+            grouped.entry((key.0,key.1)).or_default().push((key.2.clone(),relative,length));
             if keys.insert(key, (relative,length)).is_some() {
                 return Err(ComponentReadError::Invalid("duplicate component key".into()));
             }
@@ -123,6 +126,7 @@ impl VerifiedExpertComponentReader {
                 blob, table, cache_budget_bytes, cache_policy,
             )?,
             components: keys,
+            grouped,
         })
     }
 
@@ -144,6 +148,30 @@ impl VerifiedExpertComponentReader {
             ));
         }
         Ok(SharedTensorComponent { backing, offset, length })
+    }
+
+    /// Return all tensor components in an expert with a single cache lookup.
+    /// The component order matches the packed manifest. Views share one
+    /// backing allocation even when the cache subsequently evicts it.
+    pub fn read_expert_group(
+        &self, layer: u32, expert_id: u32,
+    ) -> Result<Vec<(String, SharedTensorComponent)>, ComponentReadError> {
+        let pieces = self.grouped.get(&(layer,expert_id)).ok_or_else(|| {
+            ComponentReadError::NotFound {
+                layer, expert_id, tensor_name: "<entire expert>".into(),
+            }
+        })?;
+        let backing = self.reader.read_expert_shared(layer,expert_id)?;
+        let mut result=Vec::with_capacity(pieces.len());
+        for (name,offset,length) in pieces {
+            if offset.checked_add(*length).is_none_or(|end| end>backing.len()) {
+                return Err(ComponentReadError::Invalid("expert component exceeds backing allocation".into()));
+            }
+            result.push((name.clone(),SharedTensorComponent {
+                backing:Arc::clone(&backing),offset:*offset,length:*length,
+            }));
+        }
+        Ok(result)
     }
 
     /// Copy one verified component into a reusable caller-owned buffer.
@@ -222,6 +250,13 @@ mod tests {
         assert_eq!(down.as_bytes(),&bytes[40..60]);
         assert_eq!(up.as_bytes(),&bytes[90..120]);
         assert!(down.shares_allocation_with(&up));
+        let group=reader.read_expert_group(0,0).unwrap();
+        assert_eq!(group.len(),2);
+        assert_eq!(group[0].0,"down");
+        assert_eq!(group[1].0,"up");
+        assert_eq!(group[0].1.as_bytes(),&bytes[40..60]);
+        assert_eq!(group[1].1.as_bytes(),&bytes[90..120]);
+        assert!(group[0].1.shares_allocation_with(&group[1].1));
         assert_eq!(reader.cache_stats().used_bytes,50);
         let mut reuse=[0u8;20];
         reader.read_component_into(0,0,"down",&mut reuse).unwrap();
