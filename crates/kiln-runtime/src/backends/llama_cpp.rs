@@ -127,6 +127,7 @@ mod tests {
             path: PathBuf::from("not-used.gguf"),
             n_ctx: i32::MAX as u32 + 1,
             n_batch: 512,
+            n_ubatch: 256,
             n_threads: 4,
         });
         assert!(matches!(result, Err(RuntimeError::Llama(LlamaError::Load(_)))));
