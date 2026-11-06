@@ -72,7 +72,7 @@ pub struct LlamaContext {
     batch_capacity: usize,
     /// Maximum token positions available in this unshifted context.
     context_capacity: usize,
-
+}
 
 unsafe impl Send for LlamaContext {}
 
