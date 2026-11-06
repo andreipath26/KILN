@@ -1214,20 +1214,33 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool) -> Result
             eprintln!("warning: prompt tokenized to no tokens");
             continue;
         }
+        let previous_cached = kv_state.cached_tokens;
         let tokens = if keep_context {
             let (must_reset, tail) = kv_state.prepare(tokens, max_tokens, profile.n_ctx as usize)?;
             if must_reset {
+                // After evicting the old dialogue, restart the prompt without
+                // the continuation-only leading newline.
+                let fresh = match dispatcher.dispatch(RuntimeOp::Tokenize {
+                    text: format!("User: {prompt}\\nAssistant:"),
+                }).map_err(|e| format!("fresh turn tokenization failed: {e}"))? {
+                    RuntimeResult::Tokens(tokens) => tokens,
+                    _ => return Err("backend returned an unexpected tokenization result".to_string()),
+                };
+                let (_, fresh) = kv_state.prepare(fresh, max_tokens, profile.n_ctx as usize)?;
                 dispatcher.dispatch(RuntimeOp::Reset)
                     .map_err(|e| format!("KV reset on context boundary failed: {e}"))?;
                 eprintln!("note: context limit approached; starting a fresh conversation window");
+                fresh
+            } else {
+                tail
             }
-            tail
         } else {
             dispatcher.dispatch(RuntimeOp::Reset)
                 .map_err(|e| format!("session reset failed: {}", e))?;
             tokens
         };
         let prefill_count = tokens.len();
+        let prefill_start = std::time::Instant::now();
         let mut logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens })
             .map_err(|e| format!("prompt evaluation failed: {}", e))? {
             RuntimeResult::Logits(logits) => logits,
@@ -1236,6 +1249,13 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool) -> Result
         if keep_context {
             kv_state.forwarded(prefill_count);
             first_turn = false;
+            tracing::debug!(
+                prefill_tokens = prefill_count,
+                cached_before_turn = previous_cached,
+                cached_after_prefill = kv_state.cached_tokens,
+                prefill_ms = prefill_start.elapsed().as_secs_f64() * 1000.0,
+                "append-only interactive prefill"
+            );
         }
 
         print!("kiln> ");
