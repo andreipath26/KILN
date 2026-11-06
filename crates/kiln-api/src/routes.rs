@@ -375,32 +375,33 @@ pub async fn ui_model_pull(
     let permit = state.download_semaphore.clone().try_acquire_owned()
         .map_err(|_| error_response((StatusCode::TOO_MANY_REQUESTS, "a model download is already active".into())))?;
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, Infallible>>(8);
-    let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let worker_cancelled = cancelled.clone();
-    tokio::task::spawn_blocking(move || {
+    let worker_cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    tokio::spawn(async move {
         let _permit = permit;
-        let mut send_event = |event: Value| {
-            let line = event.to_string() + "\n";
-            tx.blocking_send(Ok(Bytes::from(line))).is_ok()
-        };
         let repository = request.repository;
         let file = request.file;
-        let result = kiln_models::library::pull_hugging_face_with_progress(
+        let progress_tx = tx.clone();
+        let result = kiln_models::library::pull_hugging_face_async_with_progress(
             &repository,
             &file,
             &worker_cancelled,
             |bytes_received, total_bytes| {
-                send_event(json!({
+                let event = json!({
                     "event": "progress",
                     "bytes_received": bytes_received,
                     "total_bytes": total_bytes
-                }))
+                });
+                if progress_tx.is_closed() { return false; }
+                let _ = progress_tx.try_send(Ok(Bytes::from(event.to_string() + "\n")));
+                true
             },
-        );
-        match result {
-            Ok(path) => { let _ = send_event(json!({ "event": "done", "path": path })); }
-            Err(error) => { let _ = send_event(json!({ "event": "error", "error": error })); }
-        }
+        ).await;
+        let event = match result {
+            Ok(path) => json!({ "event": "done", "path": path }),
+            Err(error) => json!({ "event": "error", "error": error }),
+        };
+        let line = event.to_string() + "\n";
+        let _ = tx.send(Ok(Bytes::from(line))).await;
     });
     let body = Body::from_stream(ReceiverStream::new(rx));
     let response = Response::builder()
