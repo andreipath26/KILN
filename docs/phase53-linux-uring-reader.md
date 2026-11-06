@@ -8,7 +8,7 @@ A Linux-only `LinuxUringExpertReader` now opens an indexed expert blob, validate
 - `IoUring`: regular io_uring setup succeeds, including fallback when optional SQPOLL setup fails.
 - `BufferedFallback`: ring creation or a ring read fails; use safe buffered positioned reads. An unavailable or denied io_uring subsystem must never stop KILN from reading experts.
 
-This is a **native read-path implementation**, not yet the entire Phase 5.3 scheduler. The existing bounded background worker and exact-router Commit Guard remain available as a portable overlap and correctness path. The next integration must route their source reads through this backend, batch independent expert I/O when beneficial, and compare SQPOLL against plain buffered reads under the Dell's thermal and I/O constraints.
+This is a **native read-path implementation**, not yet the entire Phase 5.3 scheduler. The bounded background worker and exact-router Commit Guard are now integrated with this backend through `AsyncGuardedExpertCoordinator::new_linux_uring(...)`; the worker reads from the validated expert source using io_uring when available and buffered positioned reads otherwise. Remaining work is to batch independent expert I/O where beneficial and compare SQPOLL, regular io_uring and buffered reads under the Dell's thermal and I/O constraints.
 
 ## Safety
 
