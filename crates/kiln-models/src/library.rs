@@ -1,6 +1,6 @@
 //! Local GGUF discovery and Hugging Face GGUF search/download helpers.
 
-use kiln_models::gguf::GgufFile;
+use crate::gguf::GgufFile;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -314,7 +314,7 @@ pub fn pull_hugging_face_with_progress(
     let result = (|| {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(30))
-            .read_timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(24 * 60 * 60))
             .redirect(https_redirect_policy())
             .build().map_err(|e| format!("could not initialize HTTPS client: {e}"))?;
         let mut response = client.get(&url).send()
@@ -363,6 +363,114 @@ pub fn pull_hugging_face_with_progress(
         let _ = fs::remove_file(&temp);
         Ok(destination.clone())
     })();
+    if result.is_err() && created_temp { let _ = fs::remove_file(&temp); }
+    result
+}
+
+/// Async counterpart for the UI/API server. Stream reads are cancellable while
+/// the connection is idle, and progress callbacks never block a runtime worker.
+pub async fn pull_hugging_face_async_with_progress(
+    repo: &str,
+    file: &str,
+    cancelled: &AtomicBool,
+    mut progress: impl FnMut(u64, Option<u64>) -> bool,
+) -> Result<PathBuf, String> {
+    if !valid_repo_id(repo) { return Err("model must be a Hugging Face repo in owner/name form".into()); }
+    if !valid_repo_file(file) { return Err("--file must name a .gguf file inside the repository".into()); }
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(24 * 60 * 60))
+        .redirect(https_redirect_policy())
+        .build().map_err(|e| format!("could not initialize HTTPS client: {e}"))?;
+    let info_url = format!("https://huggingface.co/api/models/{}?blobs=true", url_encode(repo));
+    let info_text = client.get(&info_url).send().await
+        .map_err(|e| format!("Hugging Face request failed: {e}"))?
+        .error_for_status().map_err(|e| format!("Hugging Face request failed: {e}"))?
+        .text().await.map_err(|e| format!("Hugging Face returned invalid response text: {e}"))?;
+    let info: Value = serde_json::from_str(&info_text).map_err(|e| format!("invalid model metadata: {e}"))?;
+    let gated = info.get("gated").is_some_and(|value| match value {
+        Value::Bool(gated) => *gated,
+        Value::String(gated) => gated != "false",
+        _ => false,
+    });
+    if gated {
+        return Err("this repository is gated and requires Hugging Face authorization; KILN will not bypass that access requirement".into());
+    }
+    let siblings = info.get("siblings").and_then(Value::as_array).ok_or("model metadata contains no file list")?;
+    let sibling = siblings.iter().find(|item| item.get("rfilename").and_then(Value::as_str) == Some(file))
+        .ok_or("the selected GGUF file was not found in that public repository")?;
+    let expected = sibling.pointer("/lfs/oid").or_else(|| sibling.get("sha256"))
+        .and_then(Value::as_str).map(|x| x.strip_prefix("sha256:").unwrap_or(x).to_ascii_lowercase())
+        .ok_or("Hugging Face did not provide a SHA-256 digest for this file; refusing an unverifiable download")?;
+    if expected.len() != 64 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("Hugging Face returned an invalid SHA-256 digest".into());
+    }
+    let expected_size = sibling.get("size").and_then(Value::as_u64)
+        .or_else(|| sibling.pointer("/lfs/size").and_then(Value::as_u64));
+    const MAX_MODEL_BYTES: u64 = 2 * 1024 * 1024 * 1024 * 1024;
+    if expected_size.is_some_and(|size| size > MAX_MODEL_BYTES) {
+        return Err("selected model exceeds the 2 TiB download limit".into());
+    }
+
+    let root = model_dir()?;
+    let destination = root.join(repo.replace('/', "--")).join(Path::new(file));
+    if destination.exists() { return Err(format!("destination already exists: {}", destination.display())); }
+    let parent = destination.parent().ok_or("invalid destination path")?;
+    fs::create_dir_all(parent).map_err(|e| format!("could not create model directory: {e}"))?;
+    let temp = destination.with_file_name(format!("{}.{}.part", Path::new(file).file_name().and_then(|x| x.to_str()).unwrap_or("model.gguf"), std::process::id()));
+    if temp.exists() { return Err(format!("temporary download already exists: {}", temp.display())); }
+
+    let encoded_file = file.split('/').map(url_encode).collect::<Vec<_>>().join("/");
+    let url = format!("https://huggingface.co/{}/resolve/main/{}?download=true", url_encode(repo), encoded_file);
+    let mut created_temp = false;
+    let result = async {
+        if cancelled.load(Ordering::Relaxed) { return Err("model download cancelled".into()); }
+        let mut response = client.get(&url).send().await
+            .map_err(|e| format!("model download request failed: {e}"))?
+            .error_for_status().map_err(|e| format!("model download request failed: {e}"))?;
+        if let Some(actual_size) = response.content_length() {
+            if actual_size > MAX_MODEL_BYTES { return Err("selected model exceeds the 2 TiB download limit".into()); }
+            if expected_size.is_some_and(|expected| expected != actual_size) {
+                return Err(format!("model size changed: expected {} bytes, server reports {} bytes", expected_size.unwrap(), actual_size));
+            }
+        }
+        let mut output = fs::OpenOptions::new().write(true).create_new(true).open(&temp)
+            .map_err(|e| format!("could not create temporary model file: {e}"))?;
+        created_temp = true;
+        let mut hasher = Sha256::new();
+        let mut received = 0u64;
+        loop {
+            if cancelled.load(Ordering::Relaxed) { return Err("model download cancelled".into()); }
+            let next_chunk = tokio::time::timeout(Duration::from_secs(30), response.chunk()).await
+                .map_err(|_| "model download stalled for 30 seconds".to_string())?
+                .map_err(|e| format!("model download interrupted: {e}"))?;
+            let Some(chunk) = next_chunk else { break; };
+            received = received.saturating_add(chunk.len() as u64);
+            if received > MAX_MODEL_BYTES || expected_size.is_some_and(|size| received > size) {
+                return Err("download exceeded the advertised model size".into());
+            }
+            output.write_all(&chunk).map_err(|e| format!("could not write model data: {e}"))?;
+            hasher.update(&chunk);
+            if !progress(received, expected_size.or(response.content_length())) {
+                cancelled.store(true, Ordering::Relaxed);
+                return Err("model download cancelled".into());
+            }
+        }
+        output.sync_all().map_err(|e| format!("could not flush downloaded model: {e}"))?;
+        drop(output);
+        if expected_size.is_some_and(|size| size != received) {
+            return Err(format!("download size mismatch: expected {} bytes, received {} bytes", expected_size.unwrap(), received));
+        }
+        let actual = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        if actual != expected { return Err(format!("download SHA-256 mismatch: expected {expected}, got {actual}")); }
+        if let Err(error) = GgufFile::open(&temp) {
+            return Err(format!("downloaded file is not a readable KILN-supported GGUF: {error}"));
+        }
+        fs::hard_link(&temp, &destination).map_err(|e| format!("could not install downloaded model without overwriting an existing file: {e}"))?;
+        let _ = fs::remove_file(&temp);
+        Ok(destination.clone())
+    }.await;
     if result.is_err() && created_temp { let _ = fs::remove_file(&temp); }
     result
 }
