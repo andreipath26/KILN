@@ -12,3 +12,5 @@ kiln-hal = { path = "../kiln-hal" }
 kiln-kernels = { path = "../kiln-kernels" }
 
 memmap2 = "0.9"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+sha2 = "0.10"
