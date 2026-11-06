@@ -96,8 +96,14 @@ fn write_json_new<T: Serialize>(path: &Path, value: &T) -> Result<(), SidecarPac
         return Err(invalid("index or integrity manifest exceeds 128 MiB"));
     }
     let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
-    file.write_all(&bytes)?;
-    file.sync_all()?;
+    let result = file.write_all(&bytes).and_then(|_| file.sync_all());
+    drop(file);
+    if let Err(error) = result {
+        // Only this call's create_new output is removed. Existing artifacts
+        // are never overwritten or deleted on error.
+        let _ = std::fs::remove_file(path);
+        return Err(SidecarPackError::Io(error));
+    }
     Ok(())
 }
 
@@ -136,12 +142,13 @@ pub fn write_expert_sidecar(
         let mut result_ranges = Vec::with_capacity(ranges.ranges.len());
         let mut checksums = Vec::with_capacity(ranges.ranges.len());
         let mut buf = [0u8; CHUNK];
+        let zeros = [0u8; CHUNK];
         for range in &ranges.ranges {
             let start = aligned_position(position)?;
             let mut gap = start - position;
             while gap > 0 {
                 let count = usize::try_from(gap.min(CHUNK as u64)).unwrap();
-                output.write_all(&buf[..count])?;
+                output.write_all(&zeros[..count])?;
                 gap -= count as u64;
             }
             input.seek(SeekFrom::Start(range.byte_offset))?;
@@ -277,6 +284,10 @@ mod tests {
         let verified = verify_expert_sidecar(&packed, &index, &integrity).unwrap();
         assert_eq!(verified.ranges[1].byte_offset, 4096);
         assert_eq!(verified.ranges[2].byte_offset, 8192);
+        let packed_bytes = std::fs::read(&packed).unwrap();
+        assert!(packed_bytes[30..4096].iter().all(|byte| *byte == 0),
+            "alignment gaps must be zero-filled, not previous expert data");
+        assert!(packed_bytes[4096 + 75..8192].iter().all(|byte| *byte == 0));
         let mut reader = File::open(&packed).unwrap();
         for (src_range, packed_range) in source_table.ranges.iter().zip(verified.ranges.iter()) {
             let mut data = vec![0u8; packed_range.byte_length as usize];
