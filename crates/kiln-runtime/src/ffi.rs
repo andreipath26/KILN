@@ -347,11 +347,11 @@ mod tests {
         let mut full = LlamaContext::load_with_ubatch(path, options)
             .expect("load full-prefix context");
 
-        let first = incremental.tokenize("User: Name two planets.\\nAssistant:")
+        let first = incremental.tokenize("User: Name two planets.\nAssistant:")
             .expect("tokenize first prompt");
         let assistant = incremental.tokenize(" Mars and Venus.")
             .expect("tokenize fixed assistant continuation");
-        let second = incremental.tokenize("\\nUser: Name one more.\\nAssistant:")
+        let second = incremental.tokenize("\nUser: Name one more.\nAssistant:")
             .expect("tokenize next prompt");
         assert!(!first.is_empty() && !assistant.is_empty() && !second.is_empty());
         let mut full_tokens = first.clone();
