@@ -32,18 +32,19 @@ impl RuntimeBackend for LlamaCppBackend {
 
     fn execute(&mut self, op: &RuntimeOp) -> Result<RuntimeResult, RuntimeError> {
         match op {
-            RuntimeOp::Load { path, n_ctx, n_batch, n_threads } => {
+            RuntimeOp::Load { path, n_ctx, n_batch, n_ubatch, n_threads } => {
                 let max = i32::MAX as u32;
-                if *n_ctx == 0 || *n_batch == 0 || *n_threads == 0
-                    || *n_ctx > max || *n_batch > max || *n_threads > max
+                if *n_ctx == 0 || *n_batch == 0 || *n_ubatch == 0 || *n_threads == 0
+                    || *n_ctx > max || *n_batch > max || *n_ubatch > max || *n_threads > max
+                    || *n_ubatch > *n_batch
                 {
                     return Err(RuntimeError::Llama(LlamaError::Load(
-                        "n_ctx, n_batch, and n_threads must be positive values within i32 range".to_string(),
+                        "n_ctx, n_batch, n_ubatch, and n_threads must be valid positive values within i32 range, and n_ubatch <= n_batch".to_string(),
                     )));
                 }
-                let ctx = LlamaContext::load_with(
+                let ctx = LlamaContext::load_with_ubatch(
                     path,
-                    Some((*n_ctx as i32, *n_batch as i32, *n_threads as i32)),
+                    Some((*n_ctx as i32, *n_batch as i32, *n_ubatch as i32, *n_threads as i32)),
                 )?;
                 self.ctx = Some(ctx);
                 Ok(RuntimeResult::Unit)
@@ -100,6 +101,20 @@ mod tests {
             path: PathBuf::from("not-used.gguf"),
             n_ctx: 0,
             n_batch: 512,
+            n_ubatch: 256,
+            n_threads: 4,
+        });
+        assert!(matches!(result, Err(RuntimeError::Llama(LlamaError::Load(_)))));
+    }
+
+    #[test]
+    fn rejects_microbatch_larger_than_logical_batch() {
+        let mut backend = LlamaCppBackend::new();
+        let result = backend.execute(&RuntimeOp::Load {
+            path: PathBuf::from("not-used.gguf"),
+            n_ctx: 4096,
+            n_batch: 256,
+            n_ubatch: 512,
             n_threads: 4,
         });
         assert!(matches!(result, Err(RuntimeError::Llama(LlamaError::Load(_)))));
