@@ -241,7 +241,7 @@ fn model_dir() -> Result<PathBuf, String> {
         return Ok(PathBuf::from(path).join("KILN/models"));
     }
     let base = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from)
-        .or_else(home_dir().map(|p| p.join(".local/share")))
+        .or(home_dir().map(|p| p.join(".local/share")))
         .ok_or("could not determine a user data directory; set KILN_MODELS_DIR")?;
     Ok(base.join("kiln/models"))
 }
