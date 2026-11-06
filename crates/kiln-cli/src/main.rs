@@ -156,6 +156,9 @@ enum Commands {
         /// Physical microbatch size for controlled comparisons.
         #[arg(long)]
         ubatch: Option<u32>,
+        /// Compare native greedy sampling against Rust vocabulary logits sampling.
+        #[arg(long)]
+        native_greedy: bool,
         /// Emit machine-readable JSON.
         #[arg(long)]
         json: bool,
@@ -750,7 +753,7 @@ async fn main() {
         },
         Commands::Pull { model } => not_implemented("pull", &model),
         Commands::List => not_implemented("list", ""),
-        Commands::Bench { model, prompt, tokens, runs, warmup, threads, batch, ubatch, json } => {
+        Commands::Bench { model, prompt, tokens, runs, warmup, threads, batch, ubatch, native_greedy, json } => {
             if runs == 0 {
                 eprintln!("bench: --runs must be at least 1");
                 std::process::exit(2);
@@ -812,7 +815,7 @@ async fn main() {
 
             let mut warmup_completed = 0usize;
             for index in 0..warmup {
-                if let Err(error) = bench_once(&mut dispatcher, &prompt, tokens, eos) {
+                if let Err(error) = bench_once(&mut dispatcher, &prompt, tokens, eos, native_greedy) {
                     eprintln!("bench: warm-up run {} failed: {}", index + 1, error);
                     std::process::exit(1);
                 }
@@ -821,7 +824,7 @@ async fn main() {
 
             let mut measurements = Vec::with_capacity(runs);
             for index in 0..runs {
-                match bench_once(&mut dispatcher, &prompt, tokens, eos) {
+                match bench_once(&mut dispatcher, &prompt, tokens, eos, native_greedy) {
                     Ok(mut result) => {
                         // VmHWM is process-wide and monotonic: a useful upper
                         // bound at this checkpoint, not per-run isolated peak.
@@ -857,6 +860,7 @@ async fn main() {
                 "requested_threads": profile.n_threads,
                 "requested_batch": profile.n_batch,
                 "requested_microbatch": microbatch,
+                "sampling_path": if native_greedy { "native_greedy" } else { "rust_logits_greedy" },
                 "measured_runs": runs,
                 "load_ms": load_ms,
                 "process_memory": {
@@ -1389,6 +1393,7 @@ fn bench_once(
     prompt: &str,
     max_tokens: usize,
     eos_token: i32,
+    native_greedy: bool,
 ) -> Result<serde_json::Value, String> {
     use kiln_core::chat::{Sampler, SamplingStrategy};
     use kiln_runtime::{RuntimeOp, RuntimeResult};
@@ -1406,11 +1411,21 @@ fn bench_once(
     }
 
     let prefill_start = std::time::Instant::now();
-    let mut next_logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: prompt_tokens.clone() })
-        .map_err(|e| format!("prompt forward pass failed: {}", e))? {
-        RuntimeResult::Logits(logits) => logits,
-        _ => return Err("backend returned an unexpected prefill result".to_string()),
-    };
+    let mut next_logits: Option<Vec<f32>> = None;
+    let mut native_next: Option<i32> = None;
+    if native_greedy {
+        native_next = match dispatcher.dispatch(RuntimeOp::ForwardGreedy { tokens: prompt_tokens.clone() })
+            .map_err(|e| format!("native greedy prefill failed: {e}"))? {
+            RuntimeResult::Int(token) => Some(token),
+            _ => return Err("unexpected native greedy prefill result".into()),
+        };
+    } else {
+        next_logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: prompt_tokens.clone() })
+            .map_err(|e| format!("prompt forward pass failed: {e}"))? {
+            RuntimeResult::Logits(logits) => Some(logits),
+            _ => return Err("unexpected prefill result".into()),
+        };
+    }
     let prefill_ms = prefill_start.elapsed().as_secs_f64() * 1000.0;
 
     let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
@@ -1422,8 +1437,12 @@ fn bench_once(
     let decode_start = std::time::Instant::now();
     for step in 0..max_tokens {
         let sample_start = std::time::Instant::now();
-        let token = sampler.sample(&next_logits)
-            .ok_or_else(|| "sampler returned no token".to_string())? as i32;
+        let token = if native_greedy {
+            native_next.ok_or_else(|| "no native greedy token available".to_string())?
+        } else {
+            sampler.sample(next_logits.as_deref().ok_or("missing logits")?)
+                .ok_or_else(|| "sampler returned no token".to_string())? as i32
+        };
         sampling_ms += sample_start.elapsed().as_secs_f64() * 1000.0;
         if token == eos_token {
             break;
@@ -1441,11 +1460,19 @@ fn bench_once(
         // pass. Counting that extra pass would distort the decode benchmark.
         if step + 1 < max_tokens {
             let forward_start = std::time::Instant::now();
-            next_logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
-                .map_err(|e| format!("decode forward pass failed: {}", e))? {
-                RuntimeResult::Logits(logits) => logits,
-                _ => return Err("backend returned an unexpected decode result".to_string()),
-            };
+            if native_greedy {
+                native_next = match dispatcher.dispatch(RuntimeOp::ForwardGreedy { tokens: vec![token] })
+                    .map_err(|e| format!("native decode forward failed: {e}"))? {
+                    RuntimeResult::Int(next) => Some(next),
+                    _ => return Err("backend returned an unexpected native decode result".into()),
+                };
+            } else {
+                next_logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
+                    .map_err(|e| format!("decode forward pass failed: {}", e))? {
+                    RuntimeResult::Logits(logits) => Some(logits),
+                    _ => return Err("backend returned an unexpected decode result".to_string()),
+                };
+            }
             decode_forward_ms += forward_start.elapsed().as_secs_f64() * 1000.0;
             decode_forward_steps += 1;
         }
@@ -1467,6 +1494,7 @@ fn bench_once(
 
     Ok(serde_json::json!({
         "prompt_tokens": prompt_tokens.len(),
+        "sampling_path": if native_greedy { "native_greedy" } else { "rust_logits_greedy" },
         "generated_tokens": generated_tokens,
         "tokenization_ms": tokenization_ms,
         "prefill_ms": prefill_ms,
