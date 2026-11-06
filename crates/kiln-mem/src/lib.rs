@@ -21,3 +21,6 @@ pub use expert_prefetch::{ExpertPrefetcher, PrefetchCandidate, PrefetchStats};
 
 pub mod predictor_eval;
 pub use predictor_eval::{evaluate_predictor_holdout, PredictorHoldoutReport, HoldoutError};
+
+pub mod router_eval;
+pub use router_eval::{RouterEvent, GroupedHoldoutReport, RouterEvalError, evaluate_grouped_router_holdout};
