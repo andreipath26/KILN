@@ -116,3 +116,51 @@ kiln-bench expert-pack-verify \
 **Critical limitations:** This does **not** yet discover exact expert tensor ranges automatically from all GGUF/MoE variants. The source index must be produced by a trustworthy model-aware extractor or manually validated, not guessed. CRC32 detects accidental corruption but is **not** a cryptographic signature or authenticity guarantee. The format contains no trained prerouter, executable KILN-only tensor relocation instructions, or inference scheduler. No claims of running a stripped GGUF through stock llama.cpp or Phase 5 end-to-end MoE throughput are made.
 
 Hosted tests verify exact source/expert bytes after pack-roundtrip, 4 KiB offsets and zero-filled padding, CRC corruption rejection, no overwrite of pre-existing files, and fail-before-writing for bad ranges. The next Phase 5.1 code gate is a model-specific GGUF tensor/expert extraction map and exact quantization-preserving roundtrip validation. The original Dell/streaming performance gates remain open.
+
+# Phase 5.1 — Named GGUF tensor components to verified expert sidecars
+
+This implements the **model-aware, non-destructive** part of the UMF expert-container requirement. It consumes an explicit list of original GGUF tensor names and their intended layer/expert IDs, validates their real on-disk offsets, conservatively checks the quantized byte extent and writes component-contiguous expert groups. It does **not** remove tensor bytes from the original GGUF.
+
+## Source selection file
+
+A deliberately explicit, reviewable JSON input avoids unsafe guesses about fused MoE tensor shapes. The tensor names must exist in the original GGUF. The example names below are illustrative only; use your model's actual GGUF tensor inventory.
+
+```json
+[
+  {"layer":0,"expert_id":0,"tensor_name":"blk.0.ffn_down.0.weight"},
+  {"layer":0,"expert_id":0,"tensor_name":"blk.0.ffn_gate.0.weight"},
+  {"layer":0,"expert_id":0,"tensor_name":"blk.0.ffn_up.0.weight"},
+  {"layer":0,"expert_id":1,"tensor_name":"blk.0.ffn_down.1.weight"}
+]
+```
+
+A model with **fused expert tensor matrices** (e.g., one tensor containing all experts across a tensor dimension) is **not supported by this mapping**. Decomposing its component storage requires quantization-layout-aware slicing; treating a fused tensor as one expert would silently corrupt inference. Do not use this API to claim general model conversion.
+
+## Invocation
+
+```sh
+kiln-bench expert-pack-named \
+  --source-gguf /models/original.gguf \
+  --selections-file /models/selected-tensors.json \
+  --blob-file /models/experts.bin \
+  --index-file /models/experts.index.json \
+  --integrity-file /models/experts.crc32.json \
+  --components-file /models/experts.components.json --json
+```
+
+The writer creates four files only if they do not already exist: (1) aligned `experts.bin` expert groups, (2) a validated `ExpertTable` index usable by `kiln-io` readers, (3) a per-expert CRC32 manifest and (4) a named tensor-component offset map. Each component retains its original raw byte representation (including TQ1.0 and supported K-block quantizers) with no re-quantization or lossy transformations. Copying is chunked, not a full-model duplicate in memory.
+
+The runtime can use the expert index to locate whole expert groups, and the additional component map to reconstruct exact tensor byte boundaries. **Runtime loading of those tensor components into llama.cpp execution is not yet implemented.**
+
+## Safety and validation
+
+- Inputs are validated against actual parsed GGUF tensor names, array shapes, types and source-file bounds.
+- Unsupported or size-overflowing tensor types are rejected rather than guessed.
+- Duplicate tensor names, intersecting byte ranges and malformed component sequences are rejected.
+- Components are sorted within each expert group, group offsets are aligned to 4 KiB and gaps are zero-filled.
+- Output files use create-new semantics; invalid source mappings fail before any artifact creation.
+- The verification function checks every expert's CRC32 and requires exact contiguous component coverage of each expert range.
+- CRC32 is **accidental-corruption detection**, not cryptographic provenance or trust of the selection file. Validate model and mapping hashes separately for production.
+- This is a sidecar alongside an unchanged, stock-loadable GGUF, not a claim that stripped expert weights are portable to stock llama.cpp.
+
+Test coverage exercises exact TQ1.0 / Q4_K source-size calculations, integer-overflow and bounds failures, multiple components per expert, byte-perfect reassembly, zero padding, tampered component-map rejection and overlapping sources. Continue Phase 5 with actual fused-tensor-aware extraction, format parity, then streamed llama.cpp expert dispatch and DDR/NVMe metrics.
