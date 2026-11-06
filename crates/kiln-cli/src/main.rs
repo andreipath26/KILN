@@ -128,6 +128,9 @@ enum Commands {
         /// Override the detected batch size for controlled comparisons.
         #[arg(long)]
         batch: Option<u32>,
+        /// Physical microbatch size (n_ubatch) for controlled comparisons.
+        #[arg(long)]
+        ubatch: Option<u32>,
         /// Emit machine-readable JSON.
         #[arg(long)]
         json: bool,
@@ -333,6 +336,7 @@ async fn main() {
                 path,
                 n_ctx: prof.n_ctx,
                 n_batch: prof.n_batch,
+                n_ubatch: prof.n_batch.min(512),
                 n_threads: prof.n_threads,
             }) {
                 eprintln!("load: {}", e);
@@ -475,6 +479,7 @@ async fn main() {
                 path,
                 n_ctx: prof.n_ctx,
                 n_batch: prof.n_batch,
+                n_ubatch: prof.n_batch.min(512),
                 n_threads: prof.n_threads,
             }) {
                 eprintln!("load: {}", e);
@@ -646,6 +651,7 @@ async fn main() {
                 path,
                 n_ctx: prof.n_ctx,
                 n_batch: prof.n_batch,
+                n_ubatch: prof.n_batch.min(512),
                 n_threads: prof.n_threads,
             }) {
                 Ok(_) => println!("  load: PASS"),
@@ -709,7 +715,7 @@ async fn main() {
         },
         Commands::Pull { model } => not_implemented("pull", &model),
         Commands::List => not_implemented("list", ""),
-        Commands::Bench { model, prompt, tokens, runs, warmup, threads, batch, json } => {
+        Commands::Bench { model, prompt, tokens, runs, warmup, threads, batch, ubatch, json } => {
             if runs == 0 {
                 eprintln!("bench: --runs must be at least 1");
                 std::process::exit(2);
@@ -735,6 +741,11 @@ async fn main() {
                 }
                 profile.n_batch = batch;
             }
+            let microbatch = ubatch.unwrap_or(profile.n_batch.min(512));
+            if microbatch == 0 || microbatch > profile.n_batch {
+                eprintln!("bench: --ubatch must be 1..=--batch");
+                std::process::exit(2);
+            }
             let mut dispatcher = RuntimeDispatcher::new();
             dispatcher.register(Box::new(LlamaCppBackend::new()));
 
@@ -744,6 +755,7 @@ async fn main() {
                 path: std::path::PathBuf::from(&model),
                 n_ctx: profile.n_ctx,
                 n_batch: profile.n_batch,
+                n_ubatch: microbatch,
                 n_threads: profile.n_threads,
             }) {
                 eprintln!("bench: model load failed: {}", error);
@@ -809,6 +821,7 @@ async fn main() {
                 "warmup_runs": warmup_completed,
                 "requested_threads": profile.n_threads,
                 "requested_batch": profile.n_batch,
+                "requested_microbatch": microbatch,
                 "measured_runs": runs,
                 "load_ms": load_ms,
                 "process_memory": {
@@ -837,6 +850,7 @@ async fn main() {
                     "tier": format!("{:?}", profile.tier),
                     "n_ctx": profile.n_ctx,
                     "n_batch": profile.n_batch,
+                    "n_ubatch": microbatch,
                     "n_threads": profile.n_threads
                 },
                 "statistics": {
@@ -854,8 +868,8 @@ async fn main() {
             } else {
                 println!("KILN benchmark (RuntimeDispatcher / llama.cpp)");
                 println!("  model:             {}", model);
-                println!("  profile:           {:?}, threads={}, batch={}, context={}",
-                    profile.tier, profile.n_threads, profile.n_batch, profile.n_ctx);
+                println!("  profile:           {:?}, threads={}, batch={}, microbatch={}, context={}",
+                    profile.tier, profile.n_threads, profile.n_batch, microbatch, profile.n_ctx);
                 println!("  load:              {:.2} ms", load_ms);
                 if let Some(memory) = memory_after_benchmark {
                     println!("  process RSS:       {} KiB (peak to date {} KiB; does not include OS page cache)",
@@ -1041,6 +1055,7 @@ fn run_interactive(model: &str, max_tokens: usize) -> Result<(), String> {
         path: std::path::PathBuf::from(model),
         n_ctx: profile.n_ctx,
         n_batch: profile.n_batch,
+        n_ubatch: profile.n_batch.min(512),
         n_threads: profile.n_threads,
     }).map_err(|e| format!("model load failed: {}", e))?;
 
