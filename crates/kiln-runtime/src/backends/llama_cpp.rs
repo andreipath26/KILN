@@ -108,6 +108,19 @@ mod tests {
     }
 
     #[test]
+    fn rejects_microbatch_larger_than_logical_batch() {
+        let mut backend = LlamaCppBackend::new();
+        let result = backend.execute(&RuntimeOp::Load {
+            path: PathBuf::from("not-used.gguf"),
+            n_ctx: 4096,
+            n_batch: 256,
+            n_ubatch: 512,
+            n_threads: 4,
+        });
+        assert!(matches!(result, Err(RuntimeError::Llama(LlamaError::Load(_)))));
+    }
+
+    #[test]
     fn rejects_parameters_outside_c_int_range_before_native_load() {
         let mut backend = LlamaCppBackend::new();
         let result = backend.execute(&RuntimeOp::Load {
