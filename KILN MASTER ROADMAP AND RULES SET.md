@@ -569,3 +569,10 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Clarified that the Latitude 7490 is KILN's minimum acceptance system. The required CPU-only Phase 5 path is one acceptance slice; the product remains platform-agnostic across CPU, GPU, NPU, APU/iGPU and available memory tiers. Updated the roadmap and README to remove any implication that Phase 5 defines product scope.
 - Added Janas as a RAM-cache baseline and recorded that it does not establish the trained multi-layer prerouter or learned cache replacement KILN proposes. Added the vLLM LES RFC and MoETier as unvalidated Phase 5.2/5.3 comparison leads.
 - Preserved phase order, all targets and pending gates. These are source-level research integrations only; no code, benchmark result, backend support, or phase completion is claimed.
+
+
+### 2026-11-06 — Public README refactor
+
+- Replaced the phase/status-led README with a concise public project overview: mission, intended architecture, platform scope, current maturity, links to technical documentation and a development CLI entry point.
+- Removed planning-level phase ledgers, benchmark tables, failed-experiment detail, research audits and internal next steps from the front page; the authoritative roadmap remains the home for that material.
+- Kept all performance figures clearly described as targets or left in the roadmap's evidence record. No implementation or performance status changed.
