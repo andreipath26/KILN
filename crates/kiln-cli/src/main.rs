@@ -17,6 +17,7 @@ use kiln_models::gguf::GgufFile;
 use kiln_api::serve;
 
 mod llama_forward;
+mod phase35_kv_bench;
 
 /// Linux process RSS snapshot in KiB. VmHWM is the process high-water mark
 /// since launch, so it includes the entire model load/benchmark lifetime.
@@ -104,6 +105,27 @@ enum Commands {
         /// Preserve executed KV tokens between turns; uses a generic text dialogue format.
         #[arg(long)]
         keep_context: bool,
+    },
+    /// Controlled Phase 3.5 second-turn prompt-cache A/B experiment.
+    BenchKv {
+        /// Local GGUF file; never downloads model weights.
+        model: String,
+        #[arg(long, default_value = "Name two planets.")]
+        first_prompt: String,
+        #[arg(long, default_value = "Name one more.")]
+        second_prompt: String,
+        #[arg(long, default_value = " Mars and Venus.")]
+        assistant_fragment: String,
+        #[arg(long, default_value_t = 5)]
+        runs: usize,
+        #[arg(long)]
+        threads: Option<u32>,
+        #[arg(long)]
+        batch: Option<u32>,
+        #[arg(long)]
+        ubatch: Option<u32>,
+        #[arg(long)]
+        json: bool,
     },
     /// Download a model from the catalog. Not yet implemented.
     Pull { model: String },
@@ -713,6 +735,16 @@ async fn main() {
             }
             if let Err(error) = run_interactive(&model, max_tokens, keep_context) {
                 eprintln!("run: {}", error);
+                std::process::exit(1);
+            }
+        },
+        Commands::BenchKv { model, first_prompt, second_prompt, assistant_fragment,
+            runs, threads, batch, ubatch, json } => {
+            if let Err(error) = phase35_kv_bench::run(
+                model, first_prompt, second_prompt, assistant_fragment,
+                runs, threads, batch, ubatch, json
+            ) {
+                eprintln!("bench-kv: {error}");
                 std::process::exit(1);
             }
         },
