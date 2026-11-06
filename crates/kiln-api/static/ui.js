@@ -339,7 +339,10 @@ async function downloadArtifact(repository, file) {
       body: JSON.stringify({ repository, file }),
       signal: state.downloadController.signal,
     });
-    if (!response.ok) throw new Error("Model download request failed.");
+    if (!response.ok) {
+      const problem = await response.json().catch(() => ({}));
+      throw new Error(problem.error || `Model download request failed (${response.status}).`);
+    }
     let installedPath = null;
     for await (const event of parseJsonlFromResponse(response)) {
       if (event.event === "progress") {
@@ -421,11 +424,13 @@ async function refresh() {
     const [version, tags, capabilities, models] = await Promise.all([
       versionResponse.json(), tagsResponse.json(), capabilitiesResponse.json(), modelsResponse.json(),
     ]);
-    state.model = tags.models?.[0] || null;
+    const localModels = models.models || [];
+    const activeModelPath = localModels.find((model) => model.active)?.path;
+    state.model = tags.models?.[0] ? { ...tags.models[0], path: activeModelPath } : null;
     setServerState(true, "Local runtime connected");
     renderSession(state.model, { api_version: version.version });
     renderCapabilities(capabilities);
-    renderLocalModels(models.models || []);
+    renderLocalModels(localModels);
     readSettings();
     state.messages = readHistory();
     renderMessages();
