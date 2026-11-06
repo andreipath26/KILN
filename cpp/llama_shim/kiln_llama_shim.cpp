@@ -159,6 +159,71 @@ int32_t kiln_llama_greedy_token(kiln_llama_t h) {
     return best;
 }
 
+
+/* First-max greedy argmax matches Rust's SamplingStrategy::Greedy. */
+static int32_t kiln_greedy_argmax(const float* logits, int32_t vocab) {
+    if (!logits || vocab <= 0) return -1;
+    int32_t best = 0;
+    float maximum = logits[0];
+    for (int32_t i = 1; i < vocab; ++i) {
+        if (logits[i] > maximum) {
+            maximum = logits[i];
+            best = i;
+        }
+    }
+    return best;
+}
+
+int32_t kiln_llama_verify_greedy_draft(
+    kiln_llama_t h, const int32_t* draft, int32_t n, int32_t* next_token)
+{
+    struct kiln_llama* k = (struct kiln_llama*)h;
+    if (!k || !draft || !next_token || n <= 0 || n > k->batch_capacity) return -1;
+    if (k->n_past < 0 || n > INT32_MAX - k->n_past) return -1;
+
+    // Precondition: the preceding prefill/decode requested logits at its
+    // last position. Verify the first proposal before mutating the KV cache.
+    const int32_t first = kiln_greedy_argmax(llama_get_logits_ith(k->ctx, -1), k->n_vocab);
+    if (first < 0) return -1;
+    if (draft[0] != first) {
+        *next_token = first;
+        return 0;
+    }
+
+    const int32_t before = k->n_past;
+    k->batch.n_tokens = n;
+    for (int32_t i = 0; i < n; ++i) {
+        k->batch.token[i] = draft[i];
+        k->batch.pos[i] = before + i;
+        k->batch.n_seq_id[i] = 1;
+        k->batch.seq_id[i][0] = 0;
+        // Every candidate boundary must be checked against its predecessor.
+        k->batch.logits[i] = 1;
+    }
+    if (llama_decode(k->ctx, k->batch) != 0) return -1;
+    k->n_past = before + n;
+
+    // The first token is already verified from the pre-existing logits.
+    for (int32_t i = 1; i < n; ++i) {
+        const int32_t expected = kiln_greedy_argmax(
+            llama_get_logits_ith(k->ctx, i - 1), k->n_vocab);
+        if (expected < 0) return -1;
+        if (draft[i] != expected) {
+            // The KV cache must not retain rejected or unverified proposals.
+            llama_memory_t mem = llama_get_memory(k->ctx);
+            if (!mem || !llama_memory_seq_rm(mem, 0, before + i, -1)) return -1;
+            k->n_past = before + i;
+            *next_token = expected;
+            return i;
+        }
+    }
+    const int32_t bonus = kiln_greedy_argmax(
+        llama_get_logits_ith(k->ctx, n - 1), k->n_vocab);
+    if (bonus < 0) return -1;
+    *next_token = bonus;
+    return n;
+}
+
 int32_t kiln_llama_token_to_str(
     kiln_llama_t h, int32_t token, char* buf, int32_t buf_len)
 {
