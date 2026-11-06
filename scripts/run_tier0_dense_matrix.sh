@@ -43,5 +43,16 @@ for threads in 2 3 4; do
     echo "completed $label"
   done
 done
+# Separate microbatch sweep: hold threads and n_batch constant, so the
+# microbatch effect is not confounded with the larger thread/batch matrix.
+for ubatch in 128 256 512; do
+  label="t4-b512-u${ubatch}"
+  /usr/bin/time -v -o "$OUT/time-${label}.txt" \
+    target/release/kiln bench "$MODEL" \
+    --prompt "The meaning of life is" --tokens 64 \
+    --warmup 1 --runs 3 --threads 4 --batch 512 --ubatch "$ubatch" --json \
+    > "$OUT/${label}.json"
+  echo "completed $label"
+done
 echo "Finished Dell dense parameter matrix: $OUT"
 echo "This does not measure Ollama parity, Qwen3 MoE streaming, or quality."
