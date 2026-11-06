@@ -30,3 +30,5 @@ pub use cached_expert_blob::{CachedExpertBlobReader, ExpertAccessTraceSnapshot};
 
 pub mod expert_sidecar;
 pub use expert_sidecar::{write_expert_sidecar, verify_expert_sidecar, SidecarIntegrityManifest, SidecarPackError, SIDECAR_ALIGNMENT};
+
+pub use expert_sidecar::{write_component_expert_sidecar, verify_component_expert_sidecar, PackedExpertComponentMap, PackedExpertComponent};

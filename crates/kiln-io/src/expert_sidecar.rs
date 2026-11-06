@@ -8,7 +8,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use kiln_models::{ExpertRange, ExpertTable};
+use kiln_models::{ExpertRange, ExpertTable, GgufExpertSourceMap};
 use serde::{Deserialize, Serialize};
 
 pub const SIDECAR_ALIGNMENT: u64 = 4096;
@@ -248,6 +248,214 @@ pub fn verify_expert_sidecar(
     Ok(index)
 }
 
+/// The location of one exact original GGUF tensor within the packed expert.
+/// Component offsets are absolute within the sidecar blob.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackedExpertComponent {
+    pub layer: u32,
+    pub expert_id: u32,
+    pub tensor_name: String,
+    pub byte_offset: u64,
+    pub byte_length: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackedExpertComponentMap {
+    pub format_version: u32,
+    pub components: Vec<PackedExpertComponent>,
+}
+
+/// Accept explicitly resolved GGUF tensor *components* for each expert and
+/// concatenate them into an expert-contiguous sidecar, retaining a component
+/// table so a later loader can identify the original tensor boundaries.
+/// Does not alter the original source or attempt to write a stripped GGUF.
+pub fn write_component_expert_sidecar(
+    source: &Path,
+    map: GgufExpertSourceMap,
+    blob_path: &Path,
+    index_path: &Path,
+    integrity_path: &Path,
+    component_map_path: &Path,
+) -> Result<(SidecarIntegrityManifest, PackedExpertComponentMap), SidecarPackError> {
+    validate_distinct_paths(&[
+        source, blob_path, index_path, integrity_path, component_map_path
+    ])?;
+    let mut input = File::open(source)?;
+    let source_size = input.metadata()?.len();
+    if map.format_version != 1 || map.source_size_bytes != source_size
+        || map.components.is_empty() || map.components.len() > MAX_EXPERTS {
+        return Err(invalid("component map version, source size or count is invalid"));
+    }
+    let mut previous_key: Option<(u32, u32, &str)> = None;
+    let mut spans = Vec::with_capacity(map.components.len());
+    for item in &map.components {
+        let key = (item.layer, item.expert_id, item.tensor_name.as_str());
+        if previous_key.is_some_and(|prior| key <= prior) {
+            return Err(invalid("component keys must be strictly sorted"));
+        }
+        previous_key = Some(key);
+        if item.byte_length == 0 ||
+            item.source_byte_offset.checked_add(item.byte_length)
+                .is_none_or(|end| end > source_size) {
+            return Err(invalid("component range out of source bounds"));
+        }
+        spans.push((item.source_byte_offset, item.byte_length));
+    }
+    spans.sort_unstable_by_key(|(offset, _)| *offset);
+    for window in spans.windows(2) {
+        if window[0].0 + window[0].1 > window[1].0 {
+            return Err(invalid("component source byte ranges overlap"));
+        }
+    }
+
+    // Validate every packed output offset before opening a destination.
+    let mut position = 0u64;
+    let mut last_expert: Option<(u32,u32)> = None;
+    for item in &map.components {
+        let key=(item.layer,item.expert_id);
+        if last_expert != Some(key) {
+            position=aligned_position(position)?;
+            last_expert=Some(key);
+        }
+        position=position.checked_add(item.byte_length)
+            .ok_or_else(|| invalid("packed component offset overflow"))?;
+        if position > i64::MAX as u64 {
+            return Err(invalid("sidecar exceeds supported file offset"));
+        }
+    }
+
+    let mut created: Vec<PathBuf> = Vec::new();
+    let result = (|| -> Result<_, SidecarPackError> {
+        let mut output = OpenOptions::new().write(true).create_new(true).open(blob_path)?;
+        created.push(blob_path.to_owned());
+        let mut buffer = [0u8; CHUNK];
+        let zeros = [0u8; CHUNK];
+        let mut offset = 0u64;
+        let mut packed_ranges: Vec<ExpertRange> = Vec::new();
+        let mut checksums: Vec<ExpertIntegrity> = Vec::new();
+        let mut components: Vec<PackedExpertComponent> = Vec::with_capacity(map.components.len());
+        let mut current_key: Option<(u32,u32)> = None;
+        let mut start = 0u64;
+        let mut crc = !0u32;
+        for item in &map.components {
+            let key=(item.layer,item.expert_id);
+            if current_key != Some(key) {
+                if let Some((layer,expert_id))=current_key {
+                    packed_ranges.push(ExpertRange {
+                        layer,expert_id,byte_offset:start,byte_length:offset-start,
+                    });
+                    checksums.push(ExpertIntegrity {layer,expert_id,crc32:!crc});
+                }
+                let aligned=aligned_position(offset)?;
+                let mut gap=aligned-offset;
+                while gap>0 {
+                    let size=usize::try_from(gap.min(CHUNK as u64)).unwrap();
+                    output.write_all(&zeros[..size])?;
+                    gap-=size as u64;
+                }
+                offset=aligned;
+                start=offset;
+                crc=!0u32;
+                current_key=Some(key);
+            }
+            components.push(PackedExpertComponent {
+                layer:item.layer,expert_id:item.expert_id,
+                tensor_name:item.tensor_name.clone(),
+                byte_offset:offset,byte_length:item.byte_length,
+            });
+            input.seek(SeekFrom::Start(item.source_byte_offset))?;
+            let mut left=item.byte_length;
+            while left>0 {
+                let n=usize::try_from(left.min(CHUNK as u64)).unwrap();
+                input.read_exact(&mut buffer[..n])?;
+                output.write_all(&buffer[..n])?;
+                crc=crc32_update(crc,&buffer[..n]);
+                offset+=n as u64;
+                left-=n as u64;
+            }
+        }
+        if let Some((layer,expert_id))=current_key {
+            packed_ranges.push(ExpertRange {
+                layer,expert_id,byte_offset:start,byte_length:offset-start,
+            });
+            checksums.push(ExpertIntegrity {layer,expert_id,crc32:!crc});
+        }
+        output.sync_all()?;
+        let index=ExpertTable {
+            blob_version:1,blob_size:offset,ranges:packed_ranges,
+        };
+        index.validate(offset).map_err(|e| invalid(e.to_string()))?;
+        let integrity=SidecarIntegrityManifest {
+            format_version:1,alignment_bytes:SIDECAR_ALIGNMENT,
+            source_size_bytes:source_size,experts:checksums,
+        };
+        let map=PackedExpertComponentMap {
+            format_version:1,components,
+        };
+        write_json_new(index_path,&index)?;
+        created.push(index_path.to_owned());
+        write_json_new(integrity_path,&integrity)?;
+        created.push(integrity_path.to_owned());
+        write_json_new(component_map_path,&map)?;
+        created.push(component_map_path.to_owned());
+        Ok((integrity,map))
+    })();
+    if result.is_err() {
+        for file in created.iter().rev() { let _ = std::fs::remove_file(file); }
+    }
+    result
+}
+
+/// Verify sidecar payloads AND the component map. Every expert's components
+/// must cover its byte range exactly, with no omissions, reordering or gaps.
+pub fn verify_component_expert_sidecar(
+    blob_path: &Path, index_path: &Path, integrity_path: &Path,
+    component_map_path: &Path,
+) -> Result<(ExpertTable,PackedExpertComponentMap),SidecarPackError> {
+    let table=verify_expert_sidecar(blob_path,index_path,integrity_path)?;
+    let map: PackedExpertComponentMap =
+        serde_json::from_slice(&read_manifest_bounded(component_map_path)?)?;
+    if map.format_version != 1 || map.components.is_empty()
+        || map.components.len()>MAX_EXPERTS {
+        return Err(invalid("component manifest version or count invalid"));
+    }
+    let mut cursor=0usize;
+    for expert in &table.ranges {
+        let mut position=expert.byte_offset;
+        let mut has_component=false;
+        while let Some(component)=map.components.get(cursor) {
+            if (component.layer,component.expert_id)
+                != (expert.layer,expert.expert_id) { break; }
+            if component.byte_length == 0 || component.byte_offset != position {
+                return Err(invalid("component has gap, overlap or zero length"));
+            }
+            position=position.checked_add(component.byte_length)
+                .ok_or_else(|| invalid("component offset overflow"))?;
+            if position > expert.byte_offset + expert.byte_length {
+                return Err(invalid("component exceeds expert range"));
+            }
+            if cursor > 0 {
+                let previous=&map.components[cursor-1];
+                if (previous.layer,previous.expert_id)==(component.layer,component.expert_id)
+                    && previous.tensor_name >= component.tensor_name {
+                    return Err(invalid("component tensor names are not sorted"));
+                }
+            }
+            cursor+=1;
+            has_component=true;
+        }
+        if !has_component || position != expert.byte_offset+expert.byte_length {
+            return Err(invalid("component map does not cover entire expert"));
+        }
+    }
+    if cursor != map.components.len() {
+        return Err(invalid("component map contains unindexed experts"));
+    }
+    Ok((table,map))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,4 +557,100 @@ mod tests {
         for p in [&src,&dst] {std::fs::remove_file(p).unwrap();}
         std::fs::remove_dir(root).unwrap();
     }
+    #[test]
+    fn multi_component_experts_roundtrip_exact_tensors_and_detect_map_tamper() {
+        use kiln_models::{ExpertTensorComponent, GgufExpertSourceMap};
+        let root = std::env::temp_dir().join(format!(
+            "kiln-component-pack-{}-{:?}",std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let src=root.join("source.gguf");
+        let blob=root.join("experts.bin");
+        let index=root.join("experts.index.json");
+        let integrity=root.join("experts.crc32.json");
+        let components=root.join("experts.components.json");
+        let source_bytes:Vec<u8>=(0..=255u8).collect();
+        std::fs::write(&src,&source_bytes).unwrap();
+        let mapping=GgufExpertSourceMap {
+            format_version:1,source_size_bytes:256,
+            components:vec![
+                ExpertTensorComponent {
+                    layer:0,expert_id:0,tensor_name:"blk.0.ffn_down.0".into(),
+                    source_byte_offset:30,byte_length:11,
+                },
+                ExpertTensorComponent {
+                    layer:0,expert_id:0,tensor_name:"blk.0.ffn_gate.0".into(),
+                    source_byte_offset:90,byte_length:13,
+                },
+                ExpertTensorComponent {
+                    layer:0,expert_id:1,tensor_name:"blk.0.ffn_up.1".into(),
+                    source_byte_offset:150,byte_length:17,
+                },
+            ],
+        };
+        let (_checksum,layout)=write_component_expert_sidecar(
+            &src,mapping.clone(),&blob,&index,&integrity,&components
+        ).unwrap();
+        let (verified,verified_layout)=verify_component_expert_sidecar(
+            &blob,&index,&integrity,&components
+        ).unwrap();
+        assert_eq!(verified.ranges.len(),2);
+        assert_eq!(verified.ranges[0].byte_length,24);
+        assert_eq!(verified.ranges[1].byte_offset,4096);
+        assert_eq!(layout.components.len(),verified_layout.components.len());
+        let packed=std::fs::read(&blob).unwrap();
+        assert_eq!(&packed[0..11],&source_bytes[30..41]);
+        assert_eq!(&packed[11..24],&source_bytes[90..103]);
+        assert_eq!(&packed[4096..4113],&source_bytes[150..167]);
+        assert!(packed[24..4096].iter().all(|b|*b==0));
+        assert_eq!(std::fs::read(&src).unwrap(),source_bytes);
+
+        let mut changed=verified_layout;
+        changed.components[1].byte_offset+=1;
+        std::fs::write(&components,serde_json::to_vec(&changed).unwrap()).unwrap();
+        assert!(verify_component_expert_sidecar(
+            &blob,&index,&integrity,&components
+        ).is_err());
+        for file in [&src,&blob,&index,&integrity,&components] {
+            std::fs::remove_file(file).unwrap();
+        }
+        std::fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn component_pack_rejects_overlapping_source_ranges_before_writing() {
+        use kiln_models::{ExpertTensorComponent,GgufExpertSourceMap};
+        let root=std::env::temp_dir().join(format!(
+            "kiln-component-bad-{}-{:?}",std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let src=root.join("src");
+        let blob=root.join("blob");
+        let index=root.join("index");
+        let integrity=root.join("integrity");
+        let parts=root.join("parts");
+        std::fs::write(&src,[7u8;100]).unwrap();
+        let map=GgufExpertSourceMap{
+            format_version:1,source_size_bytes:100,
+            components:vec![
+                ExpertTensorComponent{
+                    layer:0,expert_id:0,tensor_name:"a".into(),
+                    source_byte_offset:10,byte_length:20
+                },
+                ExpertTensorComponent{
+                    layer:0,expert_id:0,tensor_name:"b".into(),
+                    source_byte_offset:25,byte_length:10
+                }
+            ],
+        };
+        assert!(write_component_expert_sidecar(
+            &src,map,&blob,&index,&integrity,&parts
+        ).is_err());
+        assert!(!blob.exists()&&!index.exists()&&!integrity.exists()&&!parts.exists());
+        std::fs::remove_file(src).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
 }
