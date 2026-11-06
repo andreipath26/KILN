@@ -45,7 +45,7 @@ pub struct AsyncExpertPrefetch {
     worker: Option<JoinHandle<()>>,
     reader: Arc<CachedExpertBlobReader>,
     epoch: Arc<AtomicU64>,
-    pending: HashMap<ExpertKey, u64>,
+    pending: HashMap<(u64, ExpertKey), u64>,
     max_requests: usize,
     max_bytes: u64,
     stats: AsyncExpertStats,
@@ -105,7 +105,7 @@ impl AsyncExpertPrefetch {
         if epoch == 0 || self.epoch.load(Ordering::Acquire) != epoch {
             return SubmitResult::StaleEpoch;
         }
-        if self.pending.contains_key(&key) { return SubmitResult::AlreadyPending; }
+        if self.pending.contains_key(&(epoch,key)) { return SubmitResult::AlreadyPending; }
         if self.pending.len() >= self.max_requests {
             self.stats.rejected_capacity += 1;
             return SubmitResult::QueueFull;
@@ -123,7 +123,7 @@ impl AsyncExpertPrefetch {
             self.stats.rejected_capacity += 1;
             return SubmitResult::QueueFull;
         }
-        self.pending.insert(key,size);
+        self.pending.insert((epoch,key),size);
         self.stats.pending_bytes += size;
         self.stats.pending_requests = self.pending.len();
         self.stats.submitted += 1;
@@ -136,7 +136,7 @@ impl AsyncExpertPrefetch {
     pub fn poll_ready(&mut self) -> Vec<ExpertReadCompletion> {
         let mut results=Vec::new();
         while let Ok(item) = self.done.try_recv() {
-            if let Some(size)=self.pending.remove(&item.key) {
+            if let Some(size)=self.pending.remove(&(item.epoch,item.key)) {
                 self.stats.pending_bytes=self.stats.pending_bytes.saturating_sub(size);
             }
             self.stats.completed+=1;
