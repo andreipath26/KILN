@@ -72,7 +72,22 @@ function saveSettings() {
 
 function readHistory() {
   try {
-    const value = JSON.parse(localStorage.getItem(historyKey()) || "[]");
+    let stored = localStorage.getItem(historyKey());
+    const legacyModelIsUnambiguous = state.model?.name
+      && !state.models.some((model) => model.name === state.model.name && model.path !== state.model.path);
+    if (stored === null && state.model?.path && legacyModelIsUnambiguous) {
+      const legacyKey = `kiln.ui.chat.v1:${state.model.name}`;
+      stored = localStorage.getItem(legacyKey);
+      if (stored !== null) {
+        try {
+          localStorage.setItem(historyKey(), stored);
+          localStorage.removeItem(legacyKey);
+        } catch {
+          // Retain and display the old conversation if browser storage is full.
+        }
+      }
+    }
+    const value = JSON.parse(stored || "[]");
     return Array.isArray(value) ? value.filter((item) =>
       item && ["user", "assistant"].includes(item.role) && typeof item.content === "string") : [];
   } catch {
@@ -555,8 +570,16 @@ $("#prompt").addEventListener("keydown", (event) => {
 $("#clear-chat").addEventListener("click", () => {
   if (state.busy) return;
   state.messages = [];
-  localStorage.removeItem(historyKey());
   showChatError();
+  try {
+    localStorage.removeItem(historyKey());
+    if (state.model?.path && state.model?.name
+        && !state.models.some((model) => model.name === state.model.name && model.path !== state.model.path)) {
+      localStorage.removeItem(`kiln.ui.chat.v1:${state.model.name}`);
+    }
+  } catch {
+    showChatError("The conversation was cleared from view, but browser storage could not be updated.");
+  }
   renderMessages();
 });
 
