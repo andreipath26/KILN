@@ -209,6 +209,67 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Pure synthetic backend for exercising target verification and KV
+    /// correction paths without downloading a model in CI.
+    struct DeterministicTarget { kv: Vec<i32> }
+    impl DeterministicTarget {
+        fn next(&self) -> i32 {
+            if self.kv.len() % 7 == 0 { 3 }
+            else if self.kv.last() == Some(&1) { 2 } else { 1 }
+        }
+    }
+    impl kiln_runtime::RuntimeBackend for DeterministicTarget {
+        fn name(&self) -> &str { "deterministic-spec-target" }
+        fn supports(&self, _op: &RuntimeOp) -> bool { true }
+        fn estimate(&self, _op: &RuntimeOp) -> Option<u64> { Some(0) }
+        fn execute(&mut self, op: &RuntimeOp)
+            -> Result<RuntimeResult, kiln_runtime::RuntimeError>
+        {
+            match op {
+                RuntimeOp::Reset => { self.kv.clear(); Ok(RuntimeResult::Unit) }
+                RuntimeOp::ForwardGreedy { tokens } => {
+                    self.kv.extend_from_slice(tokens);
+                    Ok(RuntimeResult::Int(self.next()))
+                }
+                RuntimeOp::VerifyGreedyDraft { tokens } => {
+                    let mut accepted=0;
+                    for &token in tokens {
+                        let correct=self.next();
+                        if token != correct {
+                            return Ok(RuntimeResult::VerifiedGreedy {
+                                accepted, next: correct,
+                            });
+                        }
+                        self.kv.push(token);
+                        accepted+=1;
+                    }
+                    Ok(RuntimeResult::VerifiedGreedy {
+                        accepted, next:self.next(),
+                    })
+                }
+                _ => Err(kiln_runtime::RuntimeError::WrongReturn),
+            }
+        }
+    }
+
+    #[test]
+    fn batched_speculation_matches_baseline_on_accept_and_reject() {
+        let mut d=RuntimeDispatcher::new();
+        d.register(Box::new(DeterministicTarget{kv:Vec::new()}));
+        let prefix=[1,2,1,2,1,2];
+        let baseline=run_sample(&mut d,&prefix,-1,40,None).unwrap();
+        let spec=run_sample(&mut d,&prefix,-1,40,Some(
+            NgramDraftConfig{ngram:2,search_window:128,max_draft:6}
+        )).unwrap();
+        assert_eq!(baseline.tokens,spec.tokens);
+        assert_eq!(baseline.token_fingerprint_fnv1a64,spec.token_fingerprint_fnv1a64);
+        assert_eq!(baseline.generated,40);
+        assert!(spec.verification_passes>0);
+        assert!(spec.accepted_draft_tokens>0);
+        assert!(spec.proposed_draft_tokens>spec.accepted_draft_tokens,
+            "forced target branch at position 7 must reject some predictions");
+    }
+
     #[test]
     fn median_handles_even_and_odd_trials() {
         assert_eq!(median(vec![2.0, 1.0, 3.0]), 2.0);
