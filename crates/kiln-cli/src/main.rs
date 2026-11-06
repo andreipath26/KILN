@@ -1430,6 +1430,10 @@ fn bench_once(
 
     let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
     let mut generated_tokens = 0usize;
+    // Stable, allocation-free digest of the exact generated token sequence;
+    // compare it between baseline and native greedy runs on the same model.
+    let mut token_fingerprint_fnv1a64 = 0xcbf29ce484222325u64;
+    let mut eos_encountered = false;
     let mut sampling_ms = 0.0_f64;
     let mut token_conversion_ms = 0.0_f64;
     let mut decode_forward_ms = 0.0_f64;
@@ -1445,7 +1449,12 @@ fn bench_once(
         };
         sampling_ms += sample_start.elapsed().as_secs_f64() * 1000.0;
         if token == eos_token {
+            eos_encountered = true;
             break;
+        }
+        for byte in token.to_le_bytes() {
+            token_fingerprint_fnv1a64 ^= u64::from(byte);
+            token_fingerprint_fnv1a64 = token_fingerprint_fnv1a64.wrapping_mul(0x100000001b3);
         }
 
         let conversion_start = std::time::Instant::now();
@@ -1496,6 +1505,8 @@ fn bench_once(
         "prompt_tokens": prompt_tokens.len(),
         "sampling_path": if native_greedy { "native_greedy" } else { "rust_logits_greedy" },
         "generated_tokens": generated_tokens,
+        "token_fingerprint_fnv1a64": format!("{token_fingerprint_fnv1a64:016x}"),
+        "eos_encountered": eos_encountered,
         "tokenization_ms": tokenization_ms,
         "prefill_ms": prefill_ms,
         "sampling_ms": sampling_ms,
