@@ -58,6 +58,11 @@ impl RuntimeBackend for LlamaCppBackend {
                 let ctx = self.ctx.as_mut().ok_or(RuntimeError::NoSession)?;
                 Ok(RuntimeResult::Int(ctx.forward_greedy(tokens)?))
             }
+            RuntimeOp::VerifyGreedyDraft { tokens } => {
+                let ctx = self.ctx.as_mut().ok_or(RuntimeError::NoSession)?;
+                let (accepted, next) = ctx.verify_greedy_draft(tokens)?;
+                Ok(RuntimeResult::VerifiedGreedy { accepted, next })
+            }
             RuntimeOp::Reset => {
                 let ctx = self.ctx.as_mut().ok_or(RuntimeError::NoSession)?;
                 ctx.reset()?;

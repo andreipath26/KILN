@@ -55,6 +55,15 @@ int32_t kiln_llama_logits(kiln_llama_t h, float* out, int32_t out_cap);
  * Negative values indicate an invalid handle or missing logits. */
 int32_t kiln_llama_greedy_token(kiln_llama_t h);
 
+/* Verify n proposed greedy tokens in a single llama_decode batch.
+ * Returns accepted draft count (0..n), and writes the corrected next
+ * target token. Invalid state or unsupported KV rollback returns -1.
+ * After success only accepted draft tokens remain in the KV cache. */
+int32_t kiln_llama_verify_greedy_draft(
+    kiln_llama_t h, const int32_t* draft, int32_t n,
+    int32_t* next_token);
+
+
 /* Decode one token to a UTF-8 string into buf. Returns bytes written. */
 int32_t kiln_llama_token_to_str(
     kiln_llama_t h,

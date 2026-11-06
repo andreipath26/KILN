@@ -18,6 +18,7 @@ use kiln_api::serve;
 
 mod llama_forward;
 mod phase35_kv_bench;
+mod phase35_spec_bench;
 
 /// Linux process RSS snapshot in KiB. VmHWM is the process high-water mark
 /// since launch, so it includes the entire model load/benchmark lifetime.
@@ -127,6 +128,31 @@ enum Commands {
         batch: Option<u32>,
         #[arg(long)]
         ubatch: Option<u32>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// A/B test draftless n-gram speculative decoding with exact target-model verification.
+    BenchSpec {
+        /// Pinned GGUF; no download or external draft model required.
+        model: String,
+        #[arg(long, default_value = "Repeat this short phrase: red blue red blue red blue.")]
+        prompt: String,
+        #[arg(long, default_value_t = 64)]
+        tokens: usize,
+        #[arg(long, default_value_t = 5)]
+        runs: usize,
+        #[arg(long, default_value_t = 1)]
+        warmup: usize,
+        #[arg(long)]
+        threads: Option<u32>,
+        #[arg(long)]
+        batch: Option<u32>,
+        #[arg(long)]
+        ubatch: Option<u32>,
+        #[arg(long, default_value_t = 3)]
+        ngram: usize,
+        #[arg(long, default_value_t = 8)]
+        draft_max: usize,
         #[arg(long)]
         json: bool,
     },
@@ -741,6 +767,16 @@ async fn main() {
             }
             if let Err(error) = run_interactive(&model, max_tokens, keep_context, native_greedy) {
                 eprintln!("run: {}", error);
+                std::process::exit(1);
+            }
+        },
+        Commands::BenchSpec { model, prompt, tokens, runs, warmup,
+            threads, batch, ubatch, ngram, draft_max, json } => {
+            if let Err(error) = phase35_spec_bench::run(
+                model, prompt, tokens, runs, warmup, threads, batch, ubatch,
+                ngram, draft_max, json
+            ) {
+                eprintln!("bench-spec: {error}");
                 std::process::exit(1);
             }
         },

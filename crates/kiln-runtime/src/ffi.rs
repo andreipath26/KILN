@@ -56,6 +56,10 @@ extern "C" {
     ) -> c_int;
     fn kiln_llama_logits(h: *mut c_void, out: *mut f32, out_cap: c_int) -> c_int;
     fn kiln_llama_greedy_token(h: *mut c_void) -> c_int;
+    fn kiln_llama_verify_greedy_draft(
+        h: *mut c_void, draft: *const c_int, n: c_int,
+        next_token: *mut c_int,
+    ) -> c_int;
     fn kiln_llama_token_to_str(
         h: *mut c_void,
         token: c_int,
@@ -247,6 +251,35 @@ impl LlamaContext {
         Ok(token)
     }
 
+    /// Verify a short batch of draft tokens against the target model.
+    /// Only the accepted prefix becomes resident in KV. The returned token
+    /// is the next target-model greedy token, NOT YET evaluated into KV.
+    /// On any native error, reset the session so callers cannot accidentally
+    /// continue after a partially modified KV state.
+    pub fn verify_greedy_draft(&mut self, draft: &[i32]) -> Result<(usize, i32), LlamaError> {
+        if draft.is_empty() || draft.len() > self.batch_capacity || draft.len() > 16 {
+            return Err(LlamaError::Decode("draft length must fit 1..=min(16,n_batch)".into()));
+        }
+        let len = i32::try_from(draft.len()).map_err(|_| LlamaError::Decode("draft too long".into()))?;
+        let end = self.n_past.checked_add(len)
+            .ok_or_else(|| LlamaError::Decode("draft position overflow".into()))?;
+        if end as usize > self.context_capacity {
+            return Err(LlamaError::Decode("draft exceeds configured context".into()));
+        }
+        let mut next = -1i32;
+        let accepted = unsafe {
+            kiln_llama_verify_greedy_draft(self.handle, draft.as_ptr(), len, &mut next)
+        };
+        if accepted < 0 || accepted > len || next < 0 {
+            // Keep fail-safe native/Rust position synchronization.
+            self.reset().map_err(|e| LlamaError::Decode(format!(
+                "draft verification failed; reset also failed: {e}")))?;
+            return Err(LlamaError::Decode("native draft verification failed; session reset".into()));
+        }
+        self.n_past += accepted;
+        Ok((accepted as usize, next))
+    }
+
     pub fn forward(&mut self, tokens: &[i32]) -> Result<Vec<f32>, LlamaError> {
         self.decode(tokens)?;
         self.logits()
@@ -344,6 +377,47 @@ mod tests {
         let single: Vec<_> = tokens[..10].chunks(256).enumerate()
             .map(|(index, _)| index + 1 == 1).collect();
         assert_eq!(single, vec![true]);
+    }
+
+    /// Real-model verification of target-greedy correction and KV tail trim.
+    #[test]
+    #[ignore = "requires pinned KILN_TEST_MODEL_PATH GGUF"]
+    fn real_model_draft_rejection_restores_identical_kv_continuation() {
+        let file = std::env::var("KILN_TEST_MODEL_PATH")
+            .expect("set KILN_TEST_MODEL_PATH to a pinned local GGUF");
+        let path = std::path::Path::new(&file);
+        let params = Some((2048, 256, 128, 4));
+        let mut baseline = LlamaContext::load_with_ubatch(path, params).unwrap();
+        let mut spec = LlamaContext::load_with_ubatch(path, params).unwrap();
+        let tokens = baseline.tokenize(
+            "Explain why we measure numerical outputs after a cache rollback."
+        ).unwrap();
+        assert_eq!(tokens, spec.tokenize(
+            "Explain why we measure numerical outputs after a cache rollback."
+        ).unwrap());
+        let first = baseline.forward_greedy(&tokens).unwrap();
+        assert_eq!(first, spec.forward_greedy(&tokens).unwrap());
+        let second = baseline.forward_greedy(&[first]).unwrap();
+        let wrong = (second + 1) % spec.n_vocab();
+        let (accepted, corrected) = spec.verify_greedy_draft(&[first, wrong]).unwrap();
+        assert_eq!(accepted, 1);
+        assert_eq!(corrected, second);
+        assert_eq!(spec.n_past(), baseline.n_past());
+        let base_next = baseline.forward_greedy(&[second]).unwrap();
+        let spec_next = spec.forward_greedy(&[corrected]).unwrap();
+        assert_eq!(base_next, spec_next);
+    }
+
+    #[test]
+    fn draft_validation_happens_before_native_call() {
+        let mut ctx = LlamaContext {
+            handle: std::ptr::null_mut(), n_vocab: 64, n_past: 10,
+            batch_capacity: 4, context_capacity: 12,
+        };
+        assert!(ctx.verify_greedy_draft(&[]).is_err());
+        assert!(ctx.verify_greedy_draft(&[1, 2, 3, 4, 5]).is_err());
+        assert!(ctx.verify_greedy_draft(&[1, 2, 3]).is_err());
+        assert_eq!(ctx.n_past(), 10);
     }
 
     #[test]

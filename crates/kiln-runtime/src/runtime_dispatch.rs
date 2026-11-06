@@ -12,6 +12,8 @@ pub enum RuntimeOp {
     Forward { tokens: Vec<i32> },
     /// Greedy-only path. Returns RuntimeResult::Int(token_id), not logits.
     ForwardGreedy { tokens: Vec<i32> },
+    /// Batched greedy draft verification, with rejected KV tail rolled back.
+    VerifyGreedyDraft { tokens: Vec<i32> },
     Reset,
     Tokenize { text: String },
     Logits,
@@ -26,6 +28,8 @@ pub enum RuntimeResult {
     Unit,
     Logits(Vec<f32>),
     Tokens(Vec<i32>),
+    /// Accepted prefix length and the unevaluated corrected next token.
+    VerifiedGreedy { accepted: usize, next: i32 },
     Str(String),
     Bytes(Vec<u8>),
     Int(i32),
