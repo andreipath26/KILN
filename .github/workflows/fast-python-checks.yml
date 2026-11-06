@@ -1,0 +1,28 @@
+name: Fast Python checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/**"
+      - ".github/workflows/fast-python-checks.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/**"
+      - ".github/workflows/fast-python-checks.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out KILN (no large submodules needed)
+        uses: actions/checkout@v4
+      - name: Run pure Python feasibility and simulator tests
+        run: |
+          python3 -m unittest scripts.test_synthetic_moe_cache_bench scripts.test_assess_tier0_gate5a -v
