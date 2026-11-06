@@ -21,3 +21,11 @@ No direct I/O (`O_DIRECT`) is enabled by default. Sequential SSD bandwidth, page
 The Linux unit test reads two distinct indexed expert ranges, including a range larger than a 64 KiB request, compares exact source bytes, verifies wrong buffer/key rejection, and permits an ordinary buffered fallback if CI kernels prohibit io_uring. A second test checks bad range rejection before ring setup.
 
 Execute on Dell with a pinned real model/expert index and compare regular ring, optional SQPOLL and the existing buffered reader. Integrate with actual llama.cpp MoE execution only after its routing and fallback tests pass.
+
+## Native io_uring background prefetch integration
+
+The same phase now includes a Linux-only `AsyncGuardedExpertCoordinator::new_linux_uring(...)` factory. It opens the native ring reader and authoritative cache reader from the **same expert path and validated ExpertTable**. The background worker can use the real `IORING_OP_READ` kernel path, falling back to buffered positioned reads when ring setup or operation is unavailable. The epoch-scoped Commit Guard accepts only completed proposed blocks for the matching token, then exact router keys authorize output. Missing experts are always loaded from the authoritative source.
+
+An integration test creates actual expert file bytes, stages two predictions, deliberately routes to one correct and one missing expert, checks exact byte equality and router order, and verifies guard bytes are released. The optional SQPOLL setup can be denied by CI; correctness still passes through fallback.
+
+The live llama.cpp router and model compute graph are still **not** connected to this coordinator, so no end-to-end streamed inference or Tier 0 speed claim is made.
