@@ -346,6 +346,16 @@ Model versions, availability and architectures require fresh verification; inclu
 
 ## 13. Session log
 
+### 2026-11-06 — Phase 3.5 native CPU hot-path batch (merged, CI verified)
+
+- **PR #33** merged `0581efe557e1d2728fe8ac6a0f77c5d9ff58f76d`: the pinned llama.cpp implementation distinguishes decode `n_threads` from batch/prefill `n_threads_batch`. KILN's shim now applies the explicitly selected `--threads` CPU count to both. Previously prefill retained an unrelated default, confounding the prescribed Tier 0 2/3/4 thread A/B.
+- **PR #34** merged `25fcf16167a8562ca9bbd50d03c2a46235ec510c`: fix native token-to-piece buffers that previously discarded pieces longer than the initial 256-byte scratch space; bounded retry and propagated decoding errors plus required-size tests.
+- **PR #35** merged `21fa7fc94b5355549b87bc1772c5d694c4a1994d`: during prompt prefill exceeding the native batch size, request next-token logits only for the final chunk. Earlier chunks retain KV-position updates but no longer request unused outputs. Includes final-chunk boundary tests and a real-model differential acceptance protocol.
+- All three PR heads passed GitHub CI before merge. **These are implementation/correctness milestones, not measured performance gains.** Phase 3.5 remains **open** until Dell Latitude 7490 pinned-model tests prove the ≥27 tok/s threshold, model parity, stable memory/thermals and an equivalent Ollama comparison. Run the existing real-GGUF differential gate for long/short prompts and the dense thread/batch/microbatch matrix; do not infer performance from CI.
+- No Phase 5 expert-streaming performance or original 70B-class mission acceptance is claimed. Keep the roadmap's existing phase order and storage-feasibility gates.
+
+
+
 ### 2026-11-06 — Phase 3.5 native greedy decode fast path (merged)
 
 - **PR #32 merged** (commit `8c19f37607eac558cc6d71afde4d323e352a3dcf`) after the native llama.cpp build and all workspace tests passed in hosted CI. It adds an opt-in `ForwardGreedy` operation which selects the first maximum next-token ID inside the pinned llama.cpp shim instead of copying an entire `n_vocab × f32` logits array across the Rust ABI on every decode step.
