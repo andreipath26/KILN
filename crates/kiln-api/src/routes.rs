@@ -332,12 +332,13 @@ pub async fn version() -> Json<VersionResponse> {
 
 /// GET /api/ui/models. Return structurally valid local GGUF candidates.
 pub async fn ui_models(State(state): State<ApiState>) -> Result<Json<Value>, ErrorResponse> {
-    let models = tokio::task::spawn_blocking(|| kiln_models::library::discover_models(&[]))
+    let active_path = state.runtime.lock().ok().and_then(|runtime| runtime.as_ref().and_then(|session| {
+        std::fs::canonicalize(&session.model_path).ok()
+    }));
+    let scan_roots = active_path.iter().cloned().collect::<Vec<_>>();
+    let models = tokio::task::spawn_blocking(move || kiln_models::library::discover_models(&scan_roots))
         .await
         .map_err(|e| error_response((StatusCode::INTERNAL_SERVER_ERROR, format!("model scan failed: {e}"))))?;
-    let active_path = state.runtime.lock().ok().and_then(|runtime| runtime.as_ref().map(|session| {
-        std::fs::canonicalize(&session.model_path).ok()
-    })).flatten();
     let models: Vec<Value> = models.into_iter().map(|model| {
         let path = PathBuf::from(&model.path);
         let active = active_path.as_ref().is_some_and(|active| std::fs::canonicalize(&path).ok().as_ref() == Some(active));
