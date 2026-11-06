@@ -131,3 +131,11 @@ python3 scripts/assess_tier0_gate5a.py /path/to/evidence/expert-io-*.json \\
 ```
 
 The check computes the *necessary average storage-traffic condition* `bytes/token × tokens/s <= effective bytes/s`, not a pass verdict for Phase 5A. Compute time, random-read latency, prefetch overlap, RSS, model correctness and quality still require separate evidence. Missing physical/model measurements yield `traffic_budget: null` rather than an inferred answer. The numbers in documentation placeholders must not be mistaken for actual measurements.
+
+## Shared expert block access (Phase 5 memory-path prerequisite)
+
+`CachedExpertBlobReader::read_expert_shared(layer, expert_id)` returns `Arc<[u8]>`. Warm hits reuse the same backing allocation rather than clone an entire expert block into another `Vec<u8>`. The existing `read_expert` API remains available and returns an **owned copy**, preserving compatibility with existing clients and benchmarks. The underlying `ExpertCache` also exposes `get_shared`, `get_shared_if_present`, and `insert_shared`; cache hit/miss counters continue to reflect access outcomes.
+
+The cache's `used_bytes` limit controls **retained cache membership only**. A reader holding a returned `Arc` after eviction keeps that allocation live; total process RSS may therefore exceed `used_bytes`, especially with multiple simultaneous readers. The future streamed-expert scheduler must separately account for all outstanding shared handles, in-flight I/O, mmap/page-cache effects, KV, activations and OS headroom before making a Tier 0 peak-memory claim. The shared API is an ownership/copy optimization, **not** the completed 15 GB memory gate.
+
+Tests cover pointer identity across warm hits, correctness after eviction with external owners, and retained-byte counters. This path does not yet connect stock llama.cpp MoE tensors to a streaming loader and is not an end-to-end speed measurement.
