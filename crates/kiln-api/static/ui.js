@@ -90,6 +90,7 @@ function saveHistory() {
 
 function renderMessages() {
   const container = $("#messages");
+  const shouldStickToBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
   container.replaceChildren();
   if (!state.messages.length) {
     const empty = document.createElement("div");
@@ -122,7 +123,7 @@ function renderMessages() {
       container.append(item);
     }
   }
-  container.scrollTop = container.scrollHeight;
+  if (shouldStickToBottom) container.scrollTop = container.scrollHeight;
   const enabled = Boolean(state.model);
   $("#prompt").disabled = !enabled || state.busy;
   $("#send-button").disabled = !enabled || state.busy;
