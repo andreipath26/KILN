@@ -346,6 +346,15 @@ Model versions, availability and architectures require fresh verification; inclu
 
 ## 13. Session log
 
+### 2026-11-06 — Continued roadmap implementation: KV correctness and expert-cache memory path
+
+- **Phase 3.5 — PR #29 merged** (commit `12fbcefd35b2866dcc25d521f54b953e421db019`): fix append-only dialogue continuation so a sampled EOS that was not evaluated into native KV state is never injected into the next prompt. Added EOS/context-budget regression tests. Hosted CI passed.
+- **Phase 3.5 — PR #30 merged** (commit `a7503c3d2247e92caaeb891d50a2cc4c53e57ed3`): upgrade the already-existing opt-in real-model KV reuse versus full-prefix replay test to five alternating-order trials, exact token-stream parity checks, and median second-turn prefill timing. Hosted CI compiles the ignored real-model test; it does **not** execute on the Dell. No throughput target is claimed.
+- **Phase 5 — PR #31 in review:** add shared expert allocations and caller-owned expert-buffer reads to avoid full-block copy on warm cache hits, with tests for concurrent readers, eviction and exact-length validation. **Not merged/accepted until CI passes.** External shared handles outliving eviction remain outside cache-membership byte accounting, so 15 GB peak RSS is still an open system-level gate.
+- Phase 3.5 and Phase 5 both remain **open**. Do not confuse merged code, CI, or a synthetic I/O test with verified Dell inference speed, SSD bytes/token, expert routing or accuracy.
+
+
+
 ### 2026-11-06 — Verified Phase 3.5 / Phase 5A implementation status
 
 The following changes are **merged to the default branch**, with CI successful on their corresponding reviewed heads. Their merge status is a code delivery milestone, **not** evidence of model-performance acceptance:
