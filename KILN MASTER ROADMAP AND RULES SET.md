@@ -639,3 +639,4 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Updated the UI continuation guide and README with current behavior and outstanding work. Model search/download/activation, settings APIs, runtime telemetry and accessibility/behavior review remain open.
 - `node --check crates/kiln-api/static/ui.js` and `git diff --check` pass. Rust compilation and live browser/API behavior have not been verified in this environment; no phase acceptance gate is claimed complete.
 - Expanded the Advanced overview to show the API's actual fixed inference defaults (greedy sampling, 128-token chat limit and role-prefixed prompts), and made its cards adapt to available width. Sampling remains reported as limited rather than presented as an editable setting.
+- CI exposed a workspace compile error in the just-merged model-library code (`Option::or_else` passed a value instead of a closure). Corrected the fallback to `Option::or`; rerun CI before merge.
