@@ -576,3 +576,10 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Replaced the phase/status-led README with a concise public project overview: mission, intended architecture, platform scope, current maturity, links to technical documentation and a development CLI entry point.
 - Removed planning-level phase ledgers, benchmark tables, failed-experiment detail, research audits and internal next steps from the front page; the authoritative roadmap remains the home for that material.
 - Kept all performance figures clearly described as targets or left in the roadmap's evidence record. No implementation or performance status changed.
+
+
+### 2026-11-06 — README style revision
+
+- Reworked README after comparing project-native formats used by Janas and llama.cpp: direct project claim, concrete capability list, honest performance table, hardware context, source-build path, and focused documentation links.
+- Removed generic product-brief language. Clearly separated implemented repository components from the unfinished MoE streaming and platform-performance goals.
+- No phase status or benchmark result changed.
