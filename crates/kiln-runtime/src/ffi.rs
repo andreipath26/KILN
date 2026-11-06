@@ -379,6 +379,35 @@ mod tests {
         assert_eq!(single, vec![true]);
     }
 
+    /// Real-model verification of target-greedy correction and KV tail trim.
+    #[test]
+    #[ignore = "requires pinned KILN_TEST_MODEL_PATH GGUF"]
+    fn real_model_draft_rejection_restores_identical_kv_continuation() {
+        let file = std::env::var("KILN_TEST_MODEL_PATH")
+            .expect("set KILN_TEST_MODEL_PATH to a pinned local GGUF");
+        let path = std::path::Path::new(&file);
+        let params = Some((2048, 256, 128, 4));
+        let mut baseline = LlamaContext::load_with_ubatch(path, params).unwrap();
+        let mut spec = LlamaContext::load_with_ubatch(path, params).unwrap();
+        let tokens = baseline.tokenize(
+            "Explain why we measure numerical outputs after a cache rollback."
+        ).unwrap();
+        assert_eq!(tokens, spec.tokenize(
+            "Explain why we measure numerical outputs after a cache rollback."
+        ).unwrap());
+        let first = baseline.forward_greedy(&tokens).unwrap();
+        assert_eq!(first, spec.forward_greedy(&tokens).unwrap());
+        let second = baseline.forward_greedy(&[first]).unwrap();
+        let wrong = (second + 1) % spec.n_vocab();
+        let (accepted, corrected) = spec.verify_greedy_draft(&[first, wrong]).unwrap();
+        assert_eq!(accepted, 1);
+        assert_eq!(corrected, second);
+        assert_eq!(spec.n_past(), baseline.n_past());
+        let base_next = baseline.forward_greedy(&[second]).unwrap();
+        let spec_next = spec.forward_greedy(&[corrected]).unwrap();
+        assert_eq!(base_next, spec_next);
+    }
+
     #[test]
     fn draft_validation_happens_before_native_call() {
         let mut ctx = LlamaContext {
