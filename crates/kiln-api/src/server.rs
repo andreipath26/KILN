@@ -84,3 +84,37 @@ pub async fn serve(host: &str, port: u16) -> std::io::Result<()> {
         .await
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::{to_bytes, Body};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn ui_root_is_bundled_and_has_security_headers() {
+        let response = build_router()
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let policy = response.headers().get("content-security-policy").unwrap().to_str().unwrap();
+        assert!(policy.contains("script-src 'self'"));
+        assert_eq!(response.headers().get("x-content-type-options").unwrap().to_str().unwrap(), "nosniff");
+        assert_eq!(response.headers().get("cache-control").unwrap().to_str().unwrap(), "no-store");
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("id=\"tab-simple\""));
+        assert!(html.contains("id=\"tab-advanced\""));
+        assert!(html.contains("src=\"/ui.js\""));
+        assert!(!html.contains("https://"));
+    }
+
+    #[tokio::test]
+    async fn api_rejects_non_loopback_binding() {
+        let error = serve("0.0.0.0", 0).await.unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    }
+}
