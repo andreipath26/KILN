@@ -557,4 +557,100 @@ mod tests {
         for p in [&src,&dst] {std::fs::remove_file(p).unwrap();}
         std::fs::remove_dir(root).unwrap();
     }
+    #[test]
+    fn multi_component_experts_roundtrip_exact_tensors_and_detect_map_tamper() {
+        use kiln_models::{ExpertTensorComponent, GgufExpertSourceMap};
+        let root = std::env::temp_dir().join(format!(
+            "kiln-component-pack-{}-{:?}",std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let src=root.join("source.gguf");
+        let blob=root.join("experts.bin");
+        let index=root.join("experts.index.json");
+        let integrity=root.join("experts.crc32.json");
+        let components=root.join("experts.components.json");
+        let source_bytes:Vec<u8>=(0..=255u8).collect();
+        std::fs::write(&src,&source_bytes).unwrap();
+        let mapping=GgufExpertSourceMap {
+            format_version:1,source_size_bytes:256,
+            components:vec![
+                ExpertTensorComponent {
+                    layer:0,expert_id:0,tensor_name:"blk.0.ffn_down.0".into(),
+                    source_byte_offset:30,byte_length:11,
+                },
+                ExpertTensorComponent {
+                    layer:0,expert_id:0,tensor_name:"blk.0.ffn_gate.0".into(),
+                    source_byte_offset:90,byte_length:13,
+                },
+                ExpertTensorComponent {
+                    layer:0,expert_id:1,tensor_name:"blk.0.ffn_up.1".into(),
+                    source_byte_offset:150,byte_length:17,
+                },
+            ],
+        };
+        let (_checksum,layout)=write_component_expert_sidecar(
+            &src,mapping.clone(),&blob,&index,&integrity,&components
+        ).unwrap();
+        let (verified,verified_layout)=verify_component_expert_sidecar(
+            &blob,&index,&integrity,&components
+        ).unwrap();
+        assert_eq!(verified.ranges.len(),2);
+        assert_eq!(verified.ranges[0].byte_length,24);
+        assert_eq!(verified.ranges[1].byte_offset,4096);
+        assert_eq!(layout.components.len(),verified_layout.components.len());
+        let packed=std::fs::read(&blob).unwrap();
+        assert_eq!(&packed[0..11],&source_bytes[30..41]);
+        assert_eq!(&packed[11..24],&source_bytes[90..103]);
+        assert_eq!(&packed[4096..4113],&source_bytes[150..167]);
+        assert!(packed[24..4096].iter().all(|b|*b==0));
+        assert_eq!(std::fs::read(&src).unwrap(),source_bytes);
+
+        let mut changed=verified_layout;
+        changed.components[1].byte_offset+=1;
+        std::fs::write(&components,serde_json::to_vec(&changed).unwrap()).unwrap();
+        assert!(verify_component_expert_sidecar(
+            &blob,&index,&integrity,&components
+        ).is_err());
+        for file in [&src,&blob,&index,&integrity,&components] {
+            std::fs::remove_file(file).unwrap();
+        }
+        std::fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn component_pack_rejects_overlapping_source_ranges_before_writing() {
+        use kiln_models::{ExpertTensorComponent,GgufExpertSourceMap};
+        let root=std::env::temp_dir().join(format!(
+            "kiln-component-bad-{}-{:?}",std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let src=root.join("src");
+        let blob=root.join("blob");
+        let index=root.join("index");
+        let integrity=root.join("integrity");
+        let parts=root.join("parts");
+        std::fs::write(&src,[7u8;100]).unwrap();
+        let map=GgufExpertSourceMap{
+            format_version:1,source_size_bytes:100,
+            components:vec![
+                ExpertTensorComponent{
+                    layer:0,expert_id:0,tensor_name:"a".into(),
+                    source_byte_offset:10,byte_length:20
+                },
+                ExpertTensorComponent{
+                    layer:0,expert_id:0,tensor_name:"b".into(),
+                    source_byte_offset:25,byte_length:10
+                }
+            ],
+        };
+        assert!(write_component_expert_sidecar(
+            &src,map,&blob,&index,&integrity,&parts
+        ).is_err());
+        assert!(!blob.exists()&&!index.exists()&&!integrity.exists()&&!parts.exists());
+        std::fs::remove_file(src).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
 }
