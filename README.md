@@ -2,9 +2,9 @@
 
 **A local LLM runtime designed to run models larger than the machine's physical memory.**
 
-KILN is a per-layer runtime and dispatcher that coordinates compute and a unified memory hierarchy across CPU, integrated/discrete GPU, NPU, RAM, NVMe storage and optional VRAM. The product goal is one runtime contract, one model file where supported, and a local-first experience across ordinary laptops and larger systems.
+KILN is a per-layer runtime and dispatcher that coordinates compute and a unified memory hierarchy across CPU, integrated/discrete GPU, NPU, RAM, NVMe storage and optional VRAM. The product goal is one runtime contract, one model file where supported, and a local-first experience across ordinary laptops and larger systems. The Dell Latitude 7490 is the minimum acceptance machine, not the hardware boundary; CPU-only Phase 5 acceptance does not limit KILN's CPU, GPU, NPU, APU/iGPU or heterogeneous-memory scope.
 
-> **Status and source of truth:** Phases 1, 1.5, 2.0–2.3, 3, 4 and 4.5 are recorded complete. Phase 3.5 (dense-path performance) is the immediate execution priority. Phase 5 (CPU-only MoE expert streaming) remains the core mission, with feasibility and end-to-end acceptance gates still pending. The full phase ledger, rules and research log live in the [KILN Master Roadmap and Rules Set](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md).
+> **Status and source of truth:** Phases 1, 1.5, 2.0–2.3, 3, 4 and 4.5 are recorded complete. Phase 3.5 (dense-path performance) is the immediate execution priority. Phase 5 (heterogeneous MoE expert streaming; CPU-only Tier 0 acceptance path) remains the core mission, with feasibility and end-to-end acceptance gates still pending. The full phase ledger, rules and research log live in the [KILN Master Roadmap and Rules Set](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md).
 
 ## Mission
 
@@ -22,7 +22,7 @@ The core mission target is a 70B-class mixture-of-experts model with approximate
 | 3.5 | Dense-path performance run | **Next execution priority** |
 | 4 | Ternary/TQ1.0 path | Complete |
 | 4.5 | Sanity and quality safeguards | Complete |
-| 5 | CPU-only MoE expert streaming | In progress; end-to-end feasibility not yet demonstrated |
+| 5 | Heterogeneous MoE expert streaming (CPU-only Tier 0 acceptance path) | In progress; end-to-end feasibility not yet demonstrated |
 | 6 | Diffusion | Future research track |
 | 7 | Broader hardware abstraction | Future |
 | 8 | Productization | Future |
@@ -174,7 +174,7 @@ This is a **research and benchmarking decision, not an implemented feature or de
 
 ## November 2026 research audit — critical feasibility gates
 
-The [master roadmap](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md#15-research-and-repository-audit--2026-11-06-new-evidence-no-phase-reordering) now includes a source-level research assessment of MoE-CORE, APEX, BITCOS, Q-Strata, ZipMoE, SSD-LLaMA and related theoretical I/O work.
+The [master roadmap](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md#15-research-and-repository-audit--2026-11-06-new-evidence-no-phase-reordering) includes source-level assessments of MoE-CORE, APEX, BITCOS, Q-Strata, ZipMoE, SSD-LLaMA and related theoretical I/O work, plus a platform-stack survey spanning ggml backends, OpenVINO, Ryzen AI, Qualcomm, ONNX Runtime GenAI, MLX, IREE, MLC-LLM and ExecuTorch. These are research leads, not claimed KILN support.
 
 **Two correctness/feasibility dependencies are tracked:** the byte-based logical tensor-admission fix has landed, but does not yet bound physical RSS, caller-owned buffers or OS page cache; the proposed UMF expert-relocation layout still needs proof of stock-GGUF compatibility. PR #15 added the expert-I/O and cache feasibility tools and a read-only Dell measurement runner; this research follow-up adds optional Linux process-attributed storage-read counters. Neither is a real-model benchmark. Actual SSD bytes/token, resident memory, format round trips and end-to-end model quality are mandatory before any streaming performance claim.
 
@@ -197,6 +197,10 @@ See [append-only KV behavior and its ignored GGUF differential test](docs/phase3
 The opt-in `kiln bench-spec` benchmark now compares bounded, draftless n-gram proposals verified in the actual llama.cpp target model with an ordinary target-greedy baseline. Rejected draft KV entries are rolled back, and the benchmark demands identical token IDs; see [Phase 3.5 speculative protocol](docs/phase35-speculative-ngram.md). **Hosted CI does not prove a target-machine speed improvement or run the ignored real-model differential test.**
 
 Two Phase 5.0 offline feasibility commands are also implemented: `kiln-bench predictor-holdout` for a frozen chronological single-next-expert holdout and `kiln-bench router-holdout` for grouped per-token/per-layer MoE active expert sets. See [training pipeline](docs/training-pipeline-design.md) and [grouped router evaluation](docs/phase50-grouped-router-evaluation.md). Neither claims the 80% k=2 predictor gate is met on an actual checkpoint.
+
+## Platform support and Phase 5 scope
+
+KILN's architecture spans available CPU, GPU, NPU, APU/iGPU and memory tiers under one runtime contract. Phase 5's CPU-only route is the minimum Tier 0 acceptance path; it is not the product's deployment limit. Vendor stacks may require distinct graph formats or generated device artifacts, so every backend needs verified dispatch coverage, correctness parity, memory accounting and a safe CPU fallback. See the master roadmap's platform/runtime landscape for the project-by-project evaluation.
 
 ## Current next steps
 
