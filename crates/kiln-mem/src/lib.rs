@@ -18,3 +18,6 @@ pub use policy::{RebalancePolicy, RebalanceReport};
 pub use error::{LoadError, EvictError};
 pub use expert_cache::{ExpertCache, ExpertCachePolicy, ExpertCacheStats, ExpertKey, InsertOutcome};
 pub use expert_prefetch::{ExpertPrefetcher, PrefetchCandidate, PrefetchStats};
+
+pub mod predictor_eval;
+pub use predictor_eval::{evaluate_predictor_holdout, PredictorHoldoutReport, HoldoutError};
