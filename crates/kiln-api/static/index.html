@@ -30,9 +30,26 @@
             <div class="model-chip" id="active-model-chip"><span class="chip-dot"></span><span id="active-model-name">No model loaded</span></div>
           </div>
 
+          <section class="model-library-card" aria-labelledby="models-heading">
+            <div class="section-title">
+              <div><p class="eyebrow">MODEL LIBRARY</p><h2 id="models-heading">Choose a model</h2></div>
+              <button id="refresh-models" class="button button-quiet" type="button">Refresh local models</button>
+            </div>
+            <p class="muted small">Local GGUF files are checked for structure. This does not guarantee that the current inference backend supports their architecture. Searching contacts Hugging Face; downloads are verified before installation.</p>
+            <div id="local-models" class="model-list" aria-live="polite"><p class="muted">Scanning local model locations…</p></div>
+            <form id="model-search-form" class="model-search">
+              <label class="visually-hidden" for="model-search-query">Search Hugging Face for GGUF models</label>
+              <input id="model-search-query" type="search" placeholder="Search public GGUF models…" autocomplete="off" />
+              <button id="model-search-button" class="button button-secondary" type="submit">Search</button>
+            </form>
+            <p id="model-library-status" class="inline-status" role="status" aria-live="polite">Remote search runs only when you submit a query.</p>
+            <button id="cancel-download" class="button button-quiet" type="button" hidden>Cancel download</button>
+            <div id="remote-models" class="model-list"></div>
+          </section>
+
           <div id="no-model-notice" class="notice" hidden>
             <div class="notice-icon" aria-hidden="true">i</div>
-            <div><strong>No model is loaded in the API server.</strong><p>Set <code>KILN_MODEL_PATH</code> to a GGUF file, then restart <code>kiln serve</code>. Model discovery and switching from this page are not connected yet.</p></div>
+            <div><strong>No model is loaded in the API server.</strong><p>Choose a local GGUF above or search and download a public model. KILN checks GGUF structure, verifies downloads, then loads your selection; inference is briefly unavailable while a model is replaced.</p></div>
           </div>
 
           <section class="chat-card" aria-label="Chat">
@@ -40,9 +57,10 @@
               <div><h2>Chat</h2><span id="chat-subtitle" class="muted small">Waiting for a loaded model</span></div>
               <button id="clear-chat" class="button button-quiet" type="button" disabled>New chat</button>
             </div>
-            <div id="messages" class="messages" aria-live="polite" aria-relevant="additions text">
+            <div id="messages" class="messages" aria-live="off">
               <div class="empty-state" id="empty-chat"><div class="empty-glyph" aria-hidden="true">✳</div><strong>Your local chat starts here</strong><p>Choose a model in your KILN setup, then send a message.</p></div>
             </div>
+            <p id="chat-announcer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
             <form id="chat-form" class="composer">
               <label class="visually-hidden" for="prompt">Message your model</label>
               <textarea id="prompt" rows="1" placeholder="Message your model…" disabled></textarea>
@@ -72,10 +90,10 @@
               <div class="section-title"><div><p class="eyebrow">INFERENCE</p><h2>Current behavior</h2></div><span class="badge">API defaults</span></div>
               <dl id="inference-details" class="detail-list">
                 <div><dt>Sampling</dt><dd>Greedy</dd></div>
-                <div><dt>Chat output limit</dt><dd>128 tokens</dd></div>
+                <div><dt>Chat output limit</dt><dd><input id="max-tokens" class="number-control" type="number" min="1" max="4096" step="1" value="128" aria-describedby="sampling-limit-note" /></dd></div>
                 <div><dt>Prompt format</dt><dd>Role-prefixed text</dd></div>
               </dl>
-              <p class="muted small">These are fixed by the current API. Editable generation settings and model-specific chat templates are not exposed yet.</p>
+              <p id="sampling-limit-note" class="muted small">The token limit is configurable from 1 to 4096 and shared with Simple chat. Sampling remains greedy; model-specific chat templates are not exposed yet.</p>
             </section>
           </div>
 

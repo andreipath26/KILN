@@ -55,21 +55,24 @@ cargo run -p kiln-cli -- search "granite 4.1"
 cargo run -p kiln-cli -- pull REPOSITORY/NAME --file path/in/repository/model.gguf
 ```
 
-`run auto` uses a local candidate only when exactly one readable GGUF is found; with zero or multiple candidates it explains how to search, pull or choose a path. Downloads go to `KILN_MODELS_DIR` or the user's data directory. KILN checks the Hugging Face SHA-256 and parses the downloaded GGUF before installing it. Public downloads use the system `curl` command and a platform SHA-256 utility. Local scanning checks the usual model, Hugging Face cache, and Ollama storage locations; `list` validates GGUF structure, but a successful scan does not guarantee that the active inference backend supports that model architecture.
+`run auto` uses a local candidate only when exactly one readable GGUF is found; with zero or multiple candidates it explains how to search, pull or choose a path. Downloads go to `KILN_MODELS_DIR` or the user's data directory. KILN checks the Hugging Face SHA-256 and parses the downloaded GGUF before installing it. HTTPS downloads use KILN's Rust HTTP client and SHA-256 implementation. Local scanning checks the usual model, Hugging Face cache, and Ollama storage locations; `list` validates GGUF structure, but a successful scan does not guarantee that the active inference backend supports that model architecture.
 
-To start the local API server, set `KILN_MODEL_PATH` to a readable GGUF file:
+Start the local API and open `http://127.0.0.1:11435/` to browse local GGUFs, search public Hugging Face GGUF repositories, download a selected file, activate a model, and chat. You can optionally select a startup model with `KILN_MODEL_PATH`:
 
 ```sh
+cargo run -p kiln-cli -- serve
+# Optional startup model:
 KILN_MODEL_PATH=/path/to/model.gguf cargo run -p kiln-cli -- serve
 ```
 
-The API also serves KILN's local development UI at `http://127.0.0.1:11435/`. It currently provides streamed chat for the startup-loaded model and an Advanced view of the CPU/RAM profile and reported runtime capabilities. Model search/download, in-UI model switching, accelerator controls, and runtime telemetry are not yet connected to the UI.
+The Advanced view reports current CPU/RAM defaults, inference behavior, and capability status. Accelerator placement, MoE streaming controls, and performance telemetry appear only when the runtime exposes them; these are not available yet. The API binds to loopback only and adds browser security headers; remote access is unsupported until KILN has an authenticated remote-access design.
 
 The CLI and backend interfaces are still changing. Check command help for the current options.
 
 ## Documentation
 
 - [UI architecture and continuation guide](docs/ui-architecture.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
 - [Architecture](docs/architecture.md)
 - [Runtime dispatch design](docs/runtime-dispatch-design.md)
 - [GGUF design](docs/gguf-design.md)

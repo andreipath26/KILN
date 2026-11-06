@@ -33,3 +33,6 @@ pub use tokenizer::{BpeTokenizer, TokenizerError};
 
 pub mod expert_tensor_map;
 pub use expert_tensor_map::{NamedExpertTensor, ExpertTensorComponent, GgufExpertSourceMap, ExpertMapError, resolve_expert_tensor_components, resolve_expert_tensors_in_gguf};
+
+/// Shared local and remote model-library operations used by both the CLI and API.
+pub mod library;

@@ -66,7 +66,7 @@ Settings have **desired**, **accepted**, and **active** values. The UI shows the
 
 ## 5. UI/API boundary
 
-The existing API has `/api/chat`, `/api/generate`, `/api/tags` and `/api/version`. It loads at most one GGUF at process startup from `KILN_MODEL_PATH`; it does not yet expose a complete model manager, dynamic model activation, hardware capability inventory, execution plans, settings schema, or telemetry stream. The recently merged CLI `list`, `search`, `pull` and `run auto` behavior is not automatically an API/UI capability.
+The existing API has `/api/chat`, `/api/generate`, `/api/tags` and `/api/version`. The UI also has local model inventory, public Hugging Face GGUF search/download with progress and disconnect cancellation, and model activation endpoints backed by shared `kiln-models::library` operations. It still does not expose a complete device capability inventory, execution plans, a general settings schema, or runtime telemetry. The CLI `list`, `search` and `pull` behavior is shared through the model library service, rather than scraped from CLI output.
 
 Build a versioned UI-facing API surface rather than making the browser scrape CLI output or duplicate its behavior. Initial contract areas:
 
@@ -84,7 +84,7 @@ Preserve the existing Ollama-compatible endpoints. UI-specific APIs must not bre
 
 ## 6. Privacy, security and resilience
 
-- Bind to loopback by default; remote access must require a separate explicit configuration and suitable authentication/origin protections before shipping.
+- Bind to loopback only; the current API rejects non-loopback hosts because remote access has no authentication or origin-protection design yet.
 - Make remote catalog/search/download a clear network boundary. Never upload prompts, model metadata, diagnostics or telemetry by default.
 - Keep conversations and profiles local with clear delete/export controls. Diagnostic bundles are opt-in and redacted.
 - Validate every API setting and model path server-side. Constrain paths to approved model roots where appropriate, reject traversal, enforce download limits and verify hashes before atomic install.
@@ -102,6 +102,12 @@ The UI is a local web client served by the KILN API, with a replaceable client b
 - shared design tokens/components and accessible keyboard/focus behavior;
 - no inference or resource-accounting logic in the client;
 - versioned local storage migrations and a clear boundary between preferences, profiles and conversations.
+
+### Reuse from Ollama
+
+KILN should reuse compatible pieces from [Ollama's official app UI](https://github.com/ollama/ollama/tree/main/app/ui/app), rather than transplant its full desktop application. That frontend is a React/Vite application with an Ollama browser client, route/query infrastructure, model picker and streaming chat components. Its API module also calls app-specific user, cloud, integration and desktop endpoints; those contracts and the Go desktop server do not exist in KILN. Copying the whole app would add a large dependency surface and present controls KILN cannot support.
+
+The first direct reuse is Ollama's JSONL streaming parser from `app/ui/app/src/util/jsonl-parsing.ts`, adapted into the bundled client at `crates/kiln-api/static/stream.js`. KILN keeps strict parse failures so malformed events fail visibly. Future UI work should reuse isolated components or patterns only when their contracts fit; preserve Ollama's MIT notice for copied/adapted source and document KILN-specific changes. The model picker, chat composer, stop behavior, keyboard interactions and download progress are implementation references, not proof that their app-only flows can be carried over unchanged.
 
 ## 8. Implementation sequence and acceptance gates
 
@@ -137,8 +143,8 @@ The UI is a local web client served by the KILN API, with a replaceable client b
 
 ## 9. Current implementation status and handoff
 
-The initial implementation now serves bundled `index.html`, `ui.css`, and `ui.js` from the existing Axum process. The Simple view streams chat through `/api/chat`; the Advanced view reads `/api/tags`, `/api/version`, and `/api/ui/capabilities` and reports the current CPU/RAM profile and active startup-loaded model. It also states the current inference defaults: greedy sampling, a fixed 128-token chat output limit, and role-prefixed prompt formatting. The capability snapshot explicitly marks UI model management, dynamic activation, accelerator discovery, per-layer placement, end-to-end MoE streaming, and diffusion as unavailable or not started. The UI stores chat history in browser local storage, scoped by model, and supports stopping an in-flight request.
+The UI serves bundled assets from the existing Axum process. Simple mode supports local GGUF inventory, explicit Hugging Face search and verified downloads, activation, streamed chat, stop, response regeneration, and per-model browser-local conversation history. The Advanced view reports CPU/RAM defaults, active model, API-reported capability states, and current inference behavior. The chat output limit (1–4096 tokens) is editable in Advanced and shared with Simple chat; sampling remains greedy. The adapted JSONL parser is reused by chat and downloads, with strict malformed-event errors. The API binds only to loopback and adds a restrictive content security policy, no-sniff/frame protections, a no-referrer policy, and no-store responses.
 
-**Remaining first-slice work:** connect model discovery, search, download, and activation through a shared model-management service before exposing those controls in the UI; add settings/session APIs and live performance/quality telemetry as the runtime supports them. Keep the model manager API and client modular; do not copy the CLI's curl/hash/file-walking logic into JavaScript or API handlers. Then add responsive/accessibility review and complete the verification gates.
+**Remaining deployment work:** the workspace CI covers compilation and unit checks for bundled UI headers, loopback binding, and model-path validation. It does not run a real model or a browser. Before a supported release, exercise startup without a model, local-model chat, download cancellation/integrity failure, activation recovery, and responsive/keyboard/screen-reader behavior. Runtime performance/quality telemetry, general profile management, execution planning, device discovery, and future workload panels depend on their runtime/API capabilities and are not prerequisites for this current local chat/model-library UI release. Keep the model manager API and client modular; do not copy transport/hash/file-walking logic into JavaScript or API handlers.
 
-**Verification status:** JavaScript syntax check and `git diff --check` pass. Rust compilation and UI behavior have not been verified in this environment. No dedicated UI test suite or frontend build is present yet. Later implementers should compile the Rust workspace, run API/UI tests, exercise offline startup and local-model chat, test model pull integrity/cancellation and activation failure, inspect keyboard/screen-reader behavior, and verify README/roadmap capability claims. Until those checks pass, label the UI as development-only and list the unchecked gates.
+**Verification status:** JavaScript syntax check and `git diff --check` pass. This checkout has no Rust toolchain; use the linked PR's latest workspace CI result as the Rust/API build gate. No separate frontend build is needed because assets are bundled at compile time. The local UI is usable from the source build, but release deployment readiness also requires the real-model, download, activation-recovery, and accessibility checks listed above.

@@ -1,8 +1,8 @@
 //! Route handlers for the Ollama-compatible API.
 
-use std::{convert::Infallible, time::Instant};
+use std::{convert::Infallible, path::PathBuf, time::Instant};
 
-use axum::{body::{Body, Bytes}, extract::State, http::{header, StatusCode}, response::{IntoResponse, Response}, Json};
+use axum::{body::{Body, Bytes}, extract::{Query, State}, http::{header, StatusCode}, response::{IntoResponse, Response}, Json};
 use tokio_stream::wrappers::ReceiverStream;
 use kiln_core::chat::{Sampler, SamplingStrategy};
 use kiln_runtime::{RuntimeOp, RuntimeResult};
@@ -12,7 +12,7 @@ use crate::{
     runtime::ApiState,
     types::{
         ChatMessage, ChatRequest, ChatResponse, GenerateRequest, GenerateResponse, ModelInfo,
-        TagsResponse, VersionResponse,
+        ActivateModelRequest, ModelPullRequest, ModelSearchQuery, TagsResponse, VersionResponse,
     },
 };
 
@@ -242,6 +242,7 @@ pub async fn chat(
     State(state): State<ApiState>,
     Json(request): Json<ChatRequest>,
 ) -> Result<Response, ErrorResponse> {
+    let max_tokens = max_tokens_from_options(request.options.as_ref()).map_err(error_response)?;
     if request.messages.is_empty() {
         return Err(error_response((StatusCode::BAD_REQUEST, "messages must not be empty".into())));
     }
@@ -274,7 +275,7 @@ pub async fn chat(
                 let line = serde_json::json!({"model": model, "message": {"role": "assistant", "content": chunk}, "done": false}).to_string() + "\n";
                 tx.blocking_send(Ok(Bytes::from(line))).is_ok()
             };
-            match infer_with_chunks(&state, &model, &prompt, 128, &mut send_chunk) {
+            match infer_with_chunks(&state, &model, &prompt, max_tokens, &mut send_chunk) {
                 Ok((actual_model, _)) => {
                     let line = serde_json::json!({"model": actual_model, "message": {"role": "assistant", "content": ""}, "done": true}).to_string() + "\n";
                     let _ = tx.blocking_send(Ok(Bytes::from(line)));
@@ -294,7 +295,7 @@ pub async fn chat(
 
     let started = Instant::now();
     let result = tokio::task::spawn_blocking(move || {
-        infer(&state, &request.model, &prompt, 128)
+        infer(&state, &request.model, &prompt, max_tokens)
     }).await.map_err(|e| error_response((StatusCode::INTERNAL_SERVER_ERROR, format!("inference task failed: {}", e))))?;
     let (model, content) = result.map_err(error_response)?;
     let _total_duration_ns = started.elapsed().as_nanos().min(u64::MAX as u128) as u64;
@@ -327,6 +328,111 @@ pub async fn version() -> Json<VersionResponse> {
     Json(VersionResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
     })
+}
+
+/// GET /api/ui/models. Return structurally valid local GGUF candidates.
+pub async fn ui_models(State(state): State<ApiState>) -> Result<Json<Value>, ErrorResponse> {
+    let active_path = state.runtime.lock().ok().and_then(|runtime| runtime.as_ref().and_then(|session| {
+        std::fs::canonicalize(&session.model_path).ok()
+    }));
+    let scan_roots = active_path.iter().cloned().collect::<Vec<_>>();
+    let models = tokio::task::spawn_blocking(move || kiln_models::library::discover_models(&scan_roots))
+        .await
+        .map_err(|e| error_response((StatusCode::INTERNAL_SERVER_ERROR, format!("model scan failed: {e}"))))?;
+    let models: Vec<Value> = models.into_iter().map(|model| {
+        let path = PathBuf::from(&model.path);
+        let active = active_path.as_ref().is_some_and(|active| std::fs::canonicalize(&path).ok().as_ref() == Some(active));
+        json!({
+            "name": model.name,
+            "path": model.path,
+            "size_bytes": model.size_bytes,
+            "source": model.source,
+            "valid_gguf": model.valid_gguf,
+            "active": active
+        })
+    }).collect();
+    Ok(Json(json!({ "models": models })))
+}
+
+/// GET /api/ui/models/search?q=...&limit=...
+pub async fn ui_model_search(
+    Query(query): Query<ModelSearchQuery>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let q = query.q.trim().to_string();
+    let limit = query.limit.unwrap_or(10).clamp(1, 25);
+    let results = tokio::task::spawn_blocking(move || kiln_models::library::search_hugging_face(&q, limit))
+        .await
+        .map_err(|e| error_response((StatusCode::INTERNAL_SERVER_ERROR, format!("model search failed: {e}"))))?
+        .map_err(|e| error_response((StatusCode::BAD_GATEWAY, e)))?;
+    Ok(Json(json!({ "models": results })))
+}
+
+/// POST /api/ui/models/pull. Downloads a selected public artifact and only
+/// installs it after digest verification and GGUF parsing.
+pub async fn ui_model_pull(
+    State(state): State<ApiState>,
+    Json(request): Json<ModelPullRequest>,
+) -> Result<Response, ErrorResponse> {
+    let permit = state.download_semaphore.clone().try_acquire_owned()
+        .map_err(|_| error_response((StatusCode::TOO_MANY_REQUESTS, "a model download is already active".into())))?;
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, Infallible>>(8);
+    let worker_cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    tokio::spawn(async move {
+        let _permit = permit;
+        let repository = request.repository;
+        let file = request.file;
+        let progress_tx = tx.clone();
+        let result = kiln_models::library::pull_hugging_face_async_with_progress(
+            &repository,
+            &file,
+            &worker_cancelled,
+            |bytes_received, total_bytes| {
+                let event = json!({
+                    "event": "progress",
+                    "bytes_received": bytes_received,
+                    "total_bytes": total_bytes
+                });
+                if progress_tx.is_closed() { return false; }
+                let _ = progress_tx.try_send(Ok(Bytes::from(event.to_string() + "\n")));
+                true
+            },
+        ).await;
+        let event = match result {
+            Ok(path) => json!({ "event": "done", "path": path }),
+            Err(error) => json!({ "event": "error", "error": error }),
+        };
+        let line = event.to_string() + "\n";
+        let _ = tx.send(Ok(Bytes::from(line))).await;
+    });
+    let body = Body::from_stream(ReceiverStream::new(rx));
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/x-ndjson")
+        .body(body)
+        .map_err(|e| error_response((StatusCode::INTERNAL_SERVER_ERROR, format!("could not create download response: {e}"))))?;
+    Ok(response)
+}
+
+/// POST /api/ui/models/activate. Accept only a path present in the local model
+/// inventory; the active session is restored if loading the selection fails.
+pub async fn ui_model_activate(
+    State(state): State<ApiState>,
+    Json(request): Json<ActivateModelRequest>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let path = PathBuf::from(request.path);
+    let canonical = std::fs::canonicalize(&path)
+        .map_err(|_| error_response((StatusCode::NOT_FOUND, "model path is not readable".into())))?;
+    let models = tokio::task::spawn_blocking(|| kiln_models::library::discover_models(&[]))
+        .await
+        .map_err(|e| error_response((StatusCode::INTERNAL_SERVER_ERROR, format!("model scan failed: {e}"))))?;
+    if !models.iter().any(|model| std::fs::canonicalize(&model.path).ok().as_ref() == Some(&canonical)) {
+        return Err(error_response((StatusCode::FORBIDDEN, "model must be a structurally valid GGUF in a discovered model location".into())));
+    }
+    let activated = tokio::task::spawn_blocking(move || state.activate(canonical))
+        .await
+        .map_err(|e| error_response((StatusCode::INTERNAL_SERVER_ERROR, format!("model activation task failed: {e}"))))?
+        .map_err(|e| error_response((StatusCode::UNPROCESSABLE_ENTITY, e)))?;
+    Ok(Json(json!({ "model": activated, "active": true })))
 }
 
 /// GET /api/ui/capabilities. This describes the controls and runtime facts
@@ -370,19 +476,19 @@ pub async fn ui_capabilities(State(state): State<ApiState>) -> Json<Value> {
                 "id": "inference.sampling_controls",
                 "label": "Sampling controls",
                 "status": "limited",
-                "detail": "Chat currently uses greedy sampling with a fixed 128-token output limit; generation settings are not exposed in the UI."
+                "detail": "The UI can set the chat output limit from 1 to 4096 tokens. Sampling remains greedy; other sampler controls are not exposed."
             },
             {
                 "id": "model.session_switch",
                 "label": "Switch active model",
-                "status": "not_integrated",
-                "detail": "The API loads one model at startup; model activation from the UI is not exposed."
+                "status": "available",
+                "detail": "The UI can activate a discovered GGUF. Failed loads attempt to restore the prior model."
             },
             {
                 "id": "model.library",
                 "label": "Search and download models",
-                "status": "not_integrated",
-                "detail": "Model discovery and download are not connected to UI-facing API routes."
+                "status": "available",
+                "detail": "The API exposes local GGUF discovery and explicit Hugging Face GGUF search and verified download."
             },
             {
                 "id": "runtime.device_registry",
@@ -434,6 +540,7 @@ mod tests {
             model: "test-model".into(),
             messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }],
             stream: Some(true),
+            options: None,
         };
         let error = chat(State(ApiState::unconfigured()), Json(request)).await.unwrap_err();
         assert_eq!(error.0, StatusCode::SERVICE_UNAVAILABLE);
@@ -464,6 +571,7 @@ mod tests {
             model: "test-model".into(),
             messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }],
             stream: Some(false),
+            options: None,
         };
         let error = chat(State(ApiState::unconfigured()), Json(request)).await.unwrap_err();
         assert_eq!(error.0, StatusCode::SERVICE_UNAVAILABLE);

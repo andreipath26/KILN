@@ -91,7 +91,7 @@ enum Commands {
         /// Port to bind to. Default 11435.
         #[arg(long, default_value_t = 11435)]
         port: u16,
-        /// Host to bind to. Default 127.0.0.1.
+        /// Loopback IP to bind to. Only 127.0.0.1 or ::1 is accepted; remote access is unsupported.
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
     },
@@ -820,9 +820,10 @@ async fn main() {
             }
         },
         Commands::Pull { model, file } => {
-            match model_library::pull_hugging_face(&model, &file) {
-                Ok(path) => println!("Installed model: {}", path.display()),
-                Err(error) => { eprintln!("pull: {error}"); std::process::exit(1); }
+            match tokio::task::spawn_blocking(move || model_library::pull_hugging_face(&model, &file)).await {
+                Ok(Ok(path)) => println!("Installed model: {}", path.display()),
+                Ok(Err(error)) => { eprintln!("pull: {error}"); std::process::exit(1); }
+                Err(error) => { eprintln!("pull worker failed: {error}"); std::process::exit(1); }
             }
         }
         Commands::List { paths, json } => {
@@ -831,8 +832,10 @@ async fn main() {
             }
         }
         Commands::Search { query, limit } => {
-            if let Err(error) = model_library::search_hugging_face(&query, limit) {
-                eprintln!("search: {error}"); std::process::exit(1);
+            match tokio::task::spawn_blocking(move || model_library::search_hugging_face(&query, limit)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => { eprintln!("search: {error}"); std::process::exit(1); }
+                Err(error) => { eprintln!("search worker failed: {error}"); std::process::exit(1); }
             }
         }
         Commands::Bench { model, prompt, tokens, runs, warmup, threads, batch, ubatch, native_greedy, json } => {
