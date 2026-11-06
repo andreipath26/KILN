@@ -108,6 +108,21 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    fn streamed_operations_are_never_claimed_or_executed_by_resident_backend() {
+        let mut backend = LlamaCppBackend::new();
+        let operations = [
+            RuntimeOp::MoEBeginToken { epoch: 1 },
+            RuntimeOp::MoEPrefetch { epoch: 1, experts: vec![] },
+            RuntimeOp::MoEPoll,
+            RuntimeOp::MoECommit { epoch: 1, actual: vec![] },
+        ];
+        for op in operations {
+            assert!(!backend.supports(&op));
+            assert!(matches!(backend.execute(&op), Err(RuntimeError::NoBackend)));
+        }
+    }
+
+    #[test]
     fn rejects_zero_parameters_before_native_load() {
         let mut backend = LlamaCppBackend::new();
         let result = backend.execute(&RuntimeOp::Load {
