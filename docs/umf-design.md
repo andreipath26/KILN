@@ -1,93 +1,69 @@
-# Unified Model Format (UMF) — Design
+# Unified Model Format (UMF) — design and implementation status
 
-## Authority
+## Authority and current status
 
-Phase 5.1 of the KILN Master File. The UMF is the container that
-makes MoE expert streaming possible. It is a KILN-specific format
-layered on top of GGUF.
+This is the Phase 5.1 design record. **The embedded KUMF container described below is a proposal, not the format implemented on main.** Current code provides a separate expert sidecar beside an unchanged GGUF.
 
-## Why a new format
+Merged PRs #41–44 add:
 
-GGUF stores tensors contiguously in a single data section. That is
-correct for resident inference. It is wrong for streaming:
+- explicit GGUF tensor-to-expert component maps;
+- a separate, 4 KiB-aligned expert blob and index;
+- per-expert CRC32 integrity checks and verified component reads;
+- bounded copy/read paths that preserve the original GGUF bytes.
 
-- Expert weights are interleaved with attention and norm weights.
-  Every expert page-in reads a section of the file that includes
-  bytes we do not need.
-- There is no place to store the prerouter weights, the expert
-  affinity graph, or the cache policy.
-- There is no per-expert quantization marker.
+The mapping is supplied explicitly and validated against the GGUF. Automatic decomposition of fused expert matrices is not generally implemented. CRC32 detects accidental corruption; it is not an authenticity mechanism. KILN does not yet materialize those sidecar components into llama.cpp's live MoE compute graph. See docs/phase54-streamed-expert-dispatch.md for the current inference integration boundary.
 
-The UMF fixes all three.
+## Current sidecar artifact
 
-## The container
+The current workflow leaves model.gguf unchanged and writes separate files, typically experts.bin, experts.index.json, experts.crc32.json, and experts.components.json. This preserves the ordinary GGUF input path while enabling KILN's own bounded expert-byte readers. The exact file set depends on whether packing uses an explicit expert-range table or named tensor components.
 
-A UMF file is a GGUF file plus a KILN extension section. It is
-readable by stock llama.cpp (the GGUF part), and by KILN (the whole
-file).
+This is not a single-file UMF extension, does not embed prerouter weights or cache policy, and does not claim that stock llama.cpp consumes the sidecar. A sidecar round-trip test proves copied bytes and metadata integrity for the supplied map; it does not prove that a model's map is complete or that the inference runtime uses the sidecar.
 
-Layout, from the start of the file:
+## Proposed embedded KUMF container (not implemented)
 
-1. GGUF header, metadata, tensor table. Standard, unchanged.
-2. Tensor data section. Standard GGUF layout for attention, norms,
-   embeddings, output.
-3. KILN extension header. Magic KUMF, version 1, 32 bytes.
-4. Expert manifest. One entry per expert per layer, 64 bytes each.
-5. Expert data section. Contiguous per expert.
-6. Prerouter weights. Per-layer predictor.
-7. Cache policy metadata. FlashMoE parameters.
-8. Thermal profile. Per-tier tuning.
+The original proposal is a GGUF file plus a KILN extension section. The proposed layout is:
 
-## Thermal profile
+1. unchanged GGUF header, metadata and tensor table;
+2. ordinary GGUF tensor data;
+3. KILN extension header (proposed magic KUMF, version 1);
+4. expert manifest and expert-contiguous data;
+5. optional prerouter weights and cache metadata;
+6. optional per-tier tuning hints.
 
-Per-tier tuning hints:
+No parser/writer for this embedded extension is currently established by the sidecar implementation. Do not treat the proposed layout or its compatibility statements as tested behavior.
 
-- tier: u8, 0 to 4
-- sustained_throughput_fraction: f32
-- throttle_temp_c: u8
-- recommended_n_threads: u8
+## Proposed runtime metadata (not implemented)
 
-Used by the runtime to preemptively adjust the DAG when the thermal
-history predicts throttling. See Pillar 6.
+The earlier design proposed per-tier tuning hints such as sustained-throughput fraction, throttle temperature and recommended thread count. No evidence currently shows those fields being emitted into or consumed from a KUMF artifact. Keep thermal policy in the runtime design until a concrete format and calibration experiment justify persisting it in a model artifact.
 
 ## Compatibility
 
-- Stock llama.cpp reads the GGUF portion and ignores the KILN
-  extension. A UMF file loads and runs with no streaming.
-- KILN reads both. When the extension is present, the streaming
-  backend can use it. When it is absent, KILN falls back to
-  llama.cpp built-in streaming on the plain GGUF.
-- A plain GGUF with no extension is a valid input to KILN.
+- The sidecar path leaves the source GGUF unchanged; a compatible stock GGUF reader can continue to load that original file.
+- Stock llama.cpp does not consume the separate KILN expert sidecar.
+- A plain GGUF remains the ordinary KILN/llama.cpp model input.
+- The original proposal that stock llama.cpp will ignore an embedded KUMF extension has not been established by an implemented KUMF parser/writer and compatibility test.
+- Exact sidecar support depends on a complete, validated model-specific mapping and a KILN runtime path that consumes the resulting components.
 
-## Build process
+## Proposed embedded-container build process (not implemented)
 
-kiln convert gains a UMF mode:
+The earlier design proposed that kiln convert could:
 
-1. Read the source GGUF.
-2. Extract expert tensors into the expert data section, one block
-   per expert, contiguous.
-3. Write the expert manifest.
-4. Run the calibration pass and write the prerouter weights.
-5. Write the cache policy.
-6. Write the thermal profile.
-7. Write the extension header.
+1. read a source GGUF;
+2. extract expert tensors into expert-contiguous storage;
+3. write a KUMF manifest and extension;
+4. optionally write trained prerouter and cache metadata.
 
-Not in Phase 5.1: quantization conversion. The expert weights stay
-in the source format.
+The current implemented tools are kiln-bench expert-pack and expert-pack-named, which write sidecar files from explicit validated mappings. They do not implement the proposed kiln convert KUMF workflow or train a prerouter.
 
 ## Open questions
 
-- Expert-contiguous layout: is per-expert contiguity enough, or do
-  we need per-expert-per-block contiguity for the io_uring path?
-  Resolve during 5.3.
-- Prerouter training feasibility: if the predictor cannot reach 80%
-  accuracy at k=2 on Tier 0, the section is written but unused.
-  Phase 5.0 decides.
-- Hotness class assignment: static from calibration, or learned at
-  runtime? Start static. Revisit if cache behavior suggests
-  otherwise.
+- Is expert-contiguous sidecar layout sufficient for each supported model and I/O backend, or is block-level layout needed?
+- How should fused expert tensors be mapped safely across architectures and quantization layouts?
+- Should a future UMF be a GGUF-preserving sidecar bundle or a distinct container? The answer needs a compatibility test with stock llama.cpp.
+- Which metadata belongs in a model artifact, and which must remain runtime-generated and hardware-specific?
+- Phase 5.0 predictor feasibility and quality gates remain prerequisites for shipping trained prerouter artifacts.
 
-## Phase 5.1 implementation: GGUF-preserving expert sidecar (November 2026)
+# Phase 5.1 implementation: GGUF-preserving expert sidecar (November 2026)
 
 **Compatibility correction:** Physically removing expert tensor bytes from a GGUF while claiming that stock llama.cpp can still execute the unchanged model is **not a proven GGUF-compatible operation**. The Phase 5.1 implementation therefore does not silently relocate or strip tensors inside the original GGUF. It writes **separate expert pack files** alongside an intact source model, preserving stock GGUF reading behavior.
 
