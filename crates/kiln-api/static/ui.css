@@ -79,7 +79,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #daf0
 .composer-footer { display: flex; align-items: center; justify-content: space-between; min-height: 34px; }
 .inline-error { color: var(--danger); font-size: 12px; }
 .footnote { margin: 13px 4px 0; color: #7f887e; font-size: 11px; line-height: 1.5; }
-.advanced-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+.advanced-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; margin-bottom: 16px; }
 .info-card { padding: 20px; }
 .section-title { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 15px; }
 .section-title .eyebrow { margin-bottom: 5px; }
