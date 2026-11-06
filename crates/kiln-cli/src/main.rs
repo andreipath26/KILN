@@ -1051,7 +1051,7 @@ mod cli_tests {
 }
 
 /// Track exactly which tokens were executed into the native KV cache.
-//// This state never guesses prefix equality from decoded text or retokenization.
+/// This state never guesses prefix equality from decoded text or retokenization.
 /// The most recently emitted token may not have been forwarded yet.
 #[derive(Debug, Default)]
 struct InteractiveKvState {
@@ -1198,9 +1198,9 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool) -> Result
         // re-prefills a prefix that already exists in the native KV cache.
         let prompt_text = if keep_context {
             if first_turn {
-                format!("User: {prompt}\\nAssistant:")
+                format!("User: {prompt}\nAssistant:")
             } else {
-                format!("\\nUser: {prompt}\\nAssistant:")
+                format!("\nUser: {prompt}\nAssistant:")
             }
         } else {
             prompt.to_string()
