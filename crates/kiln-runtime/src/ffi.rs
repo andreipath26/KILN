@@ -293,4 +293,43 @@ mod tests {
         assert!(matches!(err, LlamaError::Decode(message) if message.contains("capacity")));
     }
 
+    /// Hardware/model acceptance test. CI cannot infer real GGUF parity from
+    /// synthetic token chunks. Run explicitly on Tier 0 with a pinned model.
+    #[test]
+    #[ignore = "requires KILN_TEST_MODEL_PATH and real model inference"]
+    fn real_model_chunked_prefill_matches_large_batch_top_token() {
+        let model_path = std::env::var("KILN_TEST_MODEL_PATH")
+            .expect("set KILN_TEST_MODEL_PATH to a pinned GGUF model file");
+        let path = std::path::Path::new(&model_path);
+        let threads = 4;
+        let mut chunked = LlamaContext::load_with_ubatch(
+            path, Some((2048, 128, 128, threads)),
+        ).expect("load chunked context");
+        let mut larger = LlamaContext::load_with_ubatch(
+            path, Some((2048, 512, 128, threads)),
+        ).expect("load larger-batch context");
+        let prompt = "A reproducible test of numerical behavior across prompt batch boundaries. ".repeat(24);
+        let tokens = chunked.tokenize(&prompt).expect("tokenize");
+        assert!(tokens.len() > 128 && tokens.len() <= 512,
+            "expected 129..=512 tokens, got {}", tokens.len());
+        assert_eq!(tokens, larger.tokenize(&prompt).expect("second tokenize"));
+        let chunked_logits = chunked.forward(&tokens).expect("chunked forward");
+        let larger_logits = larger.forward(&tokens).expect("larger forward");
+        assert_eq!(chunked_logits.len(), larger_logits.len());
+        assert!(!chunked_logits.is_empty());
+        fn argmax(xs: &[f32]) -> usize {
+            xs.iter().enumerate()
+                .filter(|(_, x)| x.is_finite())
+                .max_by(|a, b| a.1.total_cmp(b.1))
+                .expect("finite logit")
+                .0
+        }
+        assert_eq!(argmax(&chunked_logits), argmax(&larger_logits),
+            "native chunking changed most likely next token");
+        let max_error = chunked_logits.iter().zip(larger_logits.iter())
+            .map(|(a, b)| (f64::from(*a) - f64::from(*b)).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(max_error <= 0.1, "logits diverged; maximum absolute delta {max_error}");
+    }
+
 }
