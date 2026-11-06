@@ -15,7 +15,7 @@ use std::time::Instant;
 use std::path::PathBuf;
 
 use kiln_io::{CachedExpertBlobReader, FileRangeReader};
-use kiln_mem::{ExpertCachePolicy, ExpertKey, ExpertPrefetcher, PrefetchStats};
+use kiln_mem::{evaluate_predictor_holdout, ExpertCachePolicy, ExpertKey, ExpertPrefetcher, PrefetchStats};
 use kiln_models::{ExpertRange, ExpertTable};
 
 use clap::{Parser, Subcommand};
@@ -98,6 +98,20 @@ enum Commands {
         #[arg(long, default_value_t = 1)]
         latency_requests: usize,
         /// Emit JSON only.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Holdout-only next-expert prediction accuracy, with no training leakage.
+    PredictorHoldout {
+        /// JSON array of expert IDs, (layer,expert_id) pairs or expert-key objects.
+        #[arg(long)]
+        trace_file: PathBuf,
+        /// Number of chronological events to reserve for training.
+        #[arg(long)]
+        train_events: usize,
+        /// Number of candidate next experts: Phase 5.0 target is k=2.
+        #[arg(long, default_value_t = 2)]
+        top_k: usize,
         #[arg(long)]
         json: bool,
     },
@@ -1292,6 +1306,40 @@ async fn main() {
                 Ok(report) => print_prefetch_replay_human(&report),
                 Err(error) => {
                     eprintln!("prefetch replay failed: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::PredictorHoldout { trace_file, train_events, top_k, json } => {
+            let report = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let input: ExpertTraceInput = serde_json::from_slice(
+                    &read_bounded_input(&trace_file, MAX_EXPERT_TRACE_BYTES, "expert trace")?
+                )?;
+                let trace: Vec<ExpertKey> = match input {
+                    ExpertTraceInput::FlatIds(ids) => ids.into_iter()
+                        .map(|expert_id| ExpertKey { layer: 0, expert_id }).collect(),
+                    ExpertTraceInput::ExpertKeys(keys) => keys,
+                    ExpertTraceInput::Pairs(pairs) => pairs.into_iter()
+                        .map(|(layer, expert_id)| ExpertKey { layer, expert_id }).collect(),
+                };
+                if trace.len() > 10_000_000 {
+                    return Err("expert trace too large; split before evaluation".into());
+                }
+                Ok(evaluate_predictor_holdout(&trace, train_events, top_k)?)
+            })();
+            match report {
+                Ok(report) if json => println!("{}", serde_json::to_string_pretty(&report).unwrap()),
+                Ok(report) => {
+                    println!("KILN Phase 5.0 chronological predictor holdout");
+                    println!("  Train / heldout: {} / {}", report.train_events, report.test_events);
+                    println!("  Accuracy@{}: {:.2}%", report.top_k, 100.0*report.accuracy_at_k);
+                    println!("  Coverage: {:.2}%", 100.0*report.coverage);
+                    println!("  Train-only unigram baseline: {:.2}%", 100.0*report.unigram_baseline_accuracy_at_k);
+                    println!("  Reaches exploratory 80% criterion: {}", report.passed_80_percent_feasibility_threshold);
+                    println!("  Only real-model traces can establish target feasibility.");
+                }
+                Err(error) => {
+                    eprintln!("predictor holdout evaluation failed: {error}");
                     std::process::exit(2);
                 }
             }
