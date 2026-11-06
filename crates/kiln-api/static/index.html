@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>KILN</title>
+    <link rel="stylesheet" href="/ui.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="KILN home"><span class="brand-mark">K</span><span>KILN</span></a>
+        <div class="server-state"><span id="server-dot" class="status-dot"></span><span id="server-label">Connecting to local runtime</span></div>
+      </header>
+
+      <nav class="mode-tabs" aria-label="KILN modes" role="tablist">
+        <button class="mode-tab is-active" id="tab-simple" role="tab" aria-selected="true" aria-controls="panel-simple">Simple</button>
+        <button class="mode-tab" id="tab-advanced" role="tab" aria-selected="false" aria-controls="panel-advanced">Advanced</button>
+      </nav>
+
+      <main>
+        <section id="panel-simple" class="mode-panel" role="tabpanel" aria-labelledby="tab-simple">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">LOCAL INFERENCE</p>
+              <h1>Talk to your model</h1>
+              <p class="muted">Your conversation stays on this machine.</p>
+            </div>
+            <div class="model-chip" id="active-model-chip"><span class="chip-dot"></span><span id="active-model-name">No model loaded</span></div>
+          </div>
+
+          <div id="no-model-notice" class="notice" hidden>
+            <div class="notice-icon" aria-hidden="true">i</div>
+            <div><strong>No model is loaded in the API server.</strong><p>Set <code>KILN_MODEL_PATH</code> to a GGUF file, then restart <code>kiln serve</code>. Model discovery and switching from this page are not connected yet.</p></div>
+          </div>
+
+          <section class="chat-card" aria-label="Chat">
+            <div class="chat-toolbar">
+              <div><h2>Chat</h2><span id="chat-subtitle" class="muted small">Waiting for a loaded model</span></div>
+              <button id="clear-chat" class="button button-quiet" type="button" disabled>New chat</button>
+            </div>
+            <div id="messages" class="messages" aria-live="polite" aria-relevant="additions text">
+              <div class="empty-state" id="empty-chat"><div class="empty-glyph" aria-hidden="true">✳</div><strong>Your local chat starts here</strong><p>Choose a model in your KILN setup, then send a message.</p></div>
+            </div>
+            <form id="chat-form" class="composer">
+              <label class="visually-hidden" for="prompt">Message your model</label>
+              <textarea id="prompt" rows="1" placeholder="Message your model…" disabled></textarea>
+              <div class="composer-footer"><span id="chat-error" class="inline-error" role="status"></span><button id="send-button" class="button button-primary" type="submit" disabled>Send <span aria-hidden="true">↗</span></button></div>
+            </form>
+          </section>
+          <p class="footnote">KILN is in active development. The model shown here is the one currently loaded by the local API.</p>
+        </section>
+
+        <section id="panel-advanced" class="mode-panel" role="tabpanel" aria-labelledby="tab-advanced" hidden>
+          <div class="page-heading">
+            <div><p class="eyebrow">RUNTIME CONTROL</p><h1>Advanced</h1><p class="muted">Inspect what this KILN build can currently see and control.</p></div>
+            <button id="refresh-advanced" class="button button-secondary" type="button">Refresh status</button>
+          </div>
+
+          <div class="advanced-grid">
+            <section class="info-card">
+              <div class="section-title"><div><p class="eyebrow">SYSTEM PROFILE</p><h2>This machine</h2></div><span id="profile-state" class="badge">Checking</span></div>
+              <dl id="system-profile" class="detail-list"><div><dt>Profile</dt><dd>Loading…</dd></div></dl>
+              <p id="profile-note" class="muted small"></p>
+            </section>
+            <section class="info-card">
+              <div class="section-title"><div><p class="eyebrow">ACTIVE SESSION</p><h2>Loaded model</h2></div><span id="session-state" class="badge">Checking</span></div>
+              <dl id="session-details" class="detail-list"><div><dt>Model</dt><dd>Loading…</dd></div></dl>
+            </section>
+            <section class="info-card">
+              <div class="section-title"><div><p class="eyebrow">INFERENCE</p><h2>Current behavior</h2></div><span class="badge">API defaults</span></div>
+              <dl id="inference-details" class="detail-list">
+                <div><dt>Sampling</dt><dd>Greedy</dd></div>
+                <div><dt>Chat output limit</dt><dd>128 tokens</dd></div>
+                <div><dt>Prompt format</dt><dd>Role-prefixed text</dd></div>
+              </dl>
+              <p class="muted small">These are fixed by the current API. Editable generation settings and model-specific chat templates are not exposed yet.</p>
+            </section>
+          </div>
+
+          <section class="info-card capabilities-card">
+            <div class="section-title"><div><p class="eyebrow">CAPABILITY REGISTRY</p><h2>Available in this build</h2></div><span id="capability-version" class="badge">Schema —</span></div>
+            <p class="muted">KILN will expose controls from runtime and backend capabilities. A registered or researched feature is not shown as active unless the API reports it as available.</p>
+            <div class="table-wrap"><table><thead><tr><th>Capability</th><th>Status</th><th>Details</th></tr></thead><tbody id="capability-rows"><tr><td colspan="3" class="muted">Loading capabilities…</td></tr></tbody></table></div>
+          </section>
+          <p class="footnote">Settings for per-layer placement, device selection, memory tiers, KV policy, MoE streaming, and diffusion are not exposed until the runtime reports and accepts them.</p>
+        </section>
+      </main>
+      <footer class="app-footer"><span>KILN <span id="app-version">development build</span></span><span>Local by default</span></footer>
+    </div>
+    <script type="module" src="/ui.js"></script>
+  </body>
+</html>

@@ -329,6 +329,89 @@ pub async fn version() -> Json<VersionResponse> {
     })
 }
 
+/// GET /api/ui/capabilities. This describes the controls and runtime facts
+/// that the current API can actually report; future roadmap capabilities are
+/// marked explicitly instead of being presented as active settings.
+pub async fn ui_capabilities(State(state): State<ApiState>) -> Json<Value> {
+    let profile = kiln_runtime::SystemProfile::load_or_probe();
+    let active_model = state.runtime.lock().ok().and_then(|runtime| {
+        runtime.as_ref().map(|session| json!({
+            "name": session.model_name,
+        }))
+    });
+
+    Json(json!({
+        "schema_version": 1,
+        "api_version": env!("CARGO_PKG_VERSION"),
+        "active_model": active_model,
+        "system_profile": {
+            "tier": format!("{:?}", profile.tier),
+            "cpu_cores": profile.cpu_cores,
+            "ram_gb": profile.ram_gb,
+            "n_ctx": profile.n_ctx,
+            "n_batch": profile.n_batch,
+            "n_threads": profile.n_threads,
+            "probed_at": profile.probed_at,
+        },
+        "capabilities": [
+            {
+                "id": "inference.chat_stream",
+                "label": "Streaming chat",
+                "status": "available",
+                "detail": "The local API streams generated assistant text over newline-delimited JSON."
+            },
+            {
+                "id": "inference.generate_stream",
+                "label": "Streaming completion",
+                "status": "available",
+                "detail": "The local API supports streamed text completion."
+            },
+            {
+                "id": "inference.sampling_controls",
+                "label": "Sampling controls",
+                "status": "limited",
+                "detail": "Chat currently uses greedy sampling with a fixed 128-token output limit; generation settings are not exposed in the UI."
+            },
+            {
+                "id": "model.session_switch",
+                "label": "Switch active model",
+                "status": "not_integrated",
+                "detail": "The API loads one model at startup; model activation from the UI is not exposed."
+            },
+            {
+                "id": "model.library",
+                "label": "Search and download models",
+                "status": "not_integrated",
+                "detail": "Model discovery and download are not connected to UI-facing API routes."
+            },
+            {
+                "id": "runtime.device_registry",
+                "label": "Discover compute devices",
+                "status": "not_integrated",
+                "detail": "This profile reports CPU and RAM defaults only; accelerator discovery is not exposed."
+            },
+            {
+                "id": "runtime.per_layer_dispatch",
+                "label": "Per-layer device placement",
+                "status": "not_integrated",
+                "detail": "The UI cannot inspect or configure per-layer placement through the current API."
+            },
+            {
+                "id": "memory.moe_streaming",
+                "label": "MoE expert streaming",
+                "status": "not_integrated",
+                "detail": "The end-to-end streaming runtime and its live metrics are not exposed by this API."
+            },
+            {
+                "id": "workload.diffusion",
+                "label": "Diffusion workloads",
+                "status": "not_started",
+                "detail": "This is a later roadmap workload and is not available in the current runtime."
+            }
+        ]
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
