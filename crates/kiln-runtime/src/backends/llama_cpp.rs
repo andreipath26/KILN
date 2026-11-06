@@ -24,6 +24,8 @@ impl RuntimeBackend for LlamaCppBackend {
     fn supports(&self, op: &RuntimeOp) -> bool {
         match op {
             RuntimeOp::Load { .. } => true,
+            RuntimeOp::MoEBeginToken { .. } | RuntimeOp::MoEPrefetch { .. }
+                | RuntimeOp::MoEPoll | RuntimeOp::MoECommit { .. } => false,
             _ => self.ctx.is_some(),
         }
     }
@@ -32,6 +34,8 @@ impl RuntimeBackend for LlamaCppBackend {
 
     fn execute(&mut self, op: &RuntimeOp) -> Result<RuntimeResult, RuntimeError> {
         match op {
+            RuntimeOp::MoEBeginToken { .. } | RuntimeOp::MoEPrefetch { .. }
+                | RuntimeOp::MoEPoll | RuntimeOp::MoECommit { .. } => Err(RuntimeError::NoBackend),
             RuntimeOp::Load { path, n_ctx, n_batch, n_ubatch, n_threads } => {
                 let max = i32::MAX as u32;
                 if *n_ctx == 0 || *n_batch == 0 || *n_ubatch == 0 || *n_threads == 0
@@ -102,6 +106,21 @@ impl RuntimeBackend for LlamaCppBackend {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn streamed_operations_are_never_claimed_or_executed_by_resident_backend() {
+        let mut backend = LlamaCppBackend::new();
+        let operations = [
+            RuntimeOp::MoEBeginToken { epoch: 1 },
+            RuntimeOp::MoEPrefetch { epoch: 1, experts: vec![] },
+            RuntimeOp::MoEPoll,
+            RuntimeOp::MoECommit { epoch: 1, actual: vec![] },
+        ];
+        for op in operations {
+            assert!(!backend.supports(&op));
+            assert!(matches!(backend.execute(&op), Err(RuntimeError::NoBackend)));
+        }
+    }
 
     #[test]
     fn rejects_zero_parameters_before_native_load() {

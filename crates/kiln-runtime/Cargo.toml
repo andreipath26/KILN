@@ -15,8 +15,13 @@ cc = "1"
 
 [dependencies]
 kiln-core = { path = "../kiln-core" }
+kiln-io = { path = "../kiln-io" }
+kiln-mem = { path = "../kiln-mem" }
 libloading = { version = "0.8", optional = true }
 
 [lib]
 name = "kiln_runtime"
 crate-type = ["rlib"]
+
+[dev-dependencies]
+kiln-models = { path = "../kiln-models" }

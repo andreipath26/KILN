@@ -3,6 +3,8 @@
 //! layer. Every model operation goes through this dispatcher.
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use kiln_mem::ExpertKey;
 
 use crate::ffi::LlamaError;
 
@@ -14,6 +16,14 @@ pub enum RuntimeOp {
     ForwardGreedy { tokens: Vec<i32> },
     /// Batched greedy draft verification, with rejected KV tail rolled back.
     VerifyGreedyDraft { tokens: Vec<i32> },
+    /// Advance the token-scoped expert Commit Guard.
+    MoEBeginToken { epoch: u64 },
+    /// Schedule optional predicted expert reads; these are not authoritative.
+    MoEPrefetch { epoch: u64, experts: Vec<ExpertKey> },
+    /// Poll completed speculative I/O without blocking the decode thread.
+    MoEPoll,
+    /// Only the actual router keys can authorize bytes for compute.
+    MoECommit { epoch: u64, actual: Vec<ExpertKey> },
     Reset,
     Tokenize { text: String },
     Logits,
@@ -30,6 +40,13 @@ pub enum RuntimeResult {
     Tokens(Vec<i32>),
     /// Accepted prefix length and the unevaluated corrected next token.
     VerifiedGreedy { accepted: usize, next: i32 },
+    MoEPrefetchSubmitted { submitted: usize, rejected: usize },
+    MoEStaged { count: usize },
+    MoEExpertBytes {
+        experts: Vec<(ExpertKey, Arc<[u8]>)>,
+        predicted_hits: usize,
+        authoritative_reads: usize,
+    },
     Str(String),
     Bytes(Vec<u8>),
     Int(i32),
@@ -41,6 +58,7 @@ pub enum RuntimeError {
     NoSession,
     Llama(LlamaError),
     WrongReturn,
+    ExpertStream(String),
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -50,6 +68,7 @@ impl std::fmt::Display for RuntimeError {
             RuntimeError::NoSession => write!(f, "no live session; call Load first"),
             RuntimeError::Llama(e) => write!(f, "{}", e),
             RuntimeError::WrongReturn => write!(f, "backend returned an unexpected result"),
+            RuntimeError::ExpertStream(reason) => write!(f, "streamed expert backend: {reason}"),
         }
     }
 }
