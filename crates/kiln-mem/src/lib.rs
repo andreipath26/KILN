@@ -18,3 +18,6 @@ pub use policy::{RebalancePolicy, RebalanceReport};
 pub use error::{LoadError, EvictError};
 pub use expert_cache::{ExpertCache, ExpertCachePolicy, ExpertCacheStats, ExpertKey, InsertOutcome};
 pub use expert_prefetch::{ExpertPrefetcher, PrefetchCandidate, PrefetchStats};
+
+pub mod router_eval;
+pub use router_eval::{RouterEvent, GroupedHoldoutReport, RouterEvalError, evaluate_grouped_router_holdout};
