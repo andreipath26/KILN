@@ -412,6 +412,13 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Prioritized small, falsifiable Tier 0 experiments, licensing checks, measurable precision/quality gates and compatibility proof, not a wholesale runtime replacement or phase reorder.
 - No code feature was implemented or validated by this roadmap research update; Phase 3.5 and Phase 5 remain open.
 
+### 2026-11-06 — Phase 3.5 append-only KV path and native context guard
+
+- PR #25 merged after full CI: optional `kiln run --keep-context` appends only new token segments to the live KV context, retains an emitted-but-not-yet-forwarded token, and resets at the configured context boundary. Existing independent-prompt mode remains default; generic `User:/Assistant:` formatting is not model-specific chat-template support. Unit tests and an **ignored, real-GGUF** incremental-vs-full-prefix logit comparison are included. This is an implementation milestone, not a measured Tier 0 speedup.
+- PR #27 merged after full CI: the Rust llama.cpp wrapper rejects a batch whose token positions exceed `n_ctx` before any native decode chunk, preventing partial updates when the requested batch is too long. It does not implement context shifting.
+- PR #28 proposes a controlled full-reprefill vs cached-second-turn A/B benchmark through the existing runtime dispatcher. As of this note, the PR is **not merged**; it must pass CI and be validated on the Dell before its timing results are accepted.
+- Phase 3.5 remains **IN PROGRESS**. The pinned 27 tok/s Dell comparison, model-specific multi-turn correctness, backend hotspot profiling, and supported speculative decoding matrix are still outstanding. Preserve the 70B-class mission and all Phase 5 gates.
+
 ## 14. Acceptance criteria for roadmap changes
 
 - Existing rules, phase ordering, completed history and research leads remain unless an explicit evidence-based decision changes them.
