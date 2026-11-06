@@ -191,6 +191,14 @@ impl CachedExpertBlobReader {
         self.cache.stats()
     }
 
+    /// Validate indexed expert length without reading payload bytes or
+    /// changing hit/miss counters.
+    pub fn expert_byte_length(
+        &self, layer: u32, expert_id: u32,
+    ) -> Result<u64, ExpertBlobError> {
+        self.lock_reader().expert_byte_length(layer, expert_id)
+    }
+
     pub fn file_size(&self) -> u64 {
         self.lock_reader().file_size()
     }
