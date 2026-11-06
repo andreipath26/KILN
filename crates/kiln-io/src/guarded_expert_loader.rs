@@ -119,6 +119,11 @@ mod tests {
         let b=ExpertKey{layer:0,expert_id:1};
         let wrong=ExpertKey{layer:0,expert_id:2};
         loader.begin_token(1).unwrap();
+        // Invalid epoch must never read from file nor alter cache counters.
+        let initial=loader.reader.cache_stats();
+        assert_eq!(loader.stage_prediction(0,a).unwrap(),StageResult::InvalidEpoch);
+        assert_eq!(loader.reader.cache_stats().hits,initial.hits);
+        assert_eq!(loader.reader.cache_stats().misses,initial.misses);
         assert_eq!(loader.stage_prediction(1,a).unwrap(),StageResult::Staged);
         assert_eq!(loader.stage_prediction(1,wrong).unwrap(),StageResult::Staged);
         let actual=loader.load_actual_route(1,&[b,a]).unwrap();
