@@ -15,3 +15,15 @@ The runtime previously passed an entire tokenized prompt to `kiln_llama_decode` 
 - Chunking improves supported prompt lengths and enables more reliable Phase 3.5 test matrices. It is **not** an accepted speedup, prompt-cache retention, or completion of the ≥27 tok/s Tier 0 target.
 
 The next measured Phase 3.5 work remains repeatable Dell CPU thread/batch benchmarking against a pinned Ollama baseline, prompt-cache reuse, and profiling the native matmul/decode hot path.
+
+## Repeated KV reuse versus full-prefix replay A/B
+
+The ignored `append_only_kv_matches_full_prefix_logits` test now repeats five comparisons on a pinned GGUF, alternating the measurement order. It verifies equal final token positions, identical greedy next token, and a maximum absolute logit difference no greater than 0.1. It prints median milliseconds for **second-turn prefill only** (incremental reuse) and **all-prefix replay** (cold KV reset), with the exact number of input tokens each processes.
+
+```bash
+KILN_TEST_MODEL_PATH=/absolute/path/to/pinned-Qwen2.5-1.5B.gguf \
+  cargo test -p kiln-runtime --lib append_only_kv_matches_full_prefix_logits \
+  -- --ignored --nocapture
+```
+
+Run on the Dell alongside pinned Ollama comparisons. This test uses identical **token IDs**, so it isolates KV replay overhead; it does not establish equivalence of separately tokenized text fragments or native model-specific chat templates. The reported medians are only an observational A/B from one model and one prompt, not evidence that the 27 tok/s Phase 3.5 exit gate is met. The hosted CI compiles but deliberately does not execute the real-model test.
