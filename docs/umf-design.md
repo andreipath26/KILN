@@ -86,3 +86,33 @@ in the source format.
 - Hotness class assignment: static from calibration, or learned at
   runtime? Start static. Revisit if cache behavior suggests
   otherwise.
+
+## Phase 5.1 implementation: GGUF-preserving expert sidecar (November 2026)
+
+**Compatibility correction:** Physically removing expert tensor bytes from a GGUF while claiming that stock llama.cpp can still execute the unchanged model is **not a proven GGUF-compatible operation**. The Phase 5.1 implementation therefore does not silently relocate or strip tensors inside the original GGUF. It writes **separate expert pack files** alongside an intact source model, preserving stock GGUF reading behavior.
+
+The new `kiln-bench expert-pack` tool accepts a source file and a validated `ExpertTable` JSON mapping exact source byte ranges to `(layer, expert_id)` keys. It copies only those ranges, in bounded 64 KiB chunks, into a separate `experts.bin`, aligns each expert to a 4 KiB offset and writes:
+
+1. `experts.index.json`: an existing-API-compatible `ExpertTable`, usable with `ExpertBlobReader::open_indexed`.
+2. `experts.crc32.json`: versioned per-expert CRC32 integrity metadata with source size and alignment.
+3. `experts.bin`: packed expert data, with zero padding between experts.
+
+The original source is opened read-only; destination paths use create-new semantics (no replacement of existing files). Source expert ranges must pass version, sorted-key, non-overlap and source-file bounds validation before creating any output.
+
+```sh
+kiln-bench expert-pack \
+  --source-file /models/original.gguf \
+  --source-index /models/expert-source-ranges.json \
+  --blob-file /models/experts.bin \
+  --index-file /models/experts.index.json \
+  --integrity-file /models/experts.crc32.json --json
+
+kiln-bench expert-pack-verify \
+  --blob-file /models/experts.bin \
+  --index-file /models/experts.index.json \
+  --integrity-file /models/experts.crc32.json --json
+```
+
+**Critical limitations:** This does **not** yet discover exact expert tensor ranges automatically from all GGUF/MoE variants. The source index must be produced by a trustworthy model-aware extractor or manually validated, not guessed. CRC32 detects accidental corruption but is **not** a cryptographic signature or authenticity guarantee. The format contains no trained prerouter, executable KILN-only tensor relocation instructions, or inference scheduler. No claims of running a stripped GGUF through stock llama.cpp or Phase 5 end-to-end MoE throughput are made.
+
+Hosted tests verify exact source/expert bytes after pack-roundtrip, 4 KiB offsets and zero-filled padding, CRC corruption rejection, no overwrite of pre-existing files, and fail-before-writing for bad ranges. The next Phase 5.1 code gate is a model-specific GGUF tensor/expert extraction map and exact quantization-preserving roundtrip validation. The original Dell/streaming performance gates remain open.
