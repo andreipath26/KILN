@@ -156,6 +156,26 @@ impl CachedExpertBlobReader {
         Ok(bytes)
     }
 
+    /// Copy an expert into a caller-owned reusable buffer. This avoids
+    /// allocating an owned Vec on warm cache hits, but external buffers
+    /// must be included in the caller's memory budget.
+    pub fn read_expert_into(
+        &self,
+        layer: u32,
+        expert_id: u32,
+        buffer: &mut [u8],
+    ) -> Result<(), ExpertBlobError> {
+        let bytes = self.read_expert_shared(layer, expert_id)?;
+        if buffer.len() != bytes.len() {
+            return Err(ExpertBlobError::BufferLengthMismatch {
+                expected: bytes.len() as u64,
+                actual: buffer.len(),
+            });
+        }
+        buffer.copy_from_slice(&bytes);
+        Ok(())
+    }
+
     pub fn invalidate(&self, layer: u32, expert_id: u32) -> bool {
         self.cache.invalidate(ExpertKey { layer, expert_id })
     }
@@ -231,6 +251,25 @@ mod tests {
         assert_eq!(reader.cache_stats().hits, 1);
         assert_eq!(reader.cache_stats().misses, 1);
         assert_eq!(reader.cache_stats().used_bytes, 8);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn reuse_caller_buffer_without_allocating_owned_result() {
+        let (path, bytes, table) = fixture();
+        let reader = CachedExpertBlobReader::open(&path, table, 8, ExpertCachePolicy::Lru).unwrap();
+        let mut buffer = [0u8; 8];
+        reader.read_expert_into(0, 1, &mut buffer).unwrap();
+        assert_eq!(buffer.as_slice(), &bytes[8..16]);
+        buffer.fill(0);
+        reader.read_expert_into(0, 1, &mut buffer).unwrap();
+        assert_eq!(buffer.as_slice(), &bytes[8..16]);
+        assert_eq!(reader.cache_stats().hits, 1);
+        assert_eq!(reader.cache_stats().misses, 1);
+        assert!(matches!(
+            reader.read_expert_into(0, 1, &mut [0u8; 4]),
+            Err(ExpertBlobError::BufferLengthMismatch { expected: 8, actual: 4 })
+        ));
         std::fs::remove_file(path).unwrap();
     }
 
