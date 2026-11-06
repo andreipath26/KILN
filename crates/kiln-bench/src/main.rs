@@ -14,9 +14,9 @@ use std::collections::HashMap;
 use std::time::Instant;
 use std::path::PathBuf;
 
-use kiln_io::{write_expert_sidecar, verify_expert_sidecar, CachedExpertBlobReader, FileRangeReader};
+use kiln_io::{write_expert_sidecar, verify_expert_sidecar, write_component_expert_sidecar, verify_component_expert_sidecar, CachedExpertBlobReader, FileRangeReader};
 use kiln_mem::{evaluate_grouped_router_holdout, RouterEvent, evaluate_predictor_holdout, ExpertCachePolicy, ExpertKey, ExpertPrefetcher, PrefetchStats};
-use kiln_models::{ExpertRange, ExpertTable};
+use kiln_models::{ExpertRange, ExpertTable, NamedExpertTensor, resolve_expert_tensors_in_gguf};
 
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -145,6 +145,29 @@ enum Commands {
         /// New integrity JSON with per-expert CRC32 values.
         #[arg(long)]
         integrity_file: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Pack exact named GGUF tensors grouped by expert into an aligned sidecar.
+    ExpertPackNamed {
+        /// Intact GGUF, opened read-only.
+        #[arg(long)]
+        source_gguf: PathBuf,
+        /// JSON list of {layer,expert_id,tensor_name}, explicitly model-aware.
+        #[arg(long)]
+        selections_file: PathBuf,
+        /// Create-new expert blob; will not overwrite another file.
+        #[arg(long)]
+        blob_file: PathBuf,
+        /// Create-new JSON ExpertTable index.
+        #[arg(long)]
+        index_file: PathBuf,
+        /// Create-new per-expert CRC32 metadata.
+        #[arg(long)]
+        integrity_file: PathBuf,
+        /// Create-new component boundary manifest.
+        #[arg(long)]
+        components_file: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -1445,6 +1468,45 @@ async fn main() {
                 }
                 Err(error) => {
                     eprintln!("sidecar pack failed: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::ExpertPackNamed { source_gguf, selections_file, blob_file,
+            index_file, integrity_file, components_file, json } => {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let choices: Vec<NamedExpertTensor> = serde_json::from_slice(
+                    &read_bounded_input(&selections_file, MAX_EXPERT_INDEX_BYTES, "GGUF named tensor selections")?
+                )?;
+                let map = resolve_expert_tensors_in_gguf(&source_gguf, &choices)?;
+                let (integrity, components) = write_component_expert_sidecar(
+                    &source_gguf, map, &blob_file, &index_file, &integrity_file, &components_file
+                )?;
+                let (table, verified) = verify_component_expert_sidecar(
+                    &blob_file, &index_file, &integrity_file, &components_file
+                )?;
+                Ok((table, integrity, components, verified))
+            })();
+            match result {
+                Ok((table, integrity, components, verified)) if json => {
+                    println!("{}", serde_json::json!({
+                        "status":"named_gguf_expert_components_crc32_verified",
+                        "experts":table.ranges.len(),
+                        "components":verified.components.len(),
+                        "source_bytes":integrity.source_size_bytes,
+                        "sidecar_bytes":table.blob_size,
+                        "metadata_matches":components.components.len()==verified.components.len()
+                    }));
+                }
+                Ok((table, _integrity, _components, verified)) => {
+                    println!("KILN Phase 5.1 named GGUF expert components packed and verified");
+                    println!("  Expert groups: {}",table.ranges.len());
+                    println!("  Tensor components: {}",verified.components.len());
+                    println!("  Sidecar bytes: {}",table.blob_size);
+                    println!("  Original GGUF unchanged");
+                }
+                Err(e) => {
+                    eprintln!("named GGUF expert pack failed: {e}");
                     std::process::exit(2);
                 }
             }
