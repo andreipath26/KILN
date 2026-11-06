@@ -120,6 +120,20 @@ mod tests {
     }
 
     #[test]
+    fn preflight_admission_never_consumes_capacity() {
+        let mut guard = ExpertCommitGuard::new(10, 1);
+        guard.begin_token(1).unwrap();
+        assert_eq!(guard.can_stage(1, key(0), 11), StageResult::ByteLimit);
+        assert_eq!(guard.can_stage(1, key(0), 0), StageResult::Empty);
+        assert_eq!(guard.can_stage(0, key(0), 5), StageResult::InvalidEpoch);
+        assert_eq!(guard.can_stage(1, key(0), 5), StageResult::Staged);
+        assert_eq!(guard.stats().bytes, 0);
+        assert_eq!(guard.stage(1, key(0), block(5)), StageResult::Staged);
+        assert_eq!(guard.can_stage(1, key(0), 5), StageResult::AlreadyStaged);
+        assert_eq!(guard.can_stage(1, key(1), 5), StageResult::EntryLimit);
+    }
+
+    #[test]
     fn stale_and_oversized_predictions_are_rejected() {
         let mut guard = ExpertCommitGuard::new(10, 1);
         guard.begin_token(5).unwrap();
