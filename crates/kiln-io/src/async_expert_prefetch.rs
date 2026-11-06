@@ -8,6 +8,8 @@ use std::sync::{Arc, atomic::{AtomicU64, Ordering}, mpsc};
 use std::thread::{self, JoinHandle};
 use kiln_mem::ExpertKey;
 use crate::CachedExpertBlobReader;
+#[cfg(target_os = "linux")]
+use crate::LinuxUringExpertReader;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AsyncExpertStats {
@@ -29,10 +31,26 @@ pub struct ExpertReadCompletion {
     pub result: Result<Arc<[u8]>, String>,
 }
 struct ReadRequest { epoch: u64, key: ExpertKey }
+enum WorkerReadBackend {
+    Cached(Arc<CachedExpertBlobReader>),
+    #[cfg(target_os = "linux")]
+    Uring(LinuxUringExpertReader),
+}
+impl WorkerReadBackend {
+    fn read(&mut self, key: ExpertKey) -> Result<Arc<[u8]>, String> {
+        match self {
+            Self::Cached(reader) => reader.read_expert_shared(key.layer,key.expert_id)
+                .map_err(|e|e.to_string()),
+            #[cfg(target_os = "linux")]
+            Self::Uring(reader) => reader.read_expert(key.layer,key.expert_id)
+                .map(Arc::from).map_err(|e|e.to_string()),
+        }
+    }
+}
 struct WorkerState {
     recv: mpsc::Receiver<ReadRequest>,
     sender: mpsc::Sender<ExpertReadCompletion>,
-    reader: Arc<CachedExpertBlobReader>,
+    backend: WorkerReadBackend,
     epoch: Arc<AtomicU64>,
 }
 
@@ -57,12 +75,37 @@ impl AsyncExpertPrefetch {
         max_requests: usize,
         max_bytes: u64,
     ) -> Self {
+        Self::new_with_backend(
+            Arc::clone(&reader), WorkerReadBackend::Cached(reader),
+            max_requests, max_bytes,
+        )
+    }
+
+    /// Used only when the async and authoritative readers were both opened
+    /// by the owning coordinator from the same validated expert source.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn new_with_uring_reader(
+        reader: Arc<CachedExpertBlobReader>,
+        uring: LinuxUringExpertReader,
+        max_requests: usize,
+        max_bytes: u64,
+    ) -> Self {
+        Self::new_with_backend(reader, WorkerReadBackend::Uring(uring),
+            max_requests, max_bytes)
+    }
+
+    fn new_with_backend(
+        reader: Arc<CachedExpertBlobReader>,
+        backend: WorkerReadBackend,
+        max_requests: usize,
+        max_bytes: u64,
+    ) -> Self {
         let queue_capacity = max_requests.max(1);
         let (sender, recv) = mpsc::sync_channel(queue_capacity);
         let (completed, done) = mpsc::channel();
         let epoch = Arc::new(AtomicU64::new(0));
-        let worker_state = WorkerState {
-            recv, sender: completed, reader: Arc::clone(&reader), epoch: Arc::clone(&epoch),
+        let mut worker_state = WorkerState {
+            recv, sender: completed, backend, epoch: Arc::clone(&epoch),
         };
         let worker = thread::spawn(move || {
             while let Ok(request) = worker_state.recv.recv() {
@@ -73,9 +116,7 @@ impl AsyncExpertPrefetch {
                     });
                     continue;
                 }
-                let result=worker_state.reader
-                    .read_expert_shared(request.key.layer,request.key.expert_id)
-                    .map_err(|e| e.to_string());
+                let result=worker_state.backend.read(request.key);
                 let _ = worker_state.sender.send(ExpertReadCompletion {
                     epoch:request.epoch,key:request.key,result,
                 });
