@@ -10,6 +10,8 @@ use crate::ffi::LlamaError;
 pub enum RuntimeOp {
     Load { path: PathBuf, n_ctx: u32, n_batch: u32, n_ubatch: u32, n_threads: u32 },
     Forward { tokens: Vec<i32> },
+    /// Greedy-only path. Returns RuntimeResult::Int(token_id), not logits.
+    ForwardGreedy { tokens: Vec<i32> },
     Reset,
     Tokenize { text: String },
     Logits,

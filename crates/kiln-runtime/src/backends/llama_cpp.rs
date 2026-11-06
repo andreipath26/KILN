@@ -54,6 +54,10 @@ impl RuntimeBackend for LlamaCppBackend {
                 let logits = ctx.forward(tokens)?;
                 Ok(RuntimeResult::Logits(logits))
             }
+            RuntimeOp::ForwardGreedy { tokens } => {
+                let ctx = self.ctx.as_mut().ok_or(RuntimeError::NoSession)?;
+                Ok(RuntimeResult::Int(ctx.forward_greedy(tokens)?))
+            }
             RuntimeOp::Reset => {
                 let ctx = self.ctx.as_mut().ok_or(RuntimeError::NoSession)?;
                 ctx.reset()?;

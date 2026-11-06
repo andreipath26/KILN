@@ -135,6 +135,24 @@ int32_t kiln_llama_logits(kiln_llama_t h, float* out, int32_t out_cap) {
     return n;
 }
 
+int32_t kiln_llama_greedy_token(kiln_llama_t h) {
+    struct kiln_llama* k = (struct kiln_llama*)h;
+    if (!k || k->n_vocab <= 0) return -1;
+    const float* logits = llama_get_logits(k->ctx);
+    if (!logits) return -2;
+    // Strictly greater preserves the first index for equal maxima and
+    // matches the existing Rust Sampler::Greedy comparison order.
+    int32_t best = 0;
+    float best_value = logits[0];
+    for (int32_t i = 1; i < k->n_vocab; ++i) {
+        if (logits[i] > best_value) {
+            best_value = logits[i];
+            best = i;
+        }
+    }
+    return best;
+}
+
 int32_t kiln_llama_token_to_str(
     kiln_llama_t h, int32_t token, char* buf, int32_t buf_len)
 {

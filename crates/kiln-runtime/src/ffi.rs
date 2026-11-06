@@ -54,6 +54,7 @@ extern "C" {
         pos_offset: c_int,
     ) -> c_int;
     fn kiln_llama_logits(h: *mut c_void, out: *mut f32, out_cap: c_int) -> c_int;
+    fn kiln_llama_greedy_token(h: *mut c_void) -> c_int;
     fn kiln_llama_token_to_str(
         h: *mut c_void,
         token: c_int,
@@ -215,6 +216,18 @@ impl LlamaContext {
         }
         out.truncate(n as usize);
         Ok(out)
+    }
+
+    /// Forward and select the first maximum token inside the native shim,
+    /// avoiding a vocabulary-sized FFI buffer and Rust-side scan per step.
+    /// Greedy sampling only; full logits remain available for other samplers.
+    pub fn forward_greedy(&mut self, tokens: &[i32]) -> Result<i32, LlamaError> {
+        self.decode(tokens)?;
+        let token = unsafe { kiln_llama_greedy_token(self.handle) };
+        if token < 0 {
+            return Err(LlamaError::Decode(format!("native greedy sampling returned {token}")));
+        }
+        Ok(token)
     }
 
     pub fn forward(&mut self, tokens: &[i32]) -> Result<Vec<f32>, LlamaError> {
@@ -428,6 +441,40 @@ mod tests {
             repetitions, first.len() + assistant.len(), second.len(),
             reused_ms[repetitions / 2], replayed_ms[repetitions / 2]
         );
+    }
+
+    /// Validate the native fast path against full-logits Rust greedy sampling
+    /// on the same pinned GGUF. No model weights are available in hosted CI.
+    #[test]
+    #[ignore = "requires KILN_TEST_MODEL_PATH to a pinned GGUF"]
+    fn native_greedy_matches_full_logits_for_real_model() {
+        use kiln_core::chat::{Sampler, SamplingStrategy};
+        let filename = std::env::var("KILN_TEST_MODEL_PATH")
+            .expect("set KILN_TEST_MODEL_PATH to a pinned GGUF model");
+        let path = std::path::Path::new(&filename);
+        let params = Some((2048, 256, 128, 4));
+        let mut native = LlamaContext::load_with_ubatch(path, params)
+            .expect("native session");
+        let mut full = LlamaContext::load_with_ubatch(path, params)
+            .expect("full logits session");
+        let text = "An apple falls from a tree because";
+        let ids = full.tokenize(text).expect("tokenize prompt");
+        assert_eq!(ids, native.tokenize(text).expect("tokenize prompt twice"));
+        assert!(!ids.is_empty());
+
+        let mut rust_sampler = Sampler::new(SamplingStrategy::Greedy, 42);
+        let mut rust_token = rust_sampler.sample(&full.forward(&ids).expect("prefill"))
+            .expect("nonempty logits") as i32;
+        let mut native_token = native.forward_greedy(&ids).expect("native prefill");
+        assert_eq!(rust_token, native_token, "native greedy prefill mismatch");
+
+        for step in 0..32 {
+            let next_rust = full.forward(&[rust_token]).expect("decode full logits");
+            let next_native = native.forward_greedy(&[native_token]).expect("decode native");
+            rust_token = rust_sampler.sample(&next_rust).expect("sample next") as i32;
+            native_token = next_native;
+            assert_eq!(rust_token, native_token, "greedy mismatch on step {step}");
+        }
     }
 
     #[test]
