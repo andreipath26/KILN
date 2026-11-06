@@ -45,9 +45,9 @@ impl GuardedExpertLoader {
         if token_epoch != self.guard_epoch() {
             return Ok(StageResult::InvalidEpoch);
         }
-        // The staging guard checks its capacity after the read. Callers
-        // should keep the predicted list short; the admission check
-        // guarantees no unbounded speculative membership.
+        let size = self.reader.expert_byte_length(key.layer, key.expert_id)?;
+        let admitted = self.guard.can_stage(token_epoch, key, size);
+        if admitted != StageResult::Staged { return Ok(admitted); }
         let bytes = self.reader.read_expert_shared(key.layer, key.expert_id)?;
         Ok(self.guard.stage(token_epoch, key, bytes))
     }
