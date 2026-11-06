@@ -20,3 +20,7 @@ When the accumulated context plus the conservative maximum next response would e
 - Do not equate generic role delimiters with Qwen/ChatML-specific templates or claim that `--keep-context` creates a complete chat product. Structured templates, EOS handling, context truncation and multi-turn quality require model-specific follow-up validation.
 
 This is an opt-in Phase 3.5 runtime change; it neither modifies phase 5 streaming nor changes the original Tier 0/70B mission acceptance targets.
+
+## Observe the prefill savings
+
+Set `RUST_LOG=debug` when running `kiln run --keep-context` to record the new prompt's actual forwarded token count, previously cached native tokens and prefill duration. These are diagnostic counters, not a proof of tokens/s speedup or model-template correctness. The context-window reset always restarts with a fresh first-turn delimiter.
