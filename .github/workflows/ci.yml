@@ -47,5 +47,8 @@ jobs:
       - name: Test synthetic MoE cache simulator
         run: python3 -m unittest scripts.test_synthetic_moe_cache_bench -v
 
+      - name: Test Tier 0 feasibility report assessor
+        run: python3 -m unittest scripts.test_assess_tier0_gate5a -v
+
       - name: Run workspace tests
         run: cargo test --workspace --all-targets

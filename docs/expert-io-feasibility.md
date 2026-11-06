@@ -110,3 +110,24 @@ Example index shape (the values below are illustrative; `blob_size` must match t
 The index parser rejects unsupported versions, blob-size mismatches, empty/out-of-bounds ranges, unsorted or duplicate expert keys, and overlapping byte ranges. The benchmark also caps the JSON index and trace input files at 128 MiB before parsing.
 
 The runtime API now also exposes `ExpertBlobReader::open_indexed(blob, index)` and `CachedExpertBlobReader::open_indexed(blob, index, cache_bytes, policy)`. Both read a JSON `ExpertTable`, cap the index file at 128 MiB, and validate the table against the blob size before serving reads. They do not extract or repack experts from a GGUF; the blob and index must already use this layout.
+
+## Tier 0 evidence summary and sustained-traffic sanity check
+
+After running `scripts/run_tier0_gate5a.sh`, the script emits `summary.json` through the self-contained `scripts/assess_tier0_gate5a.py` helper. The summary preserves each block size, sequential/random throughput and requested bytes, and an optional Linux process-attributed storage counter when the underlying benchmark supports it. Reported probe throughput **includes uncontrolled OS page-cache effects** and is **not** treated as cold NVMe bandwidth.
+
+To inspect existing artifacts without running a model:
+
+```sh
+python3 scripts/assess_tier0_gate5a.py /path/to/evidence/expert-io-*.json > /path/to/evidence/summary.json
+```
+
+Only after **independently measuring** sustained effective SSD bandwidth and actual SSD bytes fetched per generated token on the real model may an operator supply both explicitly:
+
+```sh
+python3 scripts/assess_tier0_gate5a.py /path/to/evidence/expert-io-*.json \\
+  --effective-ssd-mib-s MEASURED_RATE \\
+  --observed-ssd-mib-per-token MEASURED_MODEL_TRAFFIC \\
+  --target-tok-s 4
+```
+
+The check computes the *necessary average storage-traffic condition* `bytes/token × tokens/s <= effective bytes/s`, not a pass verdict for Phase 5A. Compute time, random-read latency, prefetch overlap, RSS, model correctness and quality still require separate evidence. Missing physical/model measurements yield `traffic_budget: null` rather than an inferred answer. The numbers in documentation placeholders must not be mistaken for actual measurements.

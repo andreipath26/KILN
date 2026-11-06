@@ -42,5 +42,7 @@ for BLOCK in 65536 262144 1048576 4194304; do
     --file "$MODEL" --block-bytes "$BLOCK" --requests 256 \
     --runs 5 --seed 42 --json > "$OUT/expert-io-$BLOCK.json"
 done
+# The report deliberately does not infer SSD throughput from page-cache-influenced reads.
+python3 scripts/assess_tier0_gate5a.py "$OUT"/expert-io-*.json > "$OUT/summary.json"
 echo "Phase 5A evidence captured under $OUT"
 echo "IMPORTANT: This is a buffered page-cache-uncontrolled probe, NOT a cold SSD benchmark."
