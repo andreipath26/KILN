@@ -192,9 +192,11 @@ mod tests {
         assert_eq!(prefetch.submit(1,key(0)),SubmitResult::AlreadyPending);
         assert_eq!(prefetch.submit(1,key(1)),SubmitResult::QueueFull);
         assert_eq!(prefetch.stats().pending_bytes,16);
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
         let completion=loop {
             let mut ready=prefetch.poll_ready();
             if !ready.is_empty(){break ready.remove(0);}
+            assert!(std::time::Instant::now()<deadline,"asynchronous expert read timed out");
             std::thread::yield_now();
         };
         assert_eq!(completion.key,key(0));
