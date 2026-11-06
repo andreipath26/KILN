@@ -9,9 +9,9 @@ KILN is an open-source local inference runtime in active development. It is desi
 - A Rust workspace with a per-layer runtime dispatcher and a llama.cpp integration.
 - GGUF model loading, a TQ1_0 ternary path, CLI and Ollama-compatible API.
 - Benchmarking and quality-checking tools for controlled runtime experiments.
-- Design work for MoE expert prediction, caching and streaming across the memory hierarchy.
+- Phase 5 components for validated GGUF expert-tensor maps, separate expert sidecars, byte-bounded cache admission, guarded asynchronous reads, a Linux io_uring reader, and a `cpu_moe_streamed` expert-byte dispatcher.
 
-KILN is not yet a stable, general-purpose runtime. End-to-end MoE streaming and performance across the intended hardware tiers are still under development.
+KILN is not yet a stable, general-purpose runtime. The Phase 5 sidecar, cache, I/O, and dispatcher components are primitives: stock llama.cpp inference does not yet call the streamed-expert operations. Dense-path performance and end-to-end MoE streaming remain under development.
 
 ## Performance
 
@@ -31,7 +31,7 @@ The Dell Latitude 7490 (i7-8650U, 16 GB RAM, no discrete GPU) is KILN’s minimu
 
 ## Build and run
 
-The current development build links against the vendored `kiln-llama` submodule. On Linux, with Rust, CMake and a C/C++ toolchain installed:
+The current development build statically links the vendored `kiln-llama` submodule. On Linux, with Rust, CMake and a C/C++ toolchain installed:
 
 ```sh
 git clone --recurse-submodules https://github.com/andreipath26/KILN.git
