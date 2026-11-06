@@ -65,6 +65,20 @@ extern "C" {
     fn kiln_llama_eos_token(h: *mut c_void) -> c_int;
 }
 
+/// Interpret llama_token_to_piece's negative required-length return safely.
+fn required_token_piece_capacity(native_length: i32, supplied: usize) -> Result<usize, LlamaError> {
+    const MAX_TOKEN_PIECE_BYTES: usize = 1024 * 1024;
+    let required = native_length.checked_neg()
+        .and_then(|size| usize::try_from(size).ok())
+        .ok_or_else(|| LlamaError::Decode("invalid native token piece length".into()))?;
+    if native_length >= 0 || required <= supplied || required > MAX_TOKEN_PIECE_BYTES {
+        return Err(LlamaError::Decode(format!(
+            "native token piece length {required} is invalid or exceeds safety limit"
+        )));
+    }
+    Ok(required)
+}
+
 pub struct LlamaContext {
     handle: *mut c_void,
     n_vocab: i32,
@@ -241,7 +255,6 @@ impl LlamaContext {
     /// full sequence is available.
     pub fn token_bytes(&self, token: i32) -> Result<Vec<u8>, LlamaError> {
         const INITIAL_BYTES: usize = 256;
-        const MAX_TOKEN_PIECE_BYTES: usize = 1024 * 1024;
         let mut buf = vec![0u8; INITIAL_BYTES];
         // llama_token_to_piece returns a negative *required length* when the
         // supplied buffer is too small; the original code silently returned
@@ -267,13 +280,7 @@ impl LlamaContext {
                 buf.truncate(size);
                 return Ok(buf);
             }
-            let required = n.checked_neg().and_then(|size| usize::try_from(size).ok())
-                .ok_or_else(|| LlamaError::Decode("invalid native token piece length".into()))?;
-            if required <= buf.len() || required > MAX_TOKEN_PIECE_BYTES {
-                return Err(LlamaError::Decode(format!(
-                    "native token piece length {required} is invalid or exceeds safety limit"
-                )));
-            }
+            let required = required_token_piece_capacity(n, buf.len())?;
             buf.resize(required, 0);
         }
         Err(LlamaError::Decode("native token piece size changed during retry".into()))
@@ -531,6 +538,16 @@ mod tests {
         let error = ctx.decode(&[1,2,3,4,5,6]).unwrap_err();
         assert!(matches!(error, LlamaError::Decode(message) if message.contains("n_ctx")));
         assert_eq!(ctx.n_past(), 8);
+    }
+
+    #[test]
+    fn token_piece_capacity_retries_only_valid_native_required_lengths() {
+        assert_eq!(required_token_piece_capacity(-400, 256).unwrap(), 400);
+        assert!(required_token_piece_capacity(-255, 256).is_err());
+        assert!(required_token_piece_capacity(-1_048_577, 256).is_err());
+        assert!(required_token_piece_capacity(i32::MIN, 256).is_err());
+        assert!(required_token_piece_capacity(0, 256).is_err());
+        assert!(required_token_piece_capacity(400, 256).is_err());
     }
 
 }
