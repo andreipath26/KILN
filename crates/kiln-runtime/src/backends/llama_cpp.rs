@@ -23,7 +23,13 @@ impl RuntimeBackend for LlamaCppBackend {
 
     fn supports(&self, op: &RuntimeOp) -> bool {
         match op {
+            RuntimeOp::MoEBeginToken { .. } | RuntimeOp::MoEPrefetch { .. }
+                | RuntimeOp::MoEPoll | RuntimeOp::MoECommit { .. } => {
+                Err(RuntimeError::NoBackend)
+            }
             RuntimeOp::Load { .. } => true,
+            RuntimeOp::MoEBeginToken { .. } | RuntimeOp::MoEPrefetch { .. }
+                | RuntimeOp::MoEPoll | RuntimeOp::MoECommit { .. } => false,
             _ => self.ctx.is_some(),
         }
     }
