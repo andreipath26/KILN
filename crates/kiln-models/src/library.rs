@@ -61,6 +61,8 @@ fn standard_roots() -> Vec<PathBuf> {
     add(std::env::var_os("HF_HOME").map(|p| PathBuf::from(p).join("hub").into_os_string()));
     add(std::env::var_os("XDG_CACHE_HOME").map(|p| PathBuf::from(p).join("huggingface/hub").into_os_string()));
     add(std::env::var_os("OLLAMA_MODELS"));
+    #[cfg(target_os = "windows")]
+    add(std::env::var_os("LOCALAPPDATA").map(|p| PathBuf::from(p).join("KILN/models").into_os_string()));
     if let Some(home) = home_dir() {
         for path in [
             home.join("Models"), home.join("models"),
