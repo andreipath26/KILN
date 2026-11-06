@@ -46,3 +46,8 @@ pub use async_expert_prefetch::{AsyncExpertPrefetch, AsyncExpertStats, ExpertRea
 
 pub mod async_guarded_coordinator;
 pub use async_guarded_coordinator::AsyncGuardedExpertCoordinator;
+
+#[cfg(target_os = "linux")]
+pub mod linux_uring_expert;
+#[cfg(target_os = "linux")]
+pub use linux_uring_expert::{LinuxUringExpertReader, LinuxExpertIoMode};
