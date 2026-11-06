@@ -1,8 +1,6 @@
 //! KILN command-line interface.
 //!
-//! Seven commands: serve, run, pull, list, bench, plan, info.
-//! For Phase 0B, serve and info do real work. The rest print a
-//! not-yet-implemented message and exit cleanly.
+//! Command-line interface for local KILN inference and model management.
 
 use clap::{Parser, Subcommand};
 
@@ -17,6 +15,7 @@ use kiln_models::gguf::GgufFile;
 use kiln_api::serve;
 
 mod llama_forward;
+mod model_library;
 mod phase35_kv_bench;
 mod phase35_spec_bench;
 
@@ -156,10 +155,31 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// Download a model from the catalog. Not yet implemented.
-    Pull { model: String },
-    /// List installed models. Not yet implemented.
-    List,
+    /// Download and validate a GGUF file from a public Hugging Face repository.
+    Pull {
+        /// Repository in owner/name form, as shown by `kiln search`.
+        model: String,
+        /// Exact GGUF file path inside that repository.
+        #[arg(long)]
+        file: String,
+    },
+    /// Find readable GGUF model candidates already installed on this machine.
+    List {
+        /// Additional file or directory to scan. May be repeated.
+        #[arg(long = "path")]
+        paths: Vec<std::path::PathBuf>,
+        /// Emit JSON instead of human-readable results.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Search public Hugging Face repositories tagged for GGUF models.
+    Search {
+        /// Search phrase or model family, for example `granite 4.1`.
+        query: String,
+        /// Maximum repositories to inspect (1–50).
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
     /// Measure model load, prompt prefill, and token decode throughput.
     Bench {
         /// Path to the GGUF model file.
@@ -765,7 +785,16 @@ async fn main() {
                 eprintln!("run: --max-tokens must be at least 1");
                 std::process::exit(2);
             }
-            if let Err(error) = run_interactive(&model, max_tokens, keep_context, native_greedy) {
+            let selected_model = if model == "auto" {
+                match model_library::resolve_auto_model() {
+                    Ok(path) => {
+                        println!("Using local GGUF candidate: {}", path.display());
+                        path.display().to_string()
+                    }
+                    Err(error) => { eprintln!("run auto: {error}"); std::process::exit(2); }
+                }
+            } else { model };
+            if let Err(error) = run_interactive(&selected_model, max_tokens, keep_context, native_greedy) {
                 eprintln!("run: {}", error);
                 std::process::exit(1);
             }
@@ -790,8 +819,22 @@ async fn main() {
                 std::process::exit(1);
             }
         },
-        Commands::Pull { model } => not_implemented("pull", &model),
-        Commands::List => not_implemented("list", ""),
+        Commands::Pull { model, file } => {
+            match model_library::pull_hugging_face(&model, &file) {
+                Ok(path) => println!("Installed model: {}", path.display()),
+                Err(error) => { eprintln!("pull: {error}"); std::process::exit(1); }
+            }
+        }
+        Commands::List { paths, json } => {
+            if let Err(error) = model_library::list_models(&paths, json) {
+                eprintln!("list: {error}"); std::process::exit(1);
+            }
+        }
+        Commands::Search { query, limit } => {
+            if let Err(error) = model_library::search_hugging_face(&query, limit) {
+                eprintln!("search: {error}"); std::process::exit(1);
+            }
+        }
         Commands::Bench { model, prompt, tokens, runs, warmup, threads, batch, ubatch, native_greedy, json } => {
             if runs == 0 {
                 eprintln!("bench: --runs must be at least 1");
