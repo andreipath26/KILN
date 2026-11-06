@@ -8,7 +8,7 @@ use crate::ffi::LlamaError;
 
 #[derive(Debug, Clone)]
 pub enum RuntimeOp {
-    Load { path: PathBuf, n_ctx: u32, n_batch: u32, n_threads: u32 },
+    Load { path: PathBuf, n_ctx: u32, n_batch: u32, n_ubatch: u32, n_threads: u32 },
     Forward { tokens: Vec<i32> },
     Reset,
     Tokenize { text: String },
@@ -119,7 +119,7 @@ mod tests {
         assert_eq!(d.backend_count(), 1);
         let op = RuntimeOp::Load {
             path: PathBuf::from("/dev/null"),
-            n_ctx: 4096, n_batch: 512, n_threads: 4,
+            n_ctx: 4096, n_batch: 512, n_ubatch: 256, n_threads: 4,
         };
         assert!(d.dispatch(op).is_ok());
     }

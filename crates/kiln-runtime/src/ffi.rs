@@ -30,6 +30,7 @@ impl std::error::Error for LlamaError {}
 pub struct LlamaParamsRaw {
     pub n_ctx: c_int,
     pub n_batch: c_int,
+    pub n_ubatch: c_int,
     pub n_threads: c_int,
 }
 
@@ -79,11 +80,23 @@ impl LlamaContext {
     }
 
     pub fn load_with(path: &Path, params: Option<(i32, i32, i32)>) -> Result<Self, LlamaError> {
+        let tuned = params.map(|(ctx, batch, threads)| (ctx, batch, batch.min(512), threads));
+        Self::load_with_ubatch(path, tuned)
+    }
+
+    /// Explicit physical microbatch tuning for controlled Phase 3.5 experiments.
+    pub fn load_with_ubatch(path: &Path, params: Option<(i32, i32, i32, i32)>) -> Result<Self, LlamaError> {
+        if let Some((ctx, batch, ubatch, threads)) = params {
+            if ctx <= 0 || batch <= 0 || ubatch <= 0 || threads <= 0 || ubatch > batch {
+                return Err(LlamaError::Load("invalid native context/batch/microbatch/thread parameters".into()));
+            }
+        }
         let cpath = CString::new(path.to_string_lossy().as_bytes())
             .map_err(|e| LlamaError::Load(e.to_string()))?;
-        let raw = params.map(|(n_ctx, n_batch, n_threads)| LlamaParamsRaw {
+        let raw = params.map(|(n_ctx, n_batch, n_ubatch, n_threads)| LlamaParamsRaw {
             n_ctx: n_ctx as c_int,
             n_batch: n_batch as c_int,
+            n_ubatch: n_ubatch as c_int,
             n_threads: n_threads as c_int,
         });
         let raw_ptr = raw.as_ref().map(|r| r as *const LlamaParamsRaw).unwrap_or(std::ptr::null());
@@ -97,7 +110,7 @@ impl LlamaContext {
         let n_vocab = unsafe { kiln_llama_n_vocab(handle) };
         // The shim uses n_batch from the supplied params, or 512 by default.
         // Keep this synchronized with the C shim's allocation contract.
-        let batch_capacity = params.map(|(_, n_batch, _)| n_batch as usize).unwrap_or(512);
+        let batch_capacity = params.map(|(_, n_batch, _, _)| n_batch as usize).unwrap_or(512);
         Ok(Self { handle, n_vocab, n_past: 0, batch_capacity })
     }
 
@@ -278,6 +291,45 @@ mod tests {
         };
         let err = ctx.decode(&[1]).unwrap_err();
         assert!(matches!(err, LlamaError::Decode(message) if message.contains("capacity")));
+    }
+
+    /// Hardware/model acceptance test. CI cannot infer real GGUF parity from
+    /// synthetic token chunks. Run explicitly on Tier 0 with a pinned model.
+    #[test]
+    #[ignore = "requires KILN_TEST_MODEL_PATH and real model inference"]
+    fn real_model_chunked_prefill_matches_large_batch_top_token() {
+        let model_path = std::env::var("KILN_TEST_MODEL_PATH")
+            .expect("set KILN_TEST_MODEL_PATH to a pinned GGUF model file");
+        let path = std::path::Path::new(&model_path);
+        let threads = 4;
+        let mut chunked = LlamaContext::load_with_ubatch(
+            path, Some((2048, 128, 128, threads)),
+        ).expect("load chunked context");
+        let mut larger = LlamaContext::load_with_ubatch(
+            path, Some((2048, 512, 128, threads)),
+        ).expect("load larger-batch context");
+        let prompt = "A reproducible test of numerical behavior across prompt batch boundaries. ".repeat(24);
+        let tokens = chunked.tokenize(&prompt).expect("tokenize");
+        assert!(tokens.len() > 128 && tokens.len() <= 512,
+            "expected 129..=512 tokens, got {}", tokens.len());
+        assert_eq!(tokens, larger.tokenize(&prompt).expect("second tokenize"));
+        let chunked_logits = chunked.forward(&tokens).expect("chunked forward");
+        let larger_logits = larger.forward(&tokens).expect("larger forward");
+        assert_eq!(chunked_logits.len(), larger_logits.len());
+        assert!(!chunked_logits.is_empty());
+        fn argmax(xs: &[f32]) -> usize {
+            xs.iter().enumerate()
+                .filter(|(_, x)| x.is_finite())
+                .max_by(|a, b| a.1.total_cmp(b.1))
+                .expect("finite logit")
+                .0
+        }
+        assert_eq!(argmax(&chunked_logits), argmax(&larger_logits),
+            "native chunking changed most likely next token");
+        let max_error = chunked_logits.iter().zip(larger_logits.iter())
+            .map(|(a, b)| (f64::from(*a) - f64::from(*b)).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(max_error <= 0.1, "logits diverged; maximum absolute delta {max_error}");
     }
 
 }
