@@ -43,3 +43,6 @@ pub use guarded_expert_loader::{GuardedExpertLoader, RoutedExpertLoad};
 
 pub mod async_expert_prefetch;
 pub use async_expert_prefetch::{AsyncExpertPrefetch, AsyncExpertStats, ExpertReadCompletion, SubmitResult};
+
+pub mod async_expert_prefetch;
+pub use async_expert_prefetch::{AsyncExpertPrefetch, AsyncExpertStats, ExpertReadCompletion, SubmitResult};
