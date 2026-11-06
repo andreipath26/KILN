@@ -1113,6 +1113,11 @@ impl InteractiveKvState {
     fn emitted(&mut self, token: i32) {
         self.pending_token = Some(token);
     }
+
+    /// EOS was sampled but never decoded; it must not enter next turn's KV.
+    fn ended_on_eos(&mut self) {
+        self.pending_token = None;
+    }
 }
 
 #[cfg(test)]
@@ -1149,6 +1154,36 @@ mod interactive_kv_tests {
         assert!(cache.prepare(vec![1, 2, 3], 6, 8).is_err());
         assert_eq!(cache.cached_tokens, 2);
         assert_eq!(cache.pending_token, Some(5));
+    }
+
+    #[test]
+    fn eos_is_never_appended_to_next_turn() {
+        let mut cache = InteractiveKvState::default();
+        let (_, first) = cache.prepare(vec![10, 11], 3, 32).unwrap();
+        cache.forwarded(first.len());
+        // Simulate one emitted token that was decoded, then model EOS.
+        cache.emitted(55);
+        // The emitted token has now been evaluated (as in the decode loop).
+        cache.pending_token = None;
+        cache.forwarded(1);
+        // EOS is sampled from that evaluation and is never forwarded.
+        cache.ended_on_eos();
+        let (reset, next) = cache.prepare(vec![20, 21], 3, 32).unwrap();
+        assert!(!reset);
+        assert_eq!(next, vec![20, 21]);
+        assert_eq!(cache.cached_tokens, 3);
+    }
+
+    #[test]
+    fn budget_excludes_eos_when_it_was_not_forwarded() {
+        let mut cache = InteractiveKvState {
+            cached_tokens: 5,
+            pending_token: Some(99),
+        };
+        cache.ended_on_eos();
+        let (reset, tail) = cache.prepare(vec![8, 9], 2, 9).unwrap();
+        assert!(!reset);
+        assert_eq!(tail, vec![8, 9]);
     }
 
     #[test]
@@ -1279,7 +1314,10 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool) -> Result
             let token = sampler.sample(&logits)
                 .ok_or_else(|| "sampler returned no token".to_string())? as i32;
             if token == eos {
-                if keep_context { kv_state.emitted(token); }
+                // EOS is not an output token and is not evaluated into the
+                // native KV cache. Forwarding it at the next turn would
+                // change the continuation compared with the executed prefix.
+                if keep_context { kv_state.ended_on_eos(); }
                 break;
             }
             if keep_context { kv_state.emitted(token); }
