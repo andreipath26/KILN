@@ -339,7 +339,8 @@ A “not beneficial” result is useful and must remain recorded with tested con
 7. **Documentation:** update README claims only after verifying the representation or result. Label external paper results clearly.
 8. **Training pipeline design:** write docs/training-pipeline-design.md separately. Keep training out of inference critical path unless measurements justify coupling.
 9. **Model lifecycle:** harden the initial GGUF discovery/search/pull workflow. Add model-card/license display, gated-repository handling, hardware-aware size estimates, resumable transfers, and an install flow that asks before choosing or downloading a model. Keep model-format/runtime compatibility checks explicit.
-10. **Productization:** only after runtime, correctness, performance and quality gates are satisfied.
+10. **Roadmap-wide UI:** follow docs/ui-architecture.md. Build the Simple/Advanced modes over shared runtime/API state; cover model lifecycle, platform-agnostic capability discovery, per-layer planning, memory hierarchy, inference, quality, diagnostics and future workloads through versioned capability contracts. UI controls must reflect actual runtime support and be expanded phase by phase without rewriting the shell.
+11. **Productization:** only after runtime, correctness, performance and quality gates are satisfied.
 
 ### Not yet proven by this roadmap
 
@@ -621,3 +622,19 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Downloads require an explicit repository and GGUF filename, verify the Hub-provided SHA-256, parse the completed GGUF, and install it only after verification. No automatic model selection or gated-repository auth is introduced.
 - The initial transfer uses the system curl and SHA-256 utility; add a native cross-platform transfer layer, resumable downloads, richer license/model-card review and hardware-aware ranking before broad deployment claims.
 - Source and documentation changes are on the feature branch; compilation and CI have not been run in this environment.
+
+
+### 2026-11-06 — Roadmap-wide UI architecture foundation
+
+- Added docs/ui-architecture.md before UI code so future contributors have the product intent, roadmap mapping, information architecture, API boundaries, capability-driven extension model, privacy/security requirements, packaging direction, implementation sequence and acceptance gates.
+- Defined the user's two top-level modes—Simple and Advanced—as views over one runtime/session/configuration contract. The UI is scoped across all roadmap phases and hardware tiers, not only today's CPU/CLI/API implementation.
+- Recorded the actual current boundary: existing API has streaming chat/generation and one startup-loaded GGUF; CLI model search/pull exists, but model management, dynamic activation, capability/plan/telemetry APIs and browser UI do not yet exist. Phase 5 streaming primitives are not end-to-end MoE inference.
+- No UI code or roadmap phase completion is claimed by this documentation step.
+
+
+### 2026-11-06 — Initial local UI implementation
+
+- Added the bundled Simple/Advanced web shell to the existing API process, with a local streaming chat screen, stop control, per-model browser-local conversation history, active-model/session display and responsive dark theme.
+- Added `/api/ui/capabilities` as a versioned snapshot of current API/profile facts. It marks startup-only model loading, missing UI model management, absent accelerator/per-layer controls and future diffusion accurately; no speculative settings are presented as active.
+- Updated the UI continuation guide and README with current behavior and outstanding work. Model search/download/activation, settings APIs, runtime telemetry and accessibility/behavior review remain open.
+- `node --check crates/kiln-api/static/ui.js` and `git diff --check` pass. Rust compilation and live browser/API behavior have not been verified in this environment; no phase acceptance gate is claimed complete.
