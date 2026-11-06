@@ -30,6 +30,7 @@ impl std::error::Error for LlamaError {}
 pub struct LlamaParamsRaw {
     pub n_ctx: c_int,
     pub n_batch: c_int,
+    pub n_ubatch: c_int,
     pub n_threads: c_int,
 }
 
@@ -79,11 +80,23 @@ impl LlamaContext {
     }
 
     pub fn load_with(path: &Path, params: Option<(i32, i32, i32)>) -> Result<Self, LlamaError> {
+        let tuned = params.map(|(ctx, batch, threads)| (ctx, batch, batch.min(512), threads));
+        Self::load_with_ubatch(path, tuned)
+    }
+
+    /// Explicit physical microbatch tuning for controlled Phase 3.5 experiments.
+    pub fn load_with_ubatch(path: &Path, params: Option<(i32, i32, i32, i32)>) -> Result<Self, LlamaError> {
+        if let Some((ctx, batch, ubatch, threads)) = params {
+            if ctx <= 0 || batch <= 0 || ubatch <= 0 || threads <= 0 || ubatch > batch {
+                return Err(LlamaError::Load("invalid native context/batch/microbatch/thread parameters".into()));
+            }
+        }
         let cpath = CString::new(path.to_string_lossy().as_bytes())
             .map_err(|e| LlamaError::Load(e.to_string()))?;
-        let raw = params.map(|(n_ctx, n_batch, n_threads)| LlamaParamsRaw {
+        let raw = params.map(|(n_ctx, n_batch, n_ubatch, n_threads)| LlamaParamsRaw {
             n_ctx: n_ctx as c_int,
             n_batch: n_batch as c_int,
+            n_ubatch: n_ubatch as c_int,
             n_threads: n_threads as c_int,
         });
         let raw_ptr = raw.as_ref().map(|r| r as *const LlamaParamsRaw).unwrap_or(std::ptr::null());
@@ -97,7 +110,7 @@ impl LlamaContext {
         let n_vocab = unsafe { kiln_llama_n_vocab(handle) };
         // The shim uses n_batch from the supplied params, or 512 by default.
         // Keep this synchronized with the C shim's allocation contract.
-        let batch_capacity = params.map(|(_, n_batch, _)| n_batch as usize).unwrap_or(512);
+        let batch_capacity = params.map(|(_, n_batch, _, _)| n_batch as usize).unwrap_or(512);
         Ok(Self { handle, n_vocab, n_past: 0, batch_capacity })
     }
 
