@@ -43,14 +43,21 @@ impl ExpertCommitGuard {
         Ok(())
     }
 
-    pub fn stage(&mut self, epoch: u64, key: ExpertKey, bytes: Arc<[u8]>) -> StageResult {
+    /// Reject invalid or over-budget requests before any expert I/O.
+    pub fn can_stage(&self, epoch: u64, key: ExpertKey, size: u64) -> StageResult {
         if epoch == 0 || epoch != self.epoch { return StageResult::InvalidEpoch; }
-        if bytes.is_empty() { return StageResult::Empty; }
+        if size == 0 { return StageResult::Empty; }
         if self.blocks.contains_key(&key) { return StageResult::AlreadyStaged; }
         if self.blocks.len() >= self.max_entries { return StageResult::EntryLimit; }
-        if bytes.len() as u64 > self.max_bytes.saturating_sub(self.stats.bytes) {
+        if size > self.max_bytes.saturating_sub(self.stats.bytes) {
             return StageResult::ByteLimit;
         }
+        StageResult::Staged
+    }
+
+    pub fn stage(&mut self, epoch: u64, key: ExpertKey, bytes: Arc<[u8]>) -> StageResult {
+        let admitted = self.can_stage(epoch, key, bytes.len() as u64);
+        if admitted != StageResult::Staged { return admitted; }
         self.stats.bytes += bytes.len() as u64;
         self.blocks.insert(key, bytes);
         self.stats.staged += 1;
