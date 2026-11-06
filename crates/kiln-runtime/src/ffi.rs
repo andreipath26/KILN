@@ -54,6 +54,7 @@ extern "C" {
         pos_offset: c_int,
     ) -> c_int;
     fn kiln_llama_logits(h: *mut c_void, out: *mut f32, out_cap: c_int) -> c_int;
+    fn kiln_llama_greedy_token(h: *mut c_void) -> c_int;
     fn kiln_llama_token_to_str(
         h: *mut c_void,
         token: c_int,
@@ -215,6 +216,18 @@ impl LlamaContext {
         }
         out.truncate(n as usize);
         Ok(out)
+    }
+
+    /// Forward and select the first maximum token inside the native shim,
+    /// avoiding a vocabulary-sized FFI buffer and Rust-side scan per step.
+    /// Greedy sampling only; full logits remain available for other samplers.
+    pub fn forward_greedy(&mut self, tokens: &[i32]) -> Result<i32, LlamaError> {
+        self.decode(tokens)?;
+        let token = unsafe { kiln_llama_greedy_token(self.handle) };
+        if token < 0 {
+            return Err(LlamaError::Decode(format!("native greedy sampling returned {token}")));
+        }
+        Ok(token)
     }
 
     pub fn forward(&mut self, tokens: &[i32]) -> Result<Vec<f32>, LlamaError> {
