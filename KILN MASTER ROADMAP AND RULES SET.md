@@ -346,6 +346,15 @@ Model versions, availability and architectures require fresh verification; inclu
 
 ## 13. Session log
 
+### 2026-11-06 — Phase 3.5 speculative decoding and Phase 5.0 predictor evaluation batches
+
+- **PR #36 merged** (commit `ac4c0cd9a1e5505186d0f9ab56a438f538d7bae6`, hosted CI passing): draftless n-gram history proposal, bounded at 16 candidates, real target-model batch verification with greedy per-position logits and rejected-tail KV rollback. New opt-in `kiln bench-spec` requires exact generated-token equality against the greedy baseline. A real-GGUF rejection-parity test exists but is ignored in hosted CI. **No Dell acceleration has been measured.**
+- **PR #37 merged** (commit `77dc251a76bcaa98b40119366a7aa20a68b425fb`, hosted CI passing): chronological frozen-training expert transition holdout, accuracy@k and coverage with train-only unigram baseline; exposed through `kiln-bench predictor-holdout`. Added `docs/training-pipeline-design.md` as the Phase 5.0 planning prerequisite.
+- **PR #39 merged** (commit `4dc01c1f2faaaa8dd1cf623a3aae59221e2c840e`, hosted CI passing): grouped per-token/per-layer active-expert-set predictor evaluation, correct multi-expert accuracy@k, heldout recall and coverage with no future-label training; exposed through `kiln-bench router-holdout`. Conflicting predecessor PR #38 was closed with its branch preserved.
+- The two predictor tools are **exploratory software evaluation**, not model-router trace capture or a trained neural prerouter. Real model logs, calibration, same-model baseline, target-hardware predictor cost and Phase 5.0 k=2 ≥80% acceptance remain **open**.
+- Phase 3.5 also remains **open** pending actual Dell throughput ≥27 tok/s, verified speculation speed gain and greedy/output quality parity, a pinned Ollama comparison, and thermally stable measurements. Gate 5A and full MoE streaming remain open, with the 70B-class mission unchanged.
+
+
 ### 2026-11-06 — Phase 3.5 native CPU hot-path batch (merged, CI verified)
 
 - **PR #33** merged `0581efe557e1d2728fe8ac6a0f77c5d9ff58f76d`: the pinned llama.cpp implementation distinguishes decode `n_threads` from batch/prefill `n_threads_batch`. KILN's shim now applies the explicitly selected `--threads` CPU count to both. Previously prefill retained an unrelated default, confounding the prescribed Tier 0 2/3/4 thread A/B.
