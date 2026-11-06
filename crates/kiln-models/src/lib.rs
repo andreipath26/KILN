@@ -20,7 +20,7 @@ pub mod tokenizer;
 
 pub use manifest::{Architecture, ModelManifest};
 pub use quantization::QuantizationSpec;
-pub use experts::ExpertTable;
+pub use experts::{ExpertRange, ExpertTable, ExpertTableError};
 pub use kv_layout::KvLayout;
 pub use thermal::ThermalProfile;
 pub use ml_cache::MlCacheRef;
