@@ -1163,8 +1163,10 @@ mod interactive_kv_tests {
         cache.forwarded(first.len());
         // Simulate one emitted token that was decoded, then model EOS.
         cache.emitted(55);
-        cache.forwarded(1);
+        // The emitted token has now been evaluated (as in the decode loop).
         cache.pending_token = None;
+        cache.forwarded(1);
+        // EOS is sampled from that evaluation and is never forwarded.
         cache.ended_on_eos();
         let (reset, next) = cache.prepare(vec![20, 21], 3, 32).unwrap();
         assert!(!reset);
