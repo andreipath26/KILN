@@ -108,6 +108,7 @@ mod tests {
         let html = String::from_utf8(body.to_vec()).unwrap();
         assert!(html.contains("id=\"tab-simple\""));
         assert!(html.contains("id=\"tab-advanced\""));
+        assert!(html.contains("id=\"chat-announcer\""));
         assert!(html.contains("src=\"/ui.js\""));
         assert!(!html.contains("https://"));
     }
