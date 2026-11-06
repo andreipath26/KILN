@@ -1,6 +1,6 @@
 //! Expert blob reader with a byte-bounded expert cache.
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 
 use kiln_mem::{ExpertCache, ExpertCachePolicy, ExpertCacheStats, ExpertKey};
@@ -115,30 +115,68 @@ impl CachedExpertBlobReader {
         std::fs::write(path, bytes)
     }
 
+    /// Backwards-compatible owned result; callers requiring a bounded
+    /// expert working set should prefer read_expert_shared to avoid a
+    /// second full-block copy for every cache hit.
     pub fn read_expert(
         &self,
         layer: u32,
         expert_id: u32,
     ) -> Result<Vec<u8>, ExpertBlobError> {
+        Ok(self.read_expert_shared(layer, expert_id)?.as_ref().to_vec())
+    }
+
+    /// Return a reference-counted expert allocation. Hits do not duplicate
+    /// the underlying block and concurrent cold requests are coalesced.
+    /// A caller holding the Arc after eviction keeps its bytes resident;
+    /// the cache budget limits membership, not all outstanding readers.
+    pub fn read_expert_shared(
+        &self,
+        layer: u32,
+        expert_id: u32,
+    ) -> Result<Arc<[u8]>, ExpertBlobError> {
         let key = ExpertKey { layer, expert_id };
-        if let Some(bytes) = self.cache.get_if_present(key) {
+        if let Some(bytes) = self.cache.get_shared_if_present(key) {
             self.record_access(key);
             return Ok(bytes);
         }
 
         let mut reader = self.lock_reader();
-        // Another caller may have filled the cache while this caller waited
-        // for the single file reader. Avoid duplicate disk reads in that case.
-        if let Some(bytes) = self.cache.get_if_present(key) {
+        // Avoid duplicate I/O when another thread filled the cache while
+        // this caller waited for the single file reader lock.
+        if let Some(bytes) = self.cache.get_shared_if_present(key) {
             self.record_access(key);
             return Ok(bytes);
         }
 
         self.cache.record_miss();
-        let bytes = reader.read_expert(layer, expert_id)?;
-        self.cache.insert(key, bytes.clone());
+        let bytes: Arc<[u8]> = Arc::from(reader.read_expert(layer, expert_id)?);
+        self.cache.insert_shared(key, Arc::clone(&bytes));
         self.record_access(key);
         Ok(bytes)
+    }
+
+    /// Copy an expert into a caller-owned reusable buffer. This avoids
+    /// allocating an owned Vec on warm cache hits, but external buffers
+    /// must be included in the caller's memory budget.
+    pub fn read_expert_into(
+        &self,
+        layer: u32,
+        expert_id: u32,
+        buffer: &mut [u8],
+    ) -> Result<(), ExpertBlobError> {
+        // Validate before a cold read or cache lookup: an undersized
+        // destination must never cause avoidable SSD I/O or cache churn.
+        let expected = self.lock_reader().expert_byte_length(layer, expert_id)?;
+        if buffer.len() as u64 != expected {
+            return Err(ExpertBlobError::BufferLengthMismatch {
+                expected,
+                actual: buffer.len(),
+            });
+        }
+        let bytes = self.read_expert_shared(layer, expert_id)?;
+        buffer.copy_from_slice(&bytes);
+        Ok(())
     }
 
     pub fn invalidate(&self, layer: u32, expert_id: u32) -> bool {
@@ -206,6 +244,58 @@ mod tests {
     }
 
     #[test]
+    fn shared_expert_cache_hits_return_same_backing_allocation() {
+        let (path, bytes, table) = fixture();
+        let reader = CachedExpertBlobReader::open(&path, table, 8, ExpertCachePolicy::Lru).unwrap();
+        let first = reader.read_expert_shared(0, 1).unwrap();
+        let second = reader.read_expert_shared(0, 1).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(first.as_ref(), &bytes[8..16]);
+        assert_eq!(reader.cache_stats().hits, 1);
+        assert_eq!(reader.cache_stats().misses, 1);
+        assert_eq!(reader.cache_stats().used_bytes, 8);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn reuse_caller_buffer_without_allocating_owned_result() {
+        let (path, bytes, table) = fixture();
+        let reader = CachedExpertBlobReader::open(&path, table, 8, ExpertCachePolicy::Lru).unwrap();
+        let mut buffer = [0u8; 8];
+        assert!(matches!(
+            reader.read_expert_into(0, 1, &mut [0u8; 4]),
+            Err(ExpertBlobError::BufferLengthMismatch { expected: 8, actual: 4 })
+        ));
+        assert_eq!(reader.cache_stats().hits, 0);
+        assert_eq!(reader.cache_stats().misses, 0);
+        reader.read_expert_into(0, 1, &mut buffer).unwrap();
+        assert_eq!(buffer.as_slice(), &bytes[8..16]);
+        buffer.fill(0);
+        reader.read_expert_into(0, 1, &mut buffer).unwrap();
+        assert_eq!(buffer.as_slice(), &bytes[8..16]);
+        assert_eq!(reader.cache_stats().hits, 1);
+        assert_eq!(reader.cache_stats().misses, 1);
+        assert!(matches!(
+            reader.read_expert_into(0, 1, &mut [0u8; 4]),
+            Err(ExpertBlobError::BufferLengthMismatch { expected: 8, actual: 4 })
+        ));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn external_shared_reader_outlives_eviction_without_use_after_free() {
+        let (path, bytes, table) = fixture();
+        let reader = CachedExpertBlobReader::open(&path, table, 8, ExpertCachePolicy::Lru).unwrap();
+        let held = reader.read_expert_shared(0, 0).unwrap();
+        let next = reader.read_expert_shared(1, 0).unwrap();
+        assert_eq!(next.as_ref(), &bytes[16..24]);
+        assert_eq!(held.as_ref(), &bytes[0..8]);
+        assert_eq!(reader.cache_stats().used_bytes, 8);
+        assert!(!Arc::ptr_eq(&held, &next));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn oversized_expert_is_returned_but_not_cached() {
         let (path, bytes, table) = fixture();
         let reader = CachedExpertBlobReader::open(&path, table, 4, ExpertCachePolicy::Lru).unwrap();
@@ -238,6 +328,29 @@ mod tests {
         assert_eq!(stats.hits, 7);
         assert_eq!(stats.misses, 1);
         assert!(stats.used_bytes <= stats.capacity_bytes);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn concurrent_shared_misses_coalesce_to_one_block_allocation() {
+        let (path, bytes, table) = fixture();
+        let reader = Arc::new(CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap());
+        let mut workers = Vec::new();
+        for _ in 0..8 {
+            let reader = Arc::clone(&reader);
+            workers.push(thread::spawn(move || reader.read_expert_shared(1, 0).unwrap()));
+        }
+        let handles: Vec<_> = workers.into_iter().map(|worker| worker.join().unwrap()).collect();
+        for handle in &handles {
+            assert!(Arc::ptr_eq(handle, &handles[0]));
+            assert_eq!(handle.as_ref(), &bytes[16..24]);
+        }
+        let stats = reader.cache_stats();
+        assert_eq!(stats.misses, 1);
+        assert_eq!(stats.hits, 7);
+        assert_eq!(stats.used_bytes, 8);
         std::fs::remove_file(path).unwrap();
     }
 

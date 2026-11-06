@@ -97,6 +97,15 @@ impl ExpertBlobReader {
         &self.table
     }
 
+    /// Validate key and return the exact indexed payload length without I/O.
+    pub fn expert_byte_length(&self, layer: u32, expert_id: u32) -> Result<u64, ExpertBlobError> {
+        let index = self.table.ranges.binary_search_by_key(
+            &(layer, expert_id),
+            |range| (range.layer, range.expert_id),
+        ).map_err(|_| ExpertBlobError::MissingExpert { layer, expert_id })?;
+        Ok(self.table.ranges[index].byte_length)
+    }
+
     pub fn read_expert(
         &mut self,
         layer: u32,
@@ -216,6 +225,16 @@ mod tests {
             Err(ExpertBlobError::InvalidIndexJson(_))
         ));
         std::fs::remove_file(index_path).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn indexed_length_lookup_has_no_payload_read() {
+        let (path, bytes) = fixture();
+        let reader = ExpertBlobReader::open(&path, index(bytes.len() as u64)).unwrap();
+        assert_eq!(reader.expert_byte_length(0, 1).unwrap(), 8);
+        assert!(matches!(reader.expert_byte_length(99, 99),
+            Err(ExpertBlobError::MissingExpert { .. })));
         std::fs::remove_file(path).unwrap();
     }
 
