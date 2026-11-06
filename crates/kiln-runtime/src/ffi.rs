@@ -239,25 +239,53 @@ impl LlamaContext {
     /// a token may carry a partial multi-byte sequence that the next
     /// token completes. The caller buffers bytes and decodes when a
     /// full sequence is available.
-    pub fn token_bytes(&self, token: i32) -> Vec<u8> {
-        let mut buf = vec![0u8; 256];
-        let n = unsafe {
-            kiln_llama_token_to_str(
-                self.handle,
-                token,
-                buf.as_mut_ptr() as *mut c_char,
-                buf.len() as c_int,
-            )
-        };
-        if n <= 0 { return Vec::new(); }
-        buf.truncate(n as usize);
-        buf
+    pub fn token_bytes(&self, token: i32) -> Result<Vec<u8>, LlamaError> {
+        const INITIAL_BYTES: usize = 256;
+        const MAX_TOKEN_PIECE_BYTES: usize = 1024 * 1024;
+        let mut buf = vec![0u8; INITIAL_BYTES];
+        // llama_token_to_piece returns a negative *required length* when the
+        // supplied buffer is too small; the original code silently returned
+        // empty bytes, corrupting output for larger token pieces.
+        for _attempt in 0..2 {
+            let n = unsafe {
+                kiln_llama_token_to_str(
+                    self.handle,
+                    token,
+                    buf.as_mut_ptr() as *mut c_char,
+                    c_int::try_from(buf.len()).map_err(|_| {
+                        LlamaError::Decode("token piece buffer exceeds native capacity".into())
+                    })?,
+                )
+            };
+            if n >= 0 {
+                let size = usize::try_from(n).map_err(|_| {
+                    LlamaError::Decode("invalid token piece length".into())
+                })?;
+                if size > buf.len() {
+                    return Err(LlamaError::Decode("token piece exceeded allocated buffer".into()));
+                }
+                buf.truncate(size);
+                return Ok(buf);
+            }
+            let required = n.checked_neg().and_then(|size| usize::try_from(size).ok())
+                .ok_or_else(|| LlamaError::Decode("invalid native token piece length".into()))?;
+            if required <= buf.len() || required > MAX_TOKEN_PIECE_BYTES {
+                return Err(LlamaError::Decode(format!(
+                    "native token piece length {required} is invalid or exceeds safety limit"
+                )));
+            }
+            buf.resize(required, 0);
+        }
+        Err(LlamaError::Decode("native token piece size changed during retry".into()))
     }
 
     /// Backwards-compatible string form. Lossy. Prefer token_bytes.
     pub fn token_to_str(&self, token: i32) -> String {
-        String::from_utf8_lossy(&self.token_bytes(token)).to_string()
+        self.token_bytes(token)
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .unwrap_or_default()
     }
+
 }
 
 impl Drop for LlamaContext {
