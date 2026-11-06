@@ -362,7 +362,7 @@ The following changes are **merged to the default branch**, with CI successful o
 | #21 | 3.5 | Separates sampled output rate, actual decode-forward rate, and response rate including prefill |
 | #22 | 3.5 | Splits prompt prefill at native llama.cpp logical batch capacity with boundary tests |
 
-**Open implementation:** PR #24 proposes `n_ubatch` support and 128/256/512 isolated microbatch measurements. It is not considered merged or accepted until full CI success and verified main-branch integration. Older PR #23 was superseded/closed, preserving branch history.
+**Merged implementation:** PR #24 passed CI and merged as `3a83890002de770736c5643bf21f5e30498ce824`. It wires explicit `n_ubatch` through the C shim/runtime/CLI, preserves bounded prompt prefill and decode-rate statistics, and adds an isolated 128/256/512 microbatch sweep plus opt-in pinned-GGUF chunked-vs-larger-batch logits differential test. The latter is **ignored in hosted CI** and needs Dell execution. Older PR #23 was superseded/closed, preserving branch history. **Phase 3.5 remains open.**
 
 **Still required for Phase 3.5:** pinned and repeated Dell model measurements, matching Ollama baseline, profile of remaining speed gap, model-specific prompt-cache correctness, supported speculation A/B and exit-gate evidence. Historical 10.57/26.86 tok/s remain historical, not current results. No ≥27 tok/s claim.
 
