@@ -192,6 +192,12 @@ KILN now includes bounded prompt prefill, a thread/logical-batch/physical-microb
 
 See [append-only KV behavior and its ignored GGUF differential test](docs/phase35-append-only-interactive-kv.md) and [context-capacity guard](docs/phase35-context-capacity-guard.md). These changes passed hosted CI, but actual Dell performance, model-specific chat correctness and the ≥27 tok/s target **remain unverified**.
 
+## Speculative decoding and expert predictor experiments (November 2026)
+
+The opt-in `kiln bench-spec` benchmark now compares bounded, draftless n-gram proposals verified in the actual llama.cpp target model with an ordinary target-greedy baseline. Rejected draft KV entries are rolled back, and the benchmark demands identical token IDs; see [Phase 3.5 speculative protocol](docs/phase35-speculative-ngram.md). **Hosted CI does not prove a target-machine speed improvement or run the ignored real-model differential test.**
+
+Two Phase 5.0 offline feasibility commands are also implemented: `kiln-bench predictor-holdout` for a frozen chronological single-next-expert holdout and `kiln-bench router-holdout` for grouped per-token/per-layer MoE active expert sets. See [training pipeline](docs/training-pipeline-design.md) and [grouped router evaluation](docs/phase50-grouped-router-evaluation.md). Neither claims the 80% k=2 predictor gate is met on an actual checkpoint.
+
 ## Current next steps
 
 1. Reproduce the dense-path baseline and profile the actual hot path for Phase 3.5.
