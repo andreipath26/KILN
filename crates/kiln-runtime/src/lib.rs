@@ -14,3 +14,6 @@ pub use runtime_dispatch::{RuntimeBackend, RuntimeDispatcher, RuntimeError, Runt
 pub use backends::llama_cpp::LlamaCppBackend;
 pub mod sanity;
 pub use sanity::{run_canaries, Canary, SanityError, Watchdog, WatchdogVerdict, CANARIES};
+
+pub mod speculative;
+pub use speculative::{draft_ngram, NgramDraftConfig, MAX_DRAFT_TOKENS};
