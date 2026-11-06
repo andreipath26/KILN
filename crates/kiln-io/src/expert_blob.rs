@@ -17,6 +17,7 @@ pub enum ExpertBlobError {
     InvalidIndex(ExpertTableError),
     MissingExpert { layer: u32, expert_id: u32 },
     BufferLengthMismatch { expected: u64, actual: usize },
+    InvalidRoute(String),
 }
 
 impl std::fmt::Display for ExpertBlobError {
@@ -32,6 +33,7 @@ impl std::fmt::Display for ExpertBlobError {
             Self::MissingExpert { layer, expert_id } => {
                 write!(f, "expert ({layer}, {expert_id}) is not present in the index")
             }
+            Self::InvalidRoute(reason) => write!(f, "invalid model expert route: {reason}"),
             Self::BufferLengthMismatch { expected, actual } => {
                 write!(f, "expert buffer has {actual} bytes; expected exactly {expected}")
             }
