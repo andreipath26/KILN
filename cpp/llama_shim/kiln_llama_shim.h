@@ -49,6 +49,11 @@ int32_t kiln_llama_decode(
 /* Copy n_vocab logits for the last decoded position into out. */
 int32_t kiln_llama_logits(kiln_llama_t h, float* out, int32_t out_cap);
 
+/* Return greedy argmax from the last logits without copying the vocabulary.
+ * Matches the stable first-max behavior of the Rust greedy sampler.
+ * Negative values indicate an invalid handle or missing logits. */
+int32_t kiln_llama_greedy_token(kiln_llama_t h);
+
 /* Decode one token to a UTF-8 string into buf. Returns bytes written. */
 int32_t kiln_llama_token_to_str(
     kiln_llama_t h,
