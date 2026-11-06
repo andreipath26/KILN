@@ -1,7 +1,8 @@
 //! Build script for kiln-runtime.
-//! Compiles the KILN llama.cpp shim as C++ and links against the
-//! pre-built llama.cpp at /home/andreipath/llama.cpp.
-//! See docs/runtime-loading-design.md.
+//! Compiles the KILN llama.cpp shim and unconditionally links against the
+//! prebuilt static libraries under the vendored `vendor/llama.cpp/build`.
+//! The dynamic loader design is not wired into this build script; see
+//! docs/runtime-loading-design.md.
 
 use std::path::PathBuf;
 
