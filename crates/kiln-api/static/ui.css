@@ -84,6 +84,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #daf0
 .message.user { align-self: flex-end; background: #273023; border-color: #43533b; }
 .message.assistant { align-self: flex-start; background: #1b1e1b; }
 .message-label { display: block; margin-bottom: 5px; color: #b9caad; font-size: 10px; text-transform: uppercase; letter-spacing: .11em; font-weight: 700; }
+.message-actions { display: flex; justify-content: flex-end; margin: 8px -6px -5px; }
 .composer { margin: 0 14px 14px; padding: 11px 12px 10px; background: #111311; border: 1px solid #3c433a; border-radius: 13px; }
 .composer:focus-within { border-color: #839a6c; box-shadow: 0 0 0 2px #c1f07813; }
 .composer textarea { display: block; width: 100%; min-height: 42px; max-height: 160px; resize: vertical; padding: 4px 3px 9px; border: 0; outline: 0; color: var(--text); background: transparent; font-size: 14px; line-height: 1.5; }
