@@ -186,6 +186,12 @@ KILN now includes bounded prompt prefill, a thread/logical-batch/physical-microb
 
 **These implementations passed hosted CI; no new Dell benchmark or Ollama parity has been established.** The opt-in model differential test and the ≥27 tok/s target remain pending real target-machine validation.
 
+### Phase 3.5 — optional interactive KV reuse
+
+`kiln run <model.gguf> --keep-context` now preserves already executed conversation tokens across turns, instead of resetting the KV cache before every prompt. The opt-in mode uses generic dialogue delimiters, retains bounded token-position state and falls back to a fresh context when needed. Without this flag, `kiln run` continues to treat each prompt independently. The native wrapper also rejects batches that would overrun configured `n_ctx` before partially decoding them.
+
+See [append-only KV behavior and its ignored GGUF differential test](docs/phase35-append-only-interactive-kv.md) and [context-capacity guard](docs/phase35-context-capacity-guard.md). These changes passed hosted CI, but actual Dell performance, model-specific chat correctness and the ≥27 tok/s target **remain unverified**.
+
 ## Current next steps
 
 1. Reproduce the dense-path baseline and profile the actual hot path for Phase 3.5.
