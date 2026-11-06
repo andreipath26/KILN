@@ -31,6 +31,38 @@ impl AsyncGuardedExpertCoordinator {
         }
     }
 
+    /// Build both the verification/fallback reader and the native uring
+    /// worker from the same validated expert file and index. The loader
+    /// retains the exact-router Commit Guard for all completions.
+    #[cfg(target_os = "linux")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_linux_uring(
+        source: &std::path::Path,
+        table: kiln_models::ExpertTable,
+        cache_bytes: u64,
+        cache_policy: kiln_mem::ExpertCachePolicy,
+        pending_requests: usize,
+        pending_bytes: u64,
+        guard_bytes: u64,
+        guard_entries: usize,
+        try_sqpoll: bool,
+    ) -> Result<Self, String> {
+        let buffered=Arc::new(CachedExpertBlobReader::open(
+            source, table.clone(), cache_bytes, cache_policy,
+        ).map_err(|e| e.to_string())?);
+        let native=crate::LinuxUringExpertReader::open(
+            source, table, try_sqpoll,
+        ).map_err(|e| e.to_string())?;
+        let prefetch=AsyncExpertPrefetch::new_with_uring_reader(
+            Arc::clone(&buffered),native,pending_requests,pending_bytes,
+        );
+        Ok(Self {
+            reader:buffered,
+            prefetch,
+            guard:ExpertCommitGuard::new(guard_bytes,guard_entries),
+        })
+    }
+
     pub fn begin_epoch(&mut self, epoch: u64) -> Result<(), &'static str> {
         // Both layers reject non-increasing epochs. No completion from a
         // previously executed token can become an authorized expert.
@@ -144,6 +176,48 @@ mod tests {
         assert_eq!(coordinator.schedule_prediction(1,key(0)),SubmitResult::StaleEpoch);
         drop(coordinator);
         std::fs::remove_file(file).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn ring_backed_prediction_is_verified_against_exact_router_selection() {
+        let root=std::env::temp_dir().join(format!(
+            "kiln-async-ring-{}-{:?}",std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path=root.join("expert.bin");
+        let original:Vec<u8>=(0..96u8).collect();
+        std::fs::write(&path,&original).unwrap();
+        let table=ExpertTable{blob_version:1,blob_size:96,ranges:vec![
+            ExpertRange{layer:0,expert_id:0,byte_offset:0,byte_length:32},
+            ExpertRange{layer:0,expert_id:1,byte_offset:32,byte_length:32},
+            ExpertRange{layer:0,expert_id:2,byte_offset:64,byte_length:32},
+        ]};
+        // Fall back to buffered reads automatically if io_uring setup is
+        // unavailable under CI sandbox restrictions.
+        let mut coordinator=AsyncGuardedExpertCoordinator::new_linux_uring(
+            &path,table,96,ExpertCachePolicy::Lru,3,96,96,3,true,
+        ).unwrap();
+        let key=|id|ExpertKey{layer:0,expert_id:id};
+        coordinator.begin_epoch(1).unwrap();
+        assert_eq!(coordinator.schedule_prediction(1,key(0)),SubmitResult::Submitted);
+        assert_eq!(coordinator.schedule_prediction(1,key(2)),SubmitResult::Submitted);
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
+        while coordinator.prefetch_stats().completed<2 {
+            coordinator.poll_and_stage();
+            assert!(std::time::Instant::now()<deadline,"native worker timed out");
+            std::thread::yield_now();
+        }
+        let result=coordinator.load_actual(1,&[key(1),key(0)]).unwrap();
+        assert_eq!(result.predicted_hits,1);
+        assert_eq!(result.authoritative_reads,1);
+        assert_eq!(result.experts[0].1.as_ref(),&original[32..64]);
+        assert_eq!(result.experts[1].1.as_ref(),&original[0..32]);
+        assert_eq!(coordinator.guard_stats().bytes,0);
+        drop(coordinator);
+        std::fs::remove_file(path).unwrap();
         std::fs::remove_dir(root).unwrap();
     }
 
