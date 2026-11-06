@@ -105,6 +105,9 @@ enum Commands {
         /// Preserve executed KV tokens between turns; uses a generic text dialogue format.
         #[arg(long)]
         keep_context: bool,
+        /// Experimental greedy fast path: bypass vocabulary-sized logits transfers.
+        #[arg(long)]
+        native_greedy: bool,
     },
     /// Controlled Phase 3.5 second-turn prompt-cache A/B experiment.
     BenchKv {
@@ -731,12 +734,12 @@ async fn main() {
                 }
             }
         }
-        Commands::Run { model, max_tokens, keep_context } => {
+        Commands::Run { model, max_tokens, keep_context, native_greedy } => {
             if max_tokens == 0 {
                 eprintln!("run: --max-tokens must be at least 1");
                 std::process::exit(2);
             }
-            if let Err(error) = run_interactive(&model, max_tokens, keep_context) {
+            if let Err(error) = run_interactive(&model, max_tokens, keep_context, native_greedy) {
                 eprintln!("run: {}", error);
                 std::process::exit(1);
             }
@@ -1238,7 +1241,7 @@ mod interactive_kv_tests {
 }
 
 /// Run a real interactive text session using the runtime dispatcher.
-fn run_interactive(model: &str, max_tokens: usize, keep_context: bool) -> Result<(), String> {
+fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_greedy: bool) -> Result<(), String> {
     use kiln_core::chat::{Sampler, SamplingStrategy};
     use kiln_runtime::{LlamaCppBackend, RuntimeDispatcher, RuntimeOp, RuntimeResult, SystemProfile};
     use std::io::{self, Write};
@@ -1331,10 +1334,18 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool) -> Result
         };
         let prefill_count = tokens.len();
         let prefill_start = std::time::Instant::now();
-        let mut logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens })
-            .map_err(|e| format!("prompt evaluation failed: {}", e))? {
-            RuntimeResult::Logits(logits) => logits,
-            _ => return Err("backend returned an unexpected prompt result".to_string()),
+        let (mut logits, mut native_next) = if native_greedy {
+            match dispatcher.dispatch(RuntimeOp::ForwardGreedy { tokens })
+                .map_err(|e| format!("native greedy prompt evaluation failed: {e}"))? {
+                RuntimeResult::Int(token) => (None, Some(token)),
+                _ => return Err("backend returned unexpected native token".to_string()),
+            }
+        } else {
+            match dispatcher.dispatch(RuntimeOp::Forward { tokens })
+                .map_err(|e| format!("prompt evaluation failed: {e}"))? {
+                RuntimeResult::Logits(logits) => (Some(logits), None),
+                _ => return Err("backend returned an unexpected prompt result".to_string()),
+            }
         };
         if keep_context {
             kv_state.forwarded(prefill_count);
@@ -1353,8 +1364,12 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool) -> Result
         let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
         let mut pending_utf8 = Vec::new();
         for step in 0..max_tokens {
-            let token = sampler.sample(&logits)
-                .ok_or_else(|| "sampler returned no token".to_string())? as i32;
+            let token = if native_greedy {
+                native_next.ok_or_else(|| "no native next token".to_string())?
+            } else {
+                sampler.sample(logits.as_deref().ok_or("missing logits")?)
+                    .ok_or_else(|| "sampler returned no token".to_string())? as i32
+            };
             if token == eos {
                 // EOS is not an output token and is not evaluated into the
                 // native KV cache. Forwarding it at the next turn would
@@ -1372,11 +1387,19 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool) -> Result
             print!("{}", piece);
             io::stdout().flush().map_err(|e| format!("response output failed: {}", e))?;
             if step + 1 < max_tokens {
-                logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
-                    .map_err(|e| format!("decode step failed: {}", e))? {
-                    RuntimeResult::Logits(logits) => logits,
-                    _ => return Err("backend returned an unexpected decode result".to_string()),
-                };
+                if native_greedy {
+                    native_next = match dispatcher.dispatch(RuntimeOp::ForwardGreedy { tokens: vec![token] })
+                        .map_err(|e| format!("native greedy decode failed: {e}"))? {
+                        RuntimeResult::Int(next) => Some(next),
+                        _ => return Err("backend returned unexpected native token".to_string()),
+                    };
+                } else {
+                    logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
+                        .map_err(|e| format!("decode step failed: {e}"))? {
+                        RuntimeResult::Logits(logits) => Some(logits),
+                        _ => return Err("backend returned an unexpected decode result".to_string()),
+                    };
+                }
                 if keep_context {
                     kv_state.pending_token = None;
                     kv_state.forwarded(1);
