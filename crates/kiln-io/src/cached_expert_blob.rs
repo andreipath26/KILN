@@ -165,13 +165,16 @@ impl CachedExpertBlobReader {
         expert_id: u32,
         buffer: &mut [u8],
     ) -> Result<(), ExpertBlobError> {
-        let bytes = self.read_expert_shared(layer, expert_id)?;
-        if buffer.len() != bytes.len() {
+        // Validate before a cold read or cache lookup: an undersized
+        // destination must never cause avoidable SSD I/O or cache churn.
+        let expected = self.lock_reader().expert_byte_length(layer, expert_id)?;
+        if buffer.len() as u64 != expected {
             return Err(ExpertBlobError::BufferLengthMismatch {
-                expected: bytes.len() as u64,
+                expected,
                 actual: buffer.len(),
             });
         }
+        let bytes = self.read_expert_shared(layer, expert_id)?;
         buffer.copy_from_slice(&bytes);
         Ok(())
     }
@@ -259,6 +262,12 @@ mod tests {
         let (path, bytes, table) = fixture();
         let reader = CachedExpertBlobReader::open(&path, table, 8, ExpertCachePolicy::Lru).unwrap();
         let mut buffer = [0u8; 8];
+        assert!(matches!(
+            reader.read_expert_into(0, 1, &mut [0u8; 4]),
+            Err(ExpertBlobError::BufferLengthMismatch { expected: 8, actual: 4 })
+        ));
+        assert_eq!(reader.cache_stats().hits, 0);
+        assert_eq!(reader.cache_stats().misses, 0);
         reader.read_expert_into(0, 1, &mut buffer).unwrap();
         assert_eq!(buffer.as_slice(), &bytes[8..16]);
         buffer.fill(0);
