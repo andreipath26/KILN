@@ -146,6 +146,36 @@ impl VerifiedExpertComponentReader {
         Ok(SharedTensorComponent { backing, offset, length })
     }
 
+    /// Copy one verified component into a reusable caller-owned buffer.
+    /// Reject mismatched lengths without reading expert data.
+    pub fn read_component_into(
+        &self, layer: u32, expert_id: u32, tensor_name: &str,
+        dst: &mut [u8],
+    ) -> Result<(), ComponentReadError> {
+        let &(_, expected) = self.components
+            .get(&(layer, expert_id, tensor_name.to_owned()))
+            .ok_or_else(|| ComponentReadError::NotFound {
+                layer, expert_id, tensor_name: tensor_name.to_owned(),
+            })?;
+        if dst.len() != expected {
+            return Err(ComponentReadError::Invalid(format!(
+                "destination buffer has {} bytes; expected {expected}", dst.len(),
+            )));
+        }
+        let view = self.read_component(layer, expert_id, tensor_name)?;
+        dst.copy_from_slice(view.as_bytes());
+        Ok(())
+    }
+
+    /// Return the exact byte length from the verified sidecar manifest
+    /// without accessing the packed expert payload.
+    pub fn component_byte_length(
+        &self, layer: u32, expert_id: u32, tensor_name: &str,
+    ) -> Option<usize> {
+        self.components.get(&(layer, expert_id, tensor_name.to_owned()))
+            .map(|&(_, length)| length)
+    }
+
     pub fn cache_stats(&self) -> ExpertCacheStats { self.reader.cache_stats() }
     pub fn clear_cache(&self) -> usize { self.reader.clear_cache() }
 }
@@ -193,6 +223,14 @@ mod tests {
         assert_eq!(up.as_bytes(),&bytes[90..120]);
         assert!(down.shares_allocation_with(&up));
         assert_eq!(reader.cache_stats().used_bytes,50);
+        let mut reuse=[0u8;20];
+        reader.read_component_into(0,0,"down",&mut reuse).unwrap();
+        assert_eq!(reuse.as_slice(),&bytes[40..60]);
+        assert_eq!(reader.component_byte_length(0,0,"down"),Some(20));
+        let before=reader.cache_stats();
+        assert!(reader.read_component_into(0,0,"down",&mut [0u8;4]).is_err());
+        assert_eq!(reader.cache_stats().hits,before.hits);
+        assert_eq!(reader.cache_stats().misses,before.misses);
         let gate=reader.read_component(0,1,"gate").unwrap();
         assert_eq!(gate.as_bytes(),&bytes[150..175]);
         assert_eq!(down.as_bytes(),&bytes[40..60]); // survives eviction
