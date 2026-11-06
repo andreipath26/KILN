@@ -150,6 +150,10 @@ function showChatError(message = "") {
   $("#chat-error").textContent = message;
 }
 
+function announceChat(message) {
+  $("#chat-announcer").textContent = message;
+}
+
 function setServerState(online, label) {
   $("#server-dot").classList.toggle("is-online", online);
   $("#server-dot").classList.toggle("is-offline", !online);
@@ -499,6 +503,7 @@ async function regenerateResponse() {
 
 async function runAssistant(requestMessages, answer) {
   setBusy(true);
+  announceChat("Generating response.");
   state.controller = new AbortController();
   try {
     const response = await fetch("/api/chat", {
@@ -519,10 +524,12 @@ async function runAssistant(requestMessages, answer) {
       throw new Error("The model returned an empty response.");
     }
     saveHistory();
+    announceChat("Response complete.");
   } catch (error) {
     if (error.name === "AbortError") {
       if (!answer.content) state.messages.pop();
       saveHistory();
+      announceChat("Generation stopped.");
     } else {
       state.messages.pop();
       saveHistory();
@@ -580,6 +587,7 @@ $("#clear-chat").addEventListener("click", () => {
   } catch {
     showChatError("The conversation was cleared from view, but browser storage could not be updated.");
   }
+  announceChat("Conversation cleared.");
   renderMessages();
 });
 
