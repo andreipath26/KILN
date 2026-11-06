@@ -20,12 +20,12 @@ The file must contain at least one complete block. Sequential requests walk bloc
 
 ## Output
 
-The JSON report includes file path and size, OS and architecture, block size, request count, repetitions, seed, total bytes read, throughput, p50/p95 request latency, and a checksum to keep the reads observable.
+The JSON report includes file path and size, OS and architecture, block size, request count, repetitions, seed, total bytes requested through the file API, throughput, p50/p95 request latency, and a checksum to keep the reads observable. On Linux it also records **`linux_process_storage_read_bytes`** for each pattern, the delta of `/proc/self/io` `read_bytes` (or `null` if unavailable). This counter is *process-attributed kernel storage I/O*, affected by readahead, page-cache hits, filesystem state, and other work in the process. It is not a direct NVMe hardware-byte or bandwidth meter. Compare with API-requested bytes and repeat under documented cache conditions.
 
 ## Interpretation limits
 
 - The implementation is a correctness-first portable `seek + read_exact` baseline, not `io_uring`, `O_DIRECT`, or overlapped I/O.
-- OS page cache state is not controlled; later repetitions can be warm. Do not label this a cold-storage benchmark.
+- OS page cache state is not controlled; later repetitions can be warm. Do not label this a cold-storage benchmark. The sequential pattern always runs before random, so the random pattern may inherit warmed pages; compare independent process orders in later controlled experiments.
 - Random offsets are block-aligned and selected from complete blocks; this is a synthetic access pattern, not a real router trace.
 - The probe does not parse or validate `experts.index`, measure concurrent I/O/compute overlap, measure peak memory, or run a model.
 - A successful result is not the Phase 5A acceptance gate. Compare against a pinned representative expert layout on the Dell, then measure end-to-end inference before deciding whether an I/O backend or cache/prefetch policy is worthwhile.

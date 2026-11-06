@@ -157,6 +157,9 @@ struct ExpertIoPattern {
     requests: usize,
     block_bytes: usize,
     total_bytes_read: u64,
+    /// Linux /proc/self/io read_bytes delta for this pattern, when accessible.
+    /// Includes read-ahead and cannot be equated with device-only bytes.
+    linux_process_storage_read_bytes: Option<u64>,
     elapsed_ms: f64,
     throughput_mib_s: f64,
     request_latency_p50_us: f64,
@@ -247,6 +250,47 @@ fn percentile(sorted: &[u64], percentile: f64) -> f64 {
     sorted[index.min(sorted.len() - 1)] as f64 / 1_000.0
 }
 
+/// Parse the Linux process read_bytes counter. Not the sum of read() calls:
+/// it represents storage-backed bytes attributed to this process by the kernel.
+/// This is diagnostic only; page cache and filesystem effects still apply.
+fn parse_linux_read_bytes(contents: &str) -> Option<u64> {
+    contents.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        if key.trim() == "read_bytes" {
+            value.trim().parse::<u64>().ok()
+        } else {
+            None
+        }
+    })
+}
+
+fn linux_process_read_bytes() -> Option<u64> {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/self/io")
+            .ok()
+            .and_then(|text| parse_linux_read_bytes(&text))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+#[cfg(test)]
+mod physical_io_counter_tests {
+    use super::parse_linux_read_bytes;
+
+    #[test]
+    fn parses_only_real_read_bytes_key() {
+        let contents = "rchar: 100\nwchar: 20\nsyscr: 5\nread_bytes: 8192\nwrite_bytes: 2\n";
+        assert_eq!(parse_linux_read_bytes(contents), Some(8192));
+        assert_eq!(parse_linux_read_bytes("rchar: 123\n"), None);
+        assert_eq!(parse_linux_read_bytes("read_bytes: nope\n"), None);
+        assert_eq!(parse_linux_read_bytes("not_read_bytes: 1\n"), None);
+    }
+}
+
 fn run_expert_io_pattern(
     reader: &mut FileRangeReader,
     offsets: &[u64],
@@ -257,6 +301,7 @@ fn run_expert_io_pattern(
     let mut buffer = vec![0u8; block_bytes];
     let mut latencies = Vec::with_capacity(offsets.len().saturating_mul(repetitions));
     let mut checksum = 0u64;
+    let storage_before = linux_process_read_bytes();
     let total_start = Instant::now();
 
     for _ in 0..repetitions {
@@ -273,6 +318,9 @@ fn run_expert_io_pattern(
     }
 
     let elapsed = total_start.elapsed();
+    let storage_after = linux_process_read_bytes();
+    let linux_process_storage_read_bytes = storage_before.zip(storage_after)
+        .and_then(|(before, after)| after.checked_sub(before));
     let elapsed_secs = elapsed.as_secs_f64().max(f64::MIN_POSITIVE);
     let total_bytes_read = (block_bytes as u64)
         .saturating_mul(offsets.len() as u64)
@@ -284,6 +332,7 @@ fn run_expert_io_pattern(
         requests: offsets.len().saturating_mul(repetitions),
         block_bytes,
         total_bytes_read,
+        linux_process_storage_read_bytes,
         elapsed_ms: elapsed.as_secs_f64() * 1000.0,
         throughput_mib_s: total_bytes_read as f64 / (1024.0 * 1024.0) / elapsed_secs,
         request_latency_p50_us: percentile(&latencies, 0.50),
@@ -336,7 +385,7 @@ fn run_expert_io(
         repetitions: runs,
         seed,
         page_cache_controlled: false,
-        note: "Portable seek/read baseline. OS page cache is not controlled; repeated runs may be warm. This measures storage access only, not end-to-end model tokens/s.".to_string(),
+        note: "Portable seek/read baseline. OS page cache is not controlled; repeated runs may be warm. Linux /proc/self/io read_bytes is a process-attributed diagnostic including readahead, not a device utilization measurement. Not model tokens/s.".to_string(),
         patterns: vec![sequential, random],
     })
 }
@@ -766,6 +815,9 @@ fn print_expert_io_human(report: &ExpertIoReport) {
         println!("    latency p50:  {:.2} us", pattern.request_latency_p50_us);
         println!("    latency p95:  {:.2} us", pattern.request_latency_p95_us);
         println!("    total read:   {} bytes", pattern.total_bytes_read);
+    if let Some(bytes) = pattern.linux_process_storage_read_bytes {
+        println!("    Linux process storage read: {} bytes (page-cache influenced)", bytes);
+    }
     }
     println!("");
     println!("  {}", report.note);

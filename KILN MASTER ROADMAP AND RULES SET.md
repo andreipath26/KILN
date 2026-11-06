@@ -452,3 +452,10 @@ Model versions, availability and architectures require fresh verification; inclu
 4. Resolve stock GGUF / UMF compatibility with a round-trip format proof and a selectable sidecar option.
 5. Prioritize MoE-CORE variable layer allocation and APEX confidence-adaptive exact prefetch *only if the traces indicate headroom*. Benchmark BITCOS separately in Phase 4.5 and quality-constrained Q-Strata offline.
 6. Preserve Phase 3.5 as the immediate inference-performance path and avoid introducing unmeasured multi-model/SLM critical-path behavior.
+
+### 2026-11-06 — Phase 5A validated implementation and storage-counter follow-up
+
+- PR #10 (benchmark statistics) and PR #14 (byte-based *logical* memory admission) were merged with CI passing. Their APIs do not prove physical memory RSS or multi-threaded streaming safety.
+- PR #15 was merged as `cdc1df90902a1d4965ccddda13b4a237747b143c` after full CI success. It provides the portable bounded expert-file reader, index validation, cache policy replay, simulated prefetch replay and Dell evidence script. The older conflicting PR #12 is superseded and closed, with its branch preserved.
+- This follow-up records Linux `/proc/self/io read_bytes` deltas per sequential/random read pattern, with explicit page-cache/read-ahead limitations. These process-attributed storage counters are **not** physical NVMe device telemetry; the tool is not an inference performance test.
+- Pending gates: actual Dell results with pinned model/trace; usable page-cache and physical SSD-byte bounds; combined RSS budget including caller-owned expert copies; GGUF/UMF compatibility proof; and real-model sustained tokens/s and quality. No new performance or phase-completion claims.
