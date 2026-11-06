@@ -35,7 +35,13 @@ kiln_llama_t kiln_llama_load(const char* model_path, const struct kiln_llama_par
         if (params->n_ctx > 0)     cparams.n_ctx = (uint32_t)params->n_ctx;
         if (params->n_batch > 0)   cparams.n_batch = (uint32_t)params->n_batch;
         if (params->n_ubatch > 0)  cparams.n_ubatch = (uint32_t)params->n_ubatch;
-        if (params->n_threads > 0) cparams.n_threads = (uint32_t)params->n_threads;
+        if (params->n_threads > 0) {
+            cparams.n_threads = (int32_t)params->n_threads;
+            // llama.cpp distinguishes single-token decode from multi-token
+            // prefill. Before this, --threads changed decode threads only:
+            // prompt/batch execution kept llama.cpp's independent default.
+            cparams.n_threads_batch = (int32_t)params->n_threads;
+        }
     } else {
         cparams.n_ctx = 512;
         cparams.n_batch = 512;

@@ -24,3 +24,9 @@ KILN_TEST_MODEL_PATH=/absolute/path/to/pinned-model.gguf \
 ```
 
 The test compares identical tokenized prompts longer than 128 tokens through `n_batch=128` versus `n_batch=512`, both with physical `n_ubatch=128`; checks equal tokenization, same top-scoring next token and bounded maximum absolute logit delta. The numeric limit is a diagnostic gate, not a substitute for the roadmap's model-level quality tests. Preserve the exact model hash, compiled fork revision and test stdout. Do **not** claim model parity from CI's skipped test.
+
+## Fix: selected threads must control prompt prefill too
+
+The pinned llama.cpp revision defines **two different thread pools**: `n_threads` for decode and `n_threads_batch` for multi-token prefill. Previously the shim set only `n_threads`, so the `--threads 2/3/4` Dell matrix could unintentionally run prefill using an unrelated llama.cpp default.
+
+The C shim now explicitly sets both to the same requested thread count. This makes the existing Phase 3.5 thread sweep an interpretable CPU experiment without adding a new public API. Actual latency and performance effects must be measured on Tier 0; this commit is **not** a speedup claim. The new behavior applies to model loads receiving explicit profile parameters; loads without parameters continue using llama.cpp defaults.
