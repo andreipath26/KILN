@@ -191,6 +191,12 @@ impl CachedExpertBlobReader {
         self.cache.stats()
     }
 
+    /// Index-only expert size lookup; does not fetch expert payload.
+    pub fn expert_byte_length(&self, layer: u32, expert_id: u32)
+        -> Result<u64, ExpertBlobError> {
+        self.lock_reader().expert_byte_length(layer, expert_id)
+    }
+
     pub fn file_size(&self) -> u64 {
         self.lock_reader().file_size()
     }
