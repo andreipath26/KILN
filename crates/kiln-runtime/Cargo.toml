@@ -22,3 +22,6 @@ libloading = { version = "0.8", optional = true }
 [lib]
 name = "kiln_runtime"
 crate-type = ["rlib"]
+
+[dev-dependencies]
+kiln-models = { path = "../kiln-models" }
