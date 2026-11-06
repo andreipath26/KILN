@@ -40,3 +40,6 @@ pub use expert_sidecar::verify_component_sidecar_against_source;
 
 pub mod guarded_expert_loader;
 pub use guarded_expert_loader::{GuardedExpertLoader, RoutedExpertLoad};
+
+pub mod async_expert_prefetch;
+pub use async_expert_prefetch::{AsyncExpertPrefetch, AsyncExpertStats, ExpertReadCompletion, SubmitResult};
