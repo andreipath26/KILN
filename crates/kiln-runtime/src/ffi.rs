@@ -56,6 +56,10 @@ extern "C" {
     ) -> c_int;
     fn kiln_llama_logits(h: *mut c_void, out: *mut f32, out_cap: c_int) -> c_int;
     fn kiln_llama_greedy_token(h: *mut c_void) -> c_int;
+    fn kiln_llama_verify_greedy_draft(
+        h: *mut c_void, draft: *const c_int, n: c_int,
+        next_token: *mut c_int,
+    ) -> c_int;
     fn kiln_llama_token_to_str(
         h: *mut c_void,
         token: c_int,
@@ -247,6 +251,35 @@ impl LlamaContext {
         Ok(token)
     }
 
+    /// Verify a short batch of draft tokens against the target model.
+    /// Only the accepted prefix becomes resident in KV. The returned token
+    /// is the next target-model greedy token, NOT YET evaluated into KV.
+    /// On any native error, reset the session so callers cannot accidentally
+    /// continue after a partially modified KV state.
+    pub fn verify_greedy_draft(&mut self, draft: &[i32]) -> Result<(usize, i32), LlamaError> {
+        if draft.is_empty() || draft.len() > self.batch_capacity || draft.len() > 16 {
+            return Err(LlamaError::Decode("draft length must fit 1..=min(16,n_batch)".into()));
+        }
+        let len = i32::try_from(draft.len()).map_err(|_| LlamaError::Decode("draft too long".into()))?;
+        let end = self.n_past.checked_add(len)
+            .ok_or_else(|| LlamaError::Decode("draft position overflow".into()))?;
+        if end as usize > self.context_capacity {
+            return Err(LlamaError::Decode("draft exceeds configured context".into()));
+        }
+        let mut next = -1i32;
+        let accepted = unsafe {
+            kiln_llama_verify_greedy_draft(self.handle, draft.as_ptr(), len, &mut next)
+        };
+        if accepted < 0 || accepted > len || next < 0 {
+            // Keep fail-safe native/Rust position synchronization.
+            self.reset().map_err(|e| LlamaError::Decode(format!(
+                "draft verification failed; reset also failed: {e}")))?;
+            return Err(LlamaError::Decode("native draft verification failed; session reset".into()));
+        }
+        self.n_past += accepted;
+        Ok((accepted as usize, next))
+    }
+
     pub fn forward(&mut self, tokens: &[i32]) -> Result<Vec<f32>, LlamaError> {
         self.decode(tokens)?;
         self.logits()
@@ -344,6 +377,18 @@ mod tests {
         let single: Vec<_> = tokens[..10].chunks(256).enumerate()
             .map(|(index, _)| index + 1 == 1).collect();
         assert_eq!(single, vec![true]);
+    }
+
+    #[test]
+    fn draft_validation_happens_before_native_call() {
+        let mut ctx = LlamaContext {
+            handle: std::ptr::null_mut(), n_vocab: 64, n_past: 10,
+            batch_capacity: 4, context_capacity: 12,
+        };
+        assert!(ctx.verify_greedy_draft(&[]).is_err());
+        assert!(ctx.verify_greedy_draft(&[1, 2, 3, 4, 5]).is_err());
+        assert!(ctx.verify_greedy_draft(&[1, 2, 3]).is_err());
+        assert_eq!(ctx.n_past(), 10);
     }
 
     #[test]
