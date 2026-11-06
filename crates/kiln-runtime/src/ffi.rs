@@ -70,6 +70,8 @@ pub struct LlamaContext {
     n_past: i32,
     /// Physical reusable batch capacity configured in the C shim.
     batch_capacity: usize,
+    /// Configured KV context length; this shim does not shift positions.
+    context_capacity: usize,
 }
 
 unsafe impl Send for LlamaContext {}
@@ -111,7 +113,8 @@ impl LlamaContext {
         // The shim uses n_batch from the supplied params, or 512 by default.
         // Keep this synchronized with the C shim's allocation contract.
         let batch_capacity = params.map(|(_, n_batch, _, _)| n_batch as usize).unwrap_or(512);
-        Ok(Self { handle, n_vocab, n_past: 0, batch_capacity })
+        let context_capacity = params.map(|(ctx, _, _, _)| ctx as usize).unwrap_or(512);
+        Ok(Self { handle, n_vocab, n_past: 0, batch_capacity, context_capacity })
     }
 
     pub fn n_vocab(&self) -> i32 { self.n_vocab }
@@ -166,8 +169,14 @@ impl LlamaContext {
         }
         let token_count = i32::try_from(tokens.len())
             .map_err(|_| LlamaError::Decode("token batch exceeds the C ABI length limit".to_string()))?;
-        self.n_past.checked_add(token_count)
+        let end_position = self.n_past.checked_add(token_count)
             .ok_or_else(|| LlamaError::Decode("token position overflow".to_string()))?;
+        if end_position < 0 || end_position as usize > self.context_capacity {
+            return Err(LlamaError::Decode(format!(
+                "token positions would exceed configured n_ctx (end {}, capacity {})",
+                end_position, self.context_capacity
+            )));
+        }
         if self.batch_capacity == 0 {
             return Err(LlamaError::Decode("native batch capacity must be positive".to_string()));
         }
@@ -256,6 +265,7 @@ mod tests {
             n_vocab: 1,
             n_past: 0,
             batch_capacity: 512,
+            context_capacity: usize::MAX,
         };
         let err = ctx.decode(&[]).unwrap_err();
         assert!(matches!(err, LlamaError::Decode(message) if message.contains("empty")));
@@ -268,6 +278,7 @@ mod tests {
             n_vocab: 1,
             n_past: i32::MAX,
             batch_capacity: 512,
+            context_capacity: usize::MAX,
         };
         let err = ctx.decode(&[1]).unwrap_err();
         assert!(matches!(err, LlamaError::Decode(message) if message.contains("overflow")));
@@ -288,6 +299,7 @@ mod tests {
             n_vocab: 1,
             n_past: 0,
             batch_capacity: 0,
+            context_capacity: usize::MAX,
         };
         let err = ctx.decode(&[1]).unwrap_err();
         assert!(matches!(err, LlamaError::Decode(message) if message.contains("capacity")));
@@ -330,6 +342,34 @@ mod tests {
             .map(|(a, b)| (f64::from(*a) - f64::from(*b)).abs())
             .fold(0.0_f64, f64::max);
         assert!(max_error <= 0.1, "logits diverged; maximum absolute delta {max_error}");
+    }
+
+    #[test]
+    fn context_limit_rejects_one_more_token_without_native_call() {
+        let mut ctx = LlamaContext {
+            handle: std::ptr::null_mut(),
+            n_vocab: 1,
+            n_past: 16,
+            batch_capacity: 512,
+            context_capacity: 16,
+        };
+        let error = ctx.decode(&[1]).unwrap_err();
+        assert!(matches!(error, LlamaError::Decode(message) if message.contains("n_ctx")));
+        assert_eq!(ctx.n_past(), 16);
+    }
+
+    #[test]
+    fn multi_chunk_context_overflow_rejected_before_partial_advance() {
+        let mut ctx = LlamaContext {
+            handle: std::ptr::null_mut(),
+            n_vocab: 1,
+            n_past: 8,
+            batch_capacity: 4,
+            context_capacity: 13,
+        };
+        let error = ctx.decode(&[1,2,3,4,5,6]).unwrap_err();
+        assert!(matches!(error, LlamaError::Decode(message) if message.contains("n_ctx")));
+        assert_eq!(ctx.n_past(), 8);
     }
 
 }
