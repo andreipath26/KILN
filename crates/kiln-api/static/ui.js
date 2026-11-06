@@ -41,11 +41,11 @@ tabs.forEach((tab, index) => {
 });
 
 function historyKey() {
-  return `kiln.ui.chat.v1:${state.model?.name || "unconfigured"}`;
+  return `kiln.ui.chat.v1:${state.model?.path || state.model?.name || "unconfigured"}`;
 }
 
 function settingsKey() {
-  return `kiln.ui.settings.v1:${state.model?.name || "unconfigured"}`;
+  return `kiln.ui.settings.v1:${state.model?.path || state.model?.name || "unconfigured"}`;
 }
 
 function readSettings() {
@@ -97,7 +97,7 @@ function renderMessages() {
     empty.innerHTML = '<div class="empty-glyph" aria-hidden="true">✳</div><strong>Your local chat starts here</strong><p>Send a message to begin. Your conversation is saved in this browser on this device.</p>';
     container.append(empty);
   } else {
-    for (const message of state.messages) {
+    for (const [index, message] of state.messages.entries()) {
       const item = document.createElement("article");
       item.className = `message ${message.role}`;
       const label = document.createElement("span");
@@ -106,6 +106,19 @@ function renderMessages() {
       const content = document.createElement("div");
       content.textContent = message.content;
       item.append(label, content);
+      if (!state.busy && message.role === "assistant" && index === state.messages.length - 1
+          && state.messages[index - 1]?.role === "user") {
+        const actions = document.createElement("div");
+        actions.className = "message-actions";
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "button button-quiet";
+        retry.textContent = "Regenerate";
+        retry.setAttribute("aria-label", "Regenerate the last response");
+        retry.addEventListener("click", () => void regenerateResponse());
+        actions.append(retry);
+        item.append(actions);
+      }
       container.append(item);
     }
   }
@@ -449,6 +462,21 @@ async function sendMessage(text) {
   const answer = { role: "assistant", content: "" };
   state.messages.push(answer);
   renderMessages();
+  await runAssistant(requestMessages, answer);
+}
+
+async function regenerateResponse() {
+  if (!state.model || state.busy || state.messages.length < 2) return;
+  const answerIndex = state.messages.length - 1;
+  if (state.messages[answerIndex].role !== "assistant" || state.messages[answerIndex - 1]?.role !== "user") return;
+  const requestMessages = state.messages.slice(0, answerIndex).map(({ role, content }) => ({ role, content }));
+  const answer = state.messages[answerIndex];
+  answer.content = "";
+  renderMessages();
+  await runAssistant(requestMessages, answer);
+}
+
+async function runAssistant(requestMessages, answer) {
   setBusy(true);
   state.controller = new AbortController();
   try {
