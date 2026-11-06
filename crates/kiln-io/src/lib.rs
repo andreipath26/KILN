@@ -35,3 +35,5 @@ pub use expert_sidecar::{write_component_expert_sidecar, verify_component_expert
 
 pub mod verified_component_reader;
 pub use verified_component_reader::{VerifiedExpertComponentReader, SharedTensorComponent, ComponentReadError};
+
+pub use expert_sidecar::verify_component_sidecar_against_source;
