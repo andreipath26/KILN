@@ -344,12 +344,13 @@ mod tests {
         assert!(max_error <= 0.1, "logits diverged; maximum absolute delta {max_error}");
     }
 
-    /// Hardware-dependent Phase 3.5 differential gate: no fake CI success.
-    /// Both sessions receive exactly the same token sequence; only the
-    /// grouping into prefill calls differs.
+    /// Target-hardware Phase 3.5 A/B: replay the same executed token stream,
+    /// with and without reuse of the already-materialized KV prefix.
     #[test]
-    #[ignore = "requires a pinned KILN_TEST_MODEL_PATH GGUF"]
+    #[ignore = "requires a pinned KILN_TEST_MODEL_PATH GGUF on Tier 0"]
     fn append_only_kv_matches_full_prefix_logits() {
+        use std::time::Instant;
+
         let model_path = std::env::var("KILN_TEST_MODEL_PATH")
             .expect("set KILN_TEST_MODEL_PATH to a pinned GGUF file");
         let path = std::path::Path::new(&model_path);
@@ -359,37 +360,74 @@ mod tests {
         let mut full = LlamaContext::load_with_ubatch(path, options)
             .expect("load full-prefix context");
 
-        let first = incremental.tokenize("User: Name two planets.\nAssistant:")
-            .expect("tokenize first prompt");
-        let assistant = incremental.tokenize(" Mars and Venus.")
-            .expect("tokenize fixed assistant continuation");
-        let second = incremental.tokenize("\nUser: Name one more.\nAssistant:")
-            .expect("tokenize next prompt");
+        // A nontrivial first-turn prefix makes the actual amount of prefill
+        // avoided visible. Deliberately identical token IDs for each mode:
+        // this is an inference-cache A/B, not a tokenizer-template test.
+        let first_text = "User: Explain the phases of a simple physics experiment. ".repeat(16);
+        let first = incremental.tokenize(&first_text).expect("tokenize first");
+        let assistant = incremental.tokenize(" The steps are preparation, measurement, and analysis.")
+            .expect("tokenize deterministic assistant continuation");
+        let second = incremental.tokenize("\nUser: What is the next step?\nAssistant:")
+            .expect("tokenize second turn");
         assert!(!first.is_empty() && !assistant.is_empty() && !second.is_empty());
-        let mut full_tokens = first.clone();
-        full_tokens.extend_from_slice(&assistant);
-        full_tokens.extend_from_slice(&second);
-        assert!(full_tokens.len() < 2048);
+        let mut entire = first.clone();
+        entire.extend_from_slice(&assistant);
+        entire.extend_from_slice(&second);
+        assert!(entire.len() < 2048, "prefix requires {} tokens", entire.len());
 
-        incremental.forward(&first).expect("first prefill");
-        incremental.forward(&assistant).expect("assistant continuation");
-        let incremental_logits = incremental.forward(&second).expect("second prefill");
-        let full_logits = full.forward(&full_tokens).expect("full-prefix prefill");
-
-        assert_eq!(incremental.n_past(), full.n_past());
-        assert_eq!(incremental_logits.len(), full_logits.len());
         fn argmax(xs: &[f32]) -> usize {
             xs.iter().enumerate()
-                .filter(|(_, logit)| logit.is_finite())
-                .max_by(|left, right| left.1.total_cmp(right.1))
-                .expect("finite model logit").0
+                .filter(|(_, value)| value.is_finite())
+                .max_by(|a, b| a.1.total_cmp(b.1))
+                .expect("at least one finite model logit")
+                .0
         }
-        assert_eq!(argmax(&incremental_logits), argmax(&full_logits),
-            "incremental cache reuse changed most likely next token");
-        let max_diff = incremental_logits.iter().zip(full_logits.iter())
-            .map(|(a,b)| (f64::from(*a)-f64::from(*b)).abs())
-            .fold(0.0_f64, f64::max);
-        assert!(max_diff <= 0.1, "incremental prefill logits drifted by {max_diff}");
+
+        let repetitions = 5;
+        let mut reused_ms = Vec::with_capacity(repetitions);
+        let mut replayed_ms = Vec::with_capacity(repetitions);
+        for trial in 0..repetitions {
+            incremental.reset().expect("reset reusable context");
+            full.reset().expect("reset full-prefix context");
+            incremental.forward(&first).expect("prefill first turn");
+            incremental.forward(&assistant).expect("prefill assistant response");
+
+            // Alternate order of the measured operations to reduce a
+            // systematic advantage from warmed CPU/memory state.
+            let (append_logits, replay_logits) = if trial % 2 == 0 {
+                let start = Instant::now();
+                let append_logits = incremental.forward(&second).expect("incremental prefill");
+                reused_ms.push(start.elapsed().as_secs_f64() * 1000.0);
+                let start = Instant::now();
+                let replay_logits = full.forward(&entire).expect("full-prefix replay");
+                replayed_ms.push(start.elapsed().as_secs_f64() * 1000.0);
+                (append_logits, replay_logits)
+            } else {
+                let start = Instant::now();
+                let replay_logits = full.forward(&entire).expect("full-prefix replay");
+                replayed_ms.push(start.elapsed().as_secs_f64() * 1000.0);
+                let start = Instant::now();
+                let append_logits = incremental.forward(&second).expect("incremental prefill");
+                reused_ms.push(start.elapsed().as_secs_f64() * 1000.0);
+                (append_logits, replay_logits)
+            };
+            assert_eq!(incremental.n_past(), full.n_past());
+            assert_eq!(append_logits.len(), replay_logits.len());
+            assert_eq!(argmax(&append_logits), argmax(&replay_logits),
+                "KV reuse changed the greedy next token on trial {trial}");
+            let max_diff = append_logits.iter().zip(replay_logits.iter())
+                .map(|(a, b)| (f64::from(*a) - f64::from(*b)).abs())
+                .fold(0.0_f64, f64::max);
+            assert!(max_diff <= 0.1,
+                "KV reuse logits diverged by {max_diff} on trial {trial}");
+        }
+        reused_ms.sort_by(f64::total_cmp);
+        replayed_ms.sort_by(f64::total_cmp);
+        eprintln!(
+            "phase35_kv_ab: trials={} prefix_tokens={} suffix_tokens={}              append_median_ms={:.3} replay_median_ms={:.3}              (observational only; not a Tier 0 speed acceptance)",
+            repetitions, first.len() + assistant.len(), second.len(),
+            reused_ms[repetitions / 2], replayed_ms[repetitions / 2]
+        );
     }
 
     #[test]
