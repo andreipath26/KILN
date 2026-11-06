@@ -346,6 +346,16 @@ Model versions, availability and architectures require fresh verification; inclu
 
 ## 13. Session log
 
+### 2026-11-06 — Phase 3.5 native greedy decode fast path (merged)
+
+- **PR #32 merged** (commit `8c19f37607eac558cc6d71afde4d323e352a3dcf`) after the native llama.cpp build and all workspace tests passed in hosted CI. It adds an opt-in `ForwardGreedy` operation which selects the first maximum next-token ID inside the pinned llama.cpp shim instead of copying an entire `n_vocab × f32` logits array across the Rust ABI on every decode step.
+- Supports `kiln bench --native-greedy` and `kiln run --native-greedy` as **explicit opt-ins**; default sampler and full-logit behavior remain unchanged. Adds token-sequence fingerprint, EOS status, forward/sampling/token-conversion timing breakdowns and CLI argument opt-in tests.
+- Real-GGUF native vs Rust greedy parity test is **ignored in hosted CI** and requires the pinned target model on Dell Tier 0. No tok/s gain, parity acceptance or Phase 3.5 completion is claimed before the model-level A/B is executed.
+- Unblocked CI native builds by verifying preinstalled Ubuntu CMake/compiler tools rather than performing redundant network-dependent apt installation.
+- Next roadmap gate: run same-model, same-prompt, same-thread/batch native vs Rust A/B; retain native mode only if end-to-end throughput improves with identical output and no memory/quality regression. Continue pinned Ollama comparison and speculative-decoding feasibility. Phase 3.5 remains **IN PROGRESS**.
+
+
+
 ### 2026-11-06 — Continued roadmap implementation: KV correctness and expert-cache memory path
 
 - **Phase 3.5 — PR #29 merged** (commit `12fbcefd35b2866dcc25d521f54b953e421db019`): fix append-only dialogue continuation so a sampled EOS that was not evaluated into native KV state is never injected into the next prompt. Added EOS/context-budget regression tests. Hosted CI passed.
