@@ -17,3 +17,5 @@ pub use sanity::{run_canaries, Canary, SanityError, Watchdog, WatchdogVerdict, C
 
 pub mod speculative;
 pub use speculative::{draft_ngram, NgramDraftConfig, MAX_DRAFT_TOKENS};
+
+pub use backends::moe_streamed::MoEStreamBackend;
