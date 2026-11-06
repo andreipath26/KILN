@@ -210,6 +210,41 @@ mod tests {
     }
 
     #[test]
+    fn previous_epoch_completion_cannot_consume_next_epoch_reservation() {
+        let root=std::env::temp_dir().join(format!(
+            "kiln-async-epochs-{}-{:?}",std::process::id(),std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path=root.join("data.bin");
+        std::fs::write(&path,[7u8;16]).unwrap();
+        let table=ExpertTable{blob_version:1,blob_size:16,ranges:vec![
+            ExpertRange{layer:0,expert_id:0,byte_offset:0,byte_length:16},
+        ]};
+        let reader=Arc::new(CachedExpertBlobReader::open(
+            &path,table,16,ExpertCachePolicy::Lru,
+        ).unwrap());
+        let mut prefetch=AsyncExpertPrefetch::new(reader,2,32);
+        prefetch.begin_epoch(1).unwrap();
+        assert_eq!(prefetch.submit(1,key(0)),SubmitResult::Submitted);
+        prefetch.begin_epoch(2).unwrap();
+        assert_eq!(prefetch.submit(2,key(0)),SubmitResult::Submitted);
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
+        let mut results=Vec::new();
+        loop {
+            results.extend(prefetch.poll_ready());
+            if prefetch.stats().pending_requests==0 { break; }
+            assert!(std::time::Instant::now()<deadline,"worker deadline exceeded");
+            std::thread::yield_now();
+        }
+        assert_eq!(prefetch.stats().pending_bytes,0);
+        assert!(results.iter().all(|entry|entry.epoch==2));
+        assert_eq!(results.len(),1);
+        drop(prefetch);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
     fn rejects_byte_cap_without_starting_expert_read() {
         let root=std::env::temp_dir().join(format!(
             "kiln-async-reject-{}-{:?}",std::process::id(),std::thread::current().id()
