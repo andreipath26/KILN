@@ -47,6 +47,7 @@ impl ApiState {
             path: path.clone(),
             n_ctx: profile.n_ctx,
             n_batch: profile.n_batch,
+            n_ubatch: profile.n_batch.min(512),
             n_threads: profile.n_threads,
         }).map_err(|e| format!("failed to load configured model {}: {}", path.display(), e))?;
 
