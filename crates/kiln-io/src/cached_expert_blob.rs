@@ -332,6 +332,29 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_shared_misses_coalesce_to_one_block_allocation() {
+        let (path, bytes, table) = fixture();
+        let reader = Arc::new(CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap());
+        let mut workers = Vec::new();
+        for _ in 0..8 {
+            let reader = Arc::clone(&reader);
+            workers.push(thread::spawn(move || reader.read_expert_shared(1, 0).unwrap()));
+        }
+        let handles: Vec<_> = workers.into_iter().map(|worker| worker.join().unwrap()).collect();
+        for handle in &handles {
+            assert!(Arc::ptr_eq(handle, &handles[0]));
+            assert_eq!(handle.as_ref(), &bytes[16..24]);
+        }
+        let stats = reader.cache_stats();
+        assert_eq!(stats.misses, 1);
+        assert_eq!(stats.hits, 7);
+        assert_eq!(stats.used_bytes, 8);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn opens_index_file_directly_and_uses_the_same_cache_path() {
         let (path, bytes, table) = fixture();
         let index_path = std::env::temp_dir().join(format!(
