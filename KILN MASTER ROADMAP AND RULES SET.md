@@ -346,6 +346,32 @@ Model versions, availability and architectures require fresh verification; inclu
 
 ## 13. Session log
 
+### 2026-11-06 — Verified Phase 3.5 / Phase 5A implementation status
+
+The following changes are **merged to the default branch**, with CI successful on their corresponding reviewed heads. Their merge status is a code delivery milestone, **not** evidence of model-performance acceptance:
+
+| PR | Phase | Verified implementation |
+| --- | --- | --- |
+| #10 | 3.5 | Benchmark distribution statistics and environment metadata |
+| #14 | 5A prerequisite | Byte-accounted *logical* memory residency and capacity rejection tests; actual RAM allocations/RSS remain distinct |
+| #15 | 5A/5B primitives | Bounded indexed expert blob reads, cache trace replay, prefetch simulations and Dell read-only evidence runner |
+| #17 | 5A | Conservative I/O probe artifact summary and conditional traffic-budget sanity check |
+| #18 | 3.5 | Linux process RSS and lifetime high-water observations around model runs |
+| #20 | 3.5 | Dell CPU thread 2/3/4 × batch 256/512/1024/2048 test matrix |
+| #16 | 5A | Linux process-attributed physical-storage read counter (page cache and read-ahead limitations apply) |
+| #21 | 3.5 | Separates sampled output rate, actual decode-forward rate, and response rate including prefill |
+| #22 | 3.5 | Splits prompt prefill at native llama.cpp logical batch capacity with boundary tests |
+
+**Open implementation:** PR #24 proposes `n_ubatch` support and 128/256/512 isolated microbatch measurements. It is not considered merged or accepted until full CI success and verified main-branch integration. Older PR #23 was superseded/closed, preserving branch history.
+
+**Still required for Phase 3.5:** pinned and repeated Dell model measurements, matching Ollama baseline, profile of remaining speed gap, model-specific prompt-cache correctness, supported speculation A/B and exit-gate evidence. Historical 10.57/26.86 tok/s remain historical, not current results. No ≥27 tok/s claim.
+
+**Still required for Phase 5A:** real Dell SSD block-read experiments using representative expert sizes and model-routing traces, byte-accurate integrated buffers and observed RSS, physical-versus-cached read separation, evidence-based traffic budget, and end-to-end MoE throughput and quality gates. Synthetic cache wins alone do not complete Phase 5.
+
+The roadmap remains the single phase/status authority. Defer unrelated framework/CI convenience improvements and broad model features until the existing acceptance gates are closed. This note is an implementation ledger, not a phase-completion certificate.
+
+
+
 ### 2026-10-29 — dense/MoE feasibility and synthetic cache experiment
 
 - Recorded the idealized 70B dense / 2-bit estimate (~17.5 GB raw weights; ~70 GB/s at 4 tokens/s if all weights were fetched each token) and the 4B-active MoE / 2-bit estimate (~1 GB active-weight equivalent per token; ~4 GB/s at 4 tokens/s). These are back-of-envelope calculations, not hardware benchmarks or proof of feasibility/impossibility.
