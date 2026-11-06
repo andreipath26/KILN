@@ -456,10 +456,111 @@ pub fn verify_component_expert_sidecar(
     Ok((table,map))
 }
 
+
+/// End-to-end source compatibility proof for one explicit component map.
+/// Streams both files in fixed-size chunks; never loads a complete expert or
+/// GGUF into RAM. This is stronger than the packed CRC32 alone because it
+/// verifies that each named packed component matches the original source.
+pub fn verify_component_sidecar_against_source(
+    source: &Path,
+    source_map: &GgufExpertSourceMap,
+    blob_path: &Path,
+    index_path: &Path,
+    integrity_path: &Path,
+    component_map_path: &Path,
+) -> Result<usize, SidecarPackError> {
+    let (table, packed) = verify_component_expert_sidecar(
+        blob_path, index_path, integrity_path, component_map_path,
+    )?;
+    let mut original = File::open(source)?;
+    let size = original.metadata()?.len();
+    if source_map.format_version != 1 || source_map.source_size_bytes != size
+        || source_map.components.len() != packed.components.len() {
+        return Err(invalid("source mapping version, file size or component count differs"));
+    }
+    if table.blob_size == 0 {
+        return Err(invalid("expert sidecar is empty"));
+    }
+    let mut sidecar = File::open(blob_path)?;
+    let mut source_buf = [0u8; CHUNK];
+    let mut packed_buf = [0u8; CHUNK];
+    for (src, dst) in source_map.components.iter().zip(&packed.components) {
+        if src.layer != dst.layer || src.expert_id != dst.expert_id
+            || src.tensor_name != dst.tensor_name || src.byte_length != dst.byte_length {
+            return Err(invalid("component tensor identity/size differs from the source mapping"));
+        }
+        if src.source_byte_offset.checked_add(src.byte_length)
+            .is_none_or(|end| end > size) {
+            return Err(invalid("source component exceeds source file"));
+        }
+        original.seek(SeekFrom::Start(src.source_byte_offset))?;
+        sidecar.seek(SeekFrom::Start(dst.byte_offset))?;
+        let mut remaining = src.byte_length;
+        while remaining > 0 {
+            let take = usize::try_from(remaining.min(CHUNK as u64)).unwrap();
+            original.read_exact(&mut source_buf[..take])?;
+            sidecar.read_exact(&mut packed_buf[..take])?;
+            if source_buf[..take] != packed_buf[..take] {
+                return Err(invalid(format!(
+                    "packed tensor {} in expert ({}, {}) differs from original source",
+                    src.tensor_name,src.layer,src.expert_id
+                )));
+            }
+            remaining -= take as u64;
+        }
+    }
+    Ok(packed.components.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::{Seek, Write};
+
+    #[test]
+    fn packed_components_match_source_and_detect_changed_source() {
+        let root = std::env::temp_dir().join(format!(
+            "kiln-sidecar-parity-{}-{:?}",std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source=root.join("source.bin");
+        let blob=root.join("packed.bin");
+        let index=root.join("index.json");
+        let integrity=root.join("integrity.json");
+        let manifest=root.join("components.json");
+        let bytes:Vec<u8>=(0..=255u8).collect();
+        std::fs::write(&source,&bytes).unwrap();
+        let map=GgufExpertSourceMap {
+            format_version:1,source_size_bytes:256,
+            components:vec![
+                kiln_models::ExpertTensorComponent {
+                    layer:0,expert_id:0,tensor_name:"down".into(),
+                    source_byte_offset:7,byte_length:51,
+                },
+                kiln_models::ExpertTensorComponent {
+                    layer:0,expert_id:0,tensor_name:"up".into(),
+                    source_byte_offset:80,byte_length:40,
+                },
+            ],
+        };
+        write_component_expert_sidecar(
+            &source,map.clone(),&blob,&index,&integrity,&manifest,
+        ).unwrap();
+        assert_eq!(verify_component_sidecar_against_source(
+            &source,&map,&blob,&index,&integrity,&manifest,
+        ).unwrap(),2);
+        let mut corrupted=bytes;
+        corrupted[88]^=0xff;
+        std::fs::write(&source,&corrupted).unwrap();
+        assert!(verify_component_sidecar_against_source(
+            &source,&map,&blob,&index,&integrity,&manifest,
+        ).is_err());
+        for p in [&source,&blob,&index,&integrity,&manifest] {
+            std::fs::remove_file(p).unwrap();
+        }
+        std::fs::remove_dir(root).unwrap();
+    }
 
     #[test]
     fn known_crc32_vector() {
