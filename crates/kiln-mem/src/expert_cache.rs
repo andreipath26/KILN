@@ -3,7 +3,7 @@
 //! The budget limits bytes retained by this cache. Values returned by `get`
 //! are owned copies and are not included in the cache budget after they leave it.
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 /// Stable identity for an expert within a model.
@@ -45,7 +45,7 @@ pub struct ExpertCacheStats {
 }
 
 struct Entry {
-    bytes: Vec<u8>,
+    bytes: Arc<[u8]>,
     last_access: u64,
     frequency: u64,
 }
@@ -99,22 +99,34 @@ impl ExpertCache {
 
     /// Return a copy of the cached block and update hit/miss/recency statistics.
     pub fn get(&self, key: ExpertKey) -> Option<Vec<u8>> {
+        self.get_shared(key).map(|bytes| bytes.as_ref().to_vec())
+    }
+
+    /// Share retained bytes without copying the expert allocation.
+    /// The returned Arc remains valid after eviction. External Arc owners
+    /// are NOT charged to the membership limit of this cache.
+    pub fn get_shared(&self, key: ExpertKey) -> Option<Arc<[u8]>> {
         self.get_impl(key, true, true)
     }
 
     /// Like `get`, but do not count an absent key as a miss. Useful for a
     /// second check after waiting for another thread to finish a disk read.
     pub fn get_if_present(&self, key: ExpertKey) -> Option<Vec<u8>> {
+        self.get_shared_if_present(key).map(|bytes| bytes.as_ref().to_vec())
+    }
+
+    /// Same as get_shared, but a miss is not counted.
+    pub fn get_shared_if_present(&self, key: ExpertKey) -> Option<Arc<[u8]>> {
         self.get_impl(key, false, true)
     }
 
-    fn get_impl(&self, key: ExpertKey, count_miss: bool, count_hit: bool) -> Option<Vec<u8>> {
+    fn get_impl(&self, key: ExpertKey, count_miss: bool, count_hit: bool) -> Option<Arc<[u8]>> {
         let mut inner = self.lock();
         let now = Self::tick(&mut inner);
         let value = if let Some(entry) = inner.entries.get_mut(&key) {
             entry.last_access = now;
             entry.frequency = entry.frequency.saturating_add(1);
-            Some(entry.bytes.clone())
+            Some(Arc::clone(&entry.bytes))
         } else {
             None
         };
@@ -138,6 +150,12 @@ impl ExpertCache {
     /// Oversized entries are rejected without evicting anything. Re-inserting
     /// an existing key replaces its bytes and counts the key only once.
     pub fn insert(&self, key: ExpertKey, bytes: Vec<u8>) -> InsertOutcome {
+        self.insert_shared(key, Arc::from(bytes))
+    }
+
+    /// Admit a shared allocation without duplicating the expert bytes.
+    /// Existing external Arc references may outlive the cache entry.
+    pub fn insert_shared(&self, key: ExpertKey, bytes: Arc<[u8]>) -> InsertOutcome {
         let entry_bytes = bytes.len() as u64;
         let mut inner = self.lock();
         if inner.capacity_bytes == 0 {
@@ -316,6 +334,32 @@ mod tests {
         assert_eq!(stats.entries, 1);
         assert_eq!(stats.used_bytes, 128);
         assert!(cache.get(key(1)).is_some());
+    }
+
+    #[test]
+    fn shared_cache_hit_reuses_allocation_without_copy() {
+        let cache = ExpertCache::new(16, ExpertCachePolicy::Lru);
+        let value: Arc<[u8]> = Arc::from(vec![1, 2, 3, 4]);
+        assert_eq!(cache.insert_shared(key(1), Arc::clone(&value)), InsertOutcome::Inserted { evicted_entries: 0 });
+        let first = cache.get_shared(key(1)).unwrap();
+        let second = cache.get_shared(key(1)).unwrap();
+        assert!(Arc::ptr_eq(&value, &first));
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(cache.get(key(1)), Some(vec![1, 2, 3, 4]));
+        assert_eq!(cache.stats().used_bytes, 4);
+    }
+
+    #[test]
+    fn evicting_shared_entry_preserves_external_handle() {
+        let cache = ExpertCache::new(4, ExpertCachePolicy::Lru);
+        cache.insert(key(1), vec![9; 4]);
+        let held = cache.get_shared(key(1)).unwrap();
+        assert_eq!(cache.insert(key(2), vec![8; 4]), InsertOutcome::Inserted { evicted_entries: 1 });
+        assert_eq!(held.as_ref(), &[9, 9, 9, 9]);
+        assert_eq!(cache.stats().used_bytes, 4);
+        assert!(cache.get_shared(key(1)).is_none());
+        // Cache membership under cap does not include held external Arcs.
+        assert_eq!(Arc::strong_count(&held), 1);
     }
 
     #[test]
