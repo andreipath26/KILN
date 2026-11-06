@@ -24,3 +24,15 @@ This is an opt-in Phase 3.5 runtime change; it neither modifies phase 5 streamin
 ## Observe the prefill savings
 
 Set `RUST_LOG=debug` when running `kiln run --keep-context` to record the new prompt's actual forwarded token count, previously cached native tokens and prefill duration. These are diagnostic counters, not a proof of tokens/s speedup or model-template correctness. The context-window reset always restarts with a fresh first-turn delimiter.
+
+## Pinned-model differential command
+
+On the Dell with the project's pinned GGUF available, run the native backend differential before accepting the change:
+
+```sh
+KILN_TEST_MODEL_PATH=/absolute/path/to/model.gguf \\
+  cargo test -p kiln-runtime --lib append_only_kv_matches_full_prefix_logits \\
+  -- --ignored --nocapture
+```
+
+This compares a token-identical, three-segment append-only forward sequence to a single full-prefix forward. Passing requires matching token counts and selected next token, with a diagnostic maximum logit-difference bound. Hosted CI intentionally skips the real-model test. Preserve its output with the model SHA-256 and llama.cpp revision before declaring parity or user-visible speed gains.
