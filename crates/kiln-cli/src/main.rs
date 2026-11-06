@@ -844,7 +844,9 @@ async fn main() {
                     "generated_tokens": stats("generated_tokens"),
                     "prefill_ms": stats("prefill_ms"),
                     "decode_ms": stats("decode_ms"),
-                    "decode_tokens_per_second": stats("decode_tokens_per_second")
+                    "decode_tokens_per_second": stats("decode_tokens_per_second"),
+                    "decode_forward_tokens_per_second": stats("decode_forward_tokens_per_second"),
+                    "response_tokens_per_second_including_prefill": stats("response_tokens_per_second_including_prefill")
                 },
                 "runs": measurements
             });
@@ -864,6 +866,7 @@ async fn main() {
                 println!("  prompt:            {:?}", prompt);
                 println!("  warm-up runs:      {}", warmup_completed);
                 println!("  measured runs:     {}", runs);
+                println!("  rate meaning:      sampled rate includes prefill-derived first token; decode forward excludes it");
                 println!("  model size:        {} bytes", model_size_bytes.map(|n| n.to_string()).unwrap_or_else(|| "unknown".into()));
                 println!("  environment:       {} / {}, logical CPUs={}",
                     std::env::consts::OS, std::env::consts::ARCH,
@@ -873,7 +876,9 @@ async fn main() {
                     ("prefill", "prefill_ms", " ms"),
                     ("generated", "generated_tokens", " tokens"),
                     ("decode", "decode_ms", " ms"),
-                    ("decode rate", "decode_tokens_per_second", " tokens/s"),
+                    ("sampled rate", "decode_tokens_per_second", " tokens/s"),
+                    ("decode forward", "decode_forward_tokens_per_second", " steps/s"),
+                    ("including prefill", "response_tokens_per_second_including_prefill", " tokens/s"),
                 ] {
                     let summary = stats(key);
                     if let Some(summary) = summary.as_object() {
@@ -1159,6 +1164,7 @@ fn bench_once(
     let mut sampling_ms = 0.0_f64;
     let mut token_conversion_ms = 0.0_f64;
     let mut decode_forward_ms = 0.0_f64;
+    let mut decode_forward_steps = 0usize;
     let decode_start = std::time::Instant::now();
     for step in 0..max_tokens {
         let sample_start = std::time::Instant::now();
@@ -1187,15 +1193,23 @@ fn bench_once(
                 _ => return Err("backend returned an unexpected decode result".to_string()),
             };
             decode_forward_ms += forward_start.elapsed().as_secs_f64() * 1000.0;
+            decode_forward_steps += 1;
         }
     }
     let decode_seconds = decode_start.elapsed().as_secs_f64();
     let decode_ms = decode_seconds * 1000.0;
+    // Legacy metric counts output samples, including the first (prefill-derived)
+    // token. Do not compare it with llama.cpp's token-decode throughput.
     let decode_tokens_per_second = if decode_seconds > 0.0 {
         generated_tokens as f64 / decode_seconds
-    } else {
-        0.0
-    };
+    } else { 0.0 };
+    let decode_forward_tokens_per_second = if decode_forward_ms > 0.0 {
+        decode_forward_steps as f64 * 1000.0 / decode_forward_ms
+    } else { 0.0 };
+    let full_response_ms = prefill_ms + decode_ms;
+    let response_tokens_per_second_including_prefill = if full_response_ms > 0.0 {
+        generated_tokens as f64 * 1000.0 / full_response_ms
+    } else { 0.0 };
 
     Ok(serde_json::json!({
         "prompt_tokens": prompt_tokens.len(),
@@ -1205,6 +1219,9 @@ fn bench_once(
         "sampling_ms": sampling_ms,
         "token_conversion_ms": token_conversion_ms,
         "decode_forward_ms": decode_forward_ms,
+        "decode_forward_steps": decode_forward_steps,
+        "decode_forward_tokens_per_second": decode_forward_tokens_per_second,
+        "response_tokens_per_second_including_prefill": response_tokens_per_second_including_prefill,
         "decode_ms": decode_ms,
         "decode_tokens_per_second": decode_tokens_per_second
     }))
