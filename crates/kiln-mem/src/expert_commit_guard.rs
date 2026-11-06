@@ -34,6 +34,8 @@ impl ExpertCommitGuard {
         Self { epoch: 0, max_bytes, max_entries, blocks: HashMap::new(), stats: CommitStats::default() }
     }
 
+    pub fn epoch(&self) -> u64 { self.epoch }
+
     pub fn begin_token(&mut self, epoch: u64) -> Result<(), &'static str> {
         if epoch <= self.epoch { return Err("token epoch must increase"); }
         self.cancel();
