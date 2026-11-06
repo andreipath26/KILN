@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 use std::path::PathBuf;
 
-use kiln_io::{CachedExpertBlobReader, FileRangeReader};
+use kiln_io::{write_expert_sidecar, verify_expert_sidecar, CachedExpertBlobReader, FileRangeReader};
 use kiln_mem::{evaluate_grouped_router_holdout, RouterEvent, evaluate_predictor_holdout, ExpertCachePolicy, ExpertKey, ExpertPrefetcher, PrefetchStats};
 use kiln_models::{ExpertRange, ExpertTable};
 
@@ -126,6 +126,36 @@ enum Commands {
         /// Number of simultaneous expert candidates.
         #[arg(long, default_value_t = 2)]
         top_k: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Pack explicitly indexed expert byte ranges into a safe GGUF-preserving sidecar.
+    ExpertPack {
+        #[arg(long)]
+        source_file: PathBuf,
+        /// JSON ExpertTable of source ranges, validated against source length.
+        #[arg(long)]
+        source_index: PathBuf,
+        /// New file; will never overwrite existing output.
+        #[arg(long)]
+        blob_file: PathBuf,
+        /// New JSON ExpertTable containing aligned sidecar offsets.
+        #[arg(long)]
+        index_file: PathBuf,
+        /// New integrity JSON with per-expert CRC32 values.
+        #[arg(long)]
+        integrity_file: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Validate full sidecar index and all expert payload CRC32 values.
+    ExpertPackVerify {
+        #[arg(long)]
+        blob_file: PathBuf,
+        #[arg(long)]
+        index_file: PathBuf,
+        #[arg(long)]
+        integrity_file: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -1378,6 +1408,60 @@ async fn main() {
                 }
                 Err(e) => {
                     eprintln!("grouped router holdout failed: {e}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::ExpertPack { source_file, source_index, blob_file,
+            index_file, integrity_file, json } => {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let index_bytes = read_bounded_input(
+                    &source_index, MAX_EXPERT_INDEX_BYTES, "source expert index"
+                )?;
+                let source_table: ExpertTable = serde_json::from_slice(&index_bytes)?;
+                let manifest = write_expert_sidecar(
+                    &source_file, source_table, &blob_file, &index_file, &integrity_file
+                )?;
+                // Verify all bytes before reporting a completed pack.
+                let table = verify_expert_sidecar(&blob_file, &index_file, &integrity_file)?;
+                Ok((manifest, table))
+            })();
+            match result {
+                Ok((manifest, table)) if json => {
+                    println!("{}", serde_json::json!({
+                        "status":"packed_and_crc32_verified",
+                        "expert_count":table.ranges.len(),
+                        "packed_blob_bytes":table.blob_size,
+                        "source_size_bytes":manifest.source_size_bytes,
+                        "alignment_bytes":manifest.alignment_bytes
+                    }));
+                }
+                Ok((manifest,table)) => {
+                    println!("KILN Phase 5.1 sidecar packed and verified");
+                    println!("  Experts: {}", table.ranges.len());
+                    println!("  Packed bytes: {}", table.blob_size);
+                    println!("  Alignment: {}", manifest.alignment_bytes);
+                    println!("  Original GGUF/source file unchanged");
+                }
+                Err(error) => {
+                    eprintln!("sidecar pack failed: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::ExpertPackVerify { blob_file, index_file, integrity_file, json } => {
+            match verify_expert_sidecar(&blob_file, &index_file, &integrity_file) {
+                Ok(table) if json => println!("{}", serde_json::json!({
+                    "status":"crc32_verified",
+                    "expert_count":table.ranges.len(),
+                    "blob_size":table.blob_size
+                })),
+                Ok(table) => println!(
+                    "KILN sidecar verified: {} experts, {} bytes",
+                    table.ranges.len(), table.blob_size
+                ),
+                Err(error) => {
+                    eprintln!("sidecar integrity check failed: {error}");
                     std::process::exit(2);
                 }
             }
