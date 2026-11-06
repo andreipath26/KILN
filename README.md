@@ -63,10 +63,13 @@ To start the local API server, set `KILN_MODEL_PATH` to a readable GGUF file:
 KILN_MODEL_PATH=/path/to/model.gguf cargo run -p kiln-cli -- serve
 ```
 
+The API also serves KILN's local development UI at `http://127.0.0.1:11435/`. It currently provides streamed chat for the startup-loaded model and an Advanced view of the CPU/RAM profile and reported runtime capabilities. Model search/download, in-UI model switching, accelerator controls, and runtime telemetry are not yet connected to the UI.
+
 The CLI and backend interfaces are still changing. Check command help for the current options.
 
 ## Documentation
 
+- [UI architecture and continuation guide](docs/ui-architecture.md)
 - [Architecture](docs/architecture.md)
 - [Runtime dispatch design](docs/runtime-dispatch-design.md)
 - [GGUF design](docs/gguf-design.md)
