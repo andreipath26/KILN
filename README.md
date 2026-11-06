@@ -45,6 +45,18 @@ cargo run -p kiln-cli -- --help
 cargo run -p kiln-cli -- run /path/to/model.gguf --max-tokens 50
 ```
 
+Find local GGUF files, search public Hugging Face GGUF repositories, or download a selected file:
+
+```sh
+cargo run -p kiln-cli -- list
+cargo run -p kiln-cli -- list --path /path/to/models
+cargo run -p kiln-cli -- run auto
+cargo run -p kiln-cli -- search "granite 4.1"
+cargo run -p kiln-cli -- pull REPOSITORY/NAME --file path/in/repository/model.gguf
+```
+
+`run auto` uses a local candidate only when exactly one readable GGUF is found; with zero or multiple candidates it explains how to search, pull or choose a path. Downloads go to `KILN_MODELS_DIR` or the user's data directory. KILN checks the Hugging Face SHA-256 and parses the downloaded GGUF before installing it. Public downloads use the system `curl` command and a platform SHA-256 utility. Local scanning checks the usual model, Hugging Face cache, and Ollama storage locations; `list` validates GGUF structure, but a successful scan does not guarantee that the active inference backend supports that model architecture.
+
 To start the local API server, set `KILN_MODEL_PATH` to a readable GGUF file:
 
 ```sh
