@@ -30,3 +30,6 @@ pub use convert::convert_to_tq1_0;
 pub use gguf::{GgufError, GgufFile, GgufHeader, GgufType, GgufTensorInfo, GgufValue, GgufValueType, read_header, parse_metadata, parse_tensor_table};
 
 pub use tokenizer::{BpeTokenizer, TokenizerError};
+
+pub mod expert_tensor_map;
+pub use expert_tensor_map::{NamedExpertTensor, ExpertTensorComponent, GgufExpertSourceMap, ExpertMapError, resolve_expert_tensor_components, resolve_expert_tensors_in_gguf};
