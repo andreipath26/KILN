@@ -18,6 +18,63 @@ use kiln_api::serve;
 
 mod llama_forward;
 
+/// Linux process RSS snapshot in KiB. VmHWM is the process high-water mark
+/// since launch, so it includes the entire model load/benchmark lifetime.
+/// This does NOT include page cache held outside process RSS.
+#[derive(Debug, Clone, Copy)]
+struct ProcessMemoryKib {
+    rss_kib: u64,
+    peak_rss_kib: u64,
+}
+
+fn parse_process_memory_status(status: &str) -> Option<ProcessMemoryKib> {
+    fn field_kib(status: &str, key: &str) -> Option<u64> {
+        let line = status.lines().find(|line| line.split_once(':')
+            .map(|(name, _)| name == key).unwrap_or(false))?;
+        let (_, value) = line.split_once(':')?;
+        let mut parts = value.split_whitespace();
+        let amount = parts.next()?.parse::<u64>().ok()?;
+        if parts.next()? != "kB" || parts.next().is_some() {
+            return None;
+        }
+        Some(amount)
+    }
+
+    Some(ProcessMemoryKib {
+        rss_kib: field_kib(status, "VmRSS")?,
+        peak_rss_kib: field_kib(status, "VmHWM")?,
+    })
+}
+
+fn process_memory_kib() -> Option<ProcessMemoryKib> {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|status| parse_process_memory_status(&status))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+#[cfg(test)]
+mod process_memory_tests {
+    use super::*;
+
+    #[test]
+    fn reads_exact_rss_keys_and_units() {
+        let status = "Name:\tkiln\nVmPeak:\t9999 kB\nVmHWM:\t2048 kB\nVmRSS:\t1024 kB\n";
+        let parsed = parse_process_memory_status(status).unwrap();
+        assert_eq!(parsed.rss_kib, 1024);
+        assert_eq!(parsed.peak_rss_kib, 2048);
+        assert!(parse_process_memory_status("VmRSS:\t1024 kB\n").is_none());
+        assert!(parse_process_memory_status("VmHWM:\t5 MB\nVmRSS:\t2 kB\n").is_none());
+        assert!(parse_process_memory_status("NotVmHWM:\t5 kB\nVmRSS:\t2 kB\n").is_none());
+    }
+}
+
 /// KILN. The fastest local LLM runtime on Earth.
 #[derive(Parser, Debug)]
 #[command(name = "kiln", version, about = "Fastest local LLM runtime")]
@@ -681,6 +738,7 @@ async fn main() {
             let mut dispatcher = RuntimeDispatcher::new();
             dispatcher.register(Box::new(LlamaCppBackend::new()));
 
+            let memory_before_load = process_memory_kib();
             let load_start = std::time::Instant::now();
             if let Err(error) = dispatcher.dispatch(RuntimeOp::Load {
                 path: std::path::PathBuf::from(&model),
@@ -692,6 +750,7 @@ async fn main() {
                 std::process::exit(1);
             }
             let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
+            let memory_after_load = process_memory_kib();
             let eos = match dispatcher.dispatch(RuntimeOp::EosToken) {
                 Ok(RuntimeResult::Int(token)) => token,
                 Ok(_) => {
@@ -716,13 +775,22 @@ async fn main() {
             let mut measurements = Vec::with_capacity(runs);
             for index in 0..runs {
                 match bench_once(&mut dispatcher, &prompt, tokens, eos) {
-                    Ok(result) => measurements.push(result),
+                    Ok(mut result) => {
+                        // VmHWM is process-wide and monotonic: a useful upper
+                        // bound at this checkpoint, not per-run isolated peak.
+                        let sample = process_memory_kib();
+                        result["process_rss_kib_after_run"] = serde_json::json!(sample.map(|m| m.rss_kib));
+                        result["process_peak_rss_kib_to_date"] = serde_json::json!(sample.map(|m| m.peak_rss_kib));
+                        measurements.push(result);
+                    },
                     Err(error) => {
                         eprintln!("bench: measured run {} failed: {}", index + 1, error);
                         std::process::exit(1);
                     }
                 }
             }
+
+            let memory_after_benchmark = process_memory_kib();
 
             // Report distribution statistics as well as means. A mean alone can
             // hide noisy runs and is insufficient for controlled comparisons.
@@ -743,6 +811,23 @@ async fn main() {
                 "requested_batch": profile.n_batch,
                 "measured_runs": runs,
                 "load_ms": load_ms,
+                "process_memory": {
+                    "source": if cfg!(target_os = "linux") { "linux_proc_self_status" } else { "unsupported_platform" },
+                    "unit": "KiB",
+                    "before_load": {
+                        "rss": memory_before_load.map(|m| m.rss_kib),
+                        "peak_rss_to_date": memory_before_load.map(|m| m.peak_rss_kib)
+                    },
+                    "after_load": {
+                        "rss": memory_after_load.map(|m| m.rss_kib),
+                        "peak_rss_to_date": memory_after_load.map(|m| m.peak_rss_kib)
+                    },
+                    "after_benchmark": {
+                        "rss": memory_after_benchmark.map(|m| m.rss_kib),
+                        "peak_rss_to_date": memory_after_benchmark.map(|m| m.peak_rss_kib)
+                    },
+                    "note": "Process RSS and lifetime peak from /proc/self/status. Linux only. Peak is monotonic, not reset per run, and excludes independently cached filesystem pages and other machine processes."
+                },
                 "environment": {
                     "os": std::env::consts::OS,
                     "architecture": std::env::consts::ARCH,
@@ -772,6 +857,10 @@ async fn main() {
                 println!("  profile:           {:?}, threads={}, batch={}, context={}",
                     profile.tier, profile.n_threads, profile.n_batch, profile.n_ctx);
                 println!("  load:              {:.2} ms", load_ms);
+                if let Some(memory) = memory_after_benchmark {
+                    println!("  process RSS:       {} KiB (peak to date {} KiB; does not include OS page cache)",
+                        memory.rss_kib, memory.peak_rss_kib);
+                }
                 println!("  prompt:            {:?}", prompt);
                 println!("  warm-up runs:      {}", warmup_completed);
                 println!("  measured runs:     {}", runs);
