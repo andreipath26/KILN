@@ -32,6 +32,8 @@ pub struct ChatRequest {
     pub messages: Vec<ChatMessage>,
     #[serde(default)]
     pub stream: Option<bool>,
+    #[serde(default)]
+    pub options: Option<serde_json::Value>,
 }
 
 /// One message in a chat conversation.
@@ -70,6 +72,27 @@ pub struct PullRequest {
     pub name: String,
     #[serde(default)]
     pub stream: Option<bool>,
+}
+
+/// Request to activate a locally discovered GGUF in the API session.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ActivateModelRequest {
+    pub path: String,
+}
+
+/// Request to pull one named GGUF artifact from a public Hub repository.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ModelPullRequest {
+    pub repository: String,
+    pub file: String,
+}
+
+/// Query parameters for public Hugging Face GGUF model search.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ModelSearchQuery {
+    pub q: String,
+    #[serde(default)]
+    pub limit: Option<usize>,
 }
 
 /// Response from GET /api/version.
