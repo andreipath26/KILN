@@ -177,12 +177,11 @@ async function main() {
     assert.equal(await advancedTab.getAttribute("aria-selected"), "true");
     await page.getByRole("heading", { name: "Available in this build" }).waitFor();
     await checkAccessibility(page, "Advanced view", { advanced: true });
-    await page.keyboard.press("ArrowLeft");
-    assert.equal(await simpleTab.getAttribute("aria-selected"), "true");
-
     await page.locator("#max-tokens").fill("512");
     await page.locator("#max-tokens").dispatchEvent("change");
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("kiln.ui.settings.v1:/tmp/test-model.gguf")).max_tokens), 512);
+    await page.keyboard.press("ArrowLeft");
+    assert.equal(await simpleTab.getAttribute("aria-selected"), "true");
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload({ waitUntil: "networkidle" });
