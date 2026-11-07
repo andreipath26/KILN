@@ -117,7 +117,7 @@ async function installApiMocks(page, { modelLoaded = true } = {}) {
   });
 }
 
-async function checkAccessibility(page, label) {
+async function checkAccessibility(page, label, { advanced = false } = {}) {
   const results = await new AxeBuilder({ page }).analyze();
   const serious = results.violations.filter((item) => ["critical", "serious"].includes(item.impact));
   assert.deepEqual(
@@ -132,8 +132,8 @@ async function checkAccessibility(page, label) {
   );
   const accessibilityTree = await page.locator("body").ariaSnapshot();
   assert.match(accessibilityTree, /tablist "KILN modes"/);
-  assert.match(accessibilityTree, /tab "Simple"/);
-  assert.match(accessibilityTree, /textbox "Message your model"/);
+  assert.match(accessibilityTree, advanced ? /tab "Advanced" \[selected\]/ : /tab "Simple"/);
+  assert.match(accessibilityTree, advanced ? /spinbutton "Chat output limit"/ : /textbox "Message your model"/);
 }
 
 async function main() {
@@ -176,7 +176,7 @@ async function main() {
     await advancedTab.waitFor({ state: "visible" });
     assert.equal(await advancedTab.getAttribute("aria-selected"), "true");
     await page.getByRole("heading", { name: "Available in this build" }).waitFor();
-    await checkAccessibility(page, "Advanced view");
+    await checkAccessibility(page, "Advanced view", { advanced: true });
     await page.keyboard.press("ArrowLeft");
     assert.equal(await simpleTab.getAttribute("aria-selected"), "true");
 
