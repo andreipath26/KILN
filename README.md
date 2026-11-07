@@ -80,6 +80,7 @@ The CLI and backend interfaces are still changing. Check command help for the cu
 - [GGUF design](docs/gguf-design.md)
 - [Quantization policy](docs/quantization-policy.md)
 - [Decode-rate measurement contract](docs/phase35-decode-rate-contract.md)
+- [Phase 3.5 benchmark capture suite](docs/phase35-capture-suite.md)
 - [MoE predictor training and evaluation](docs/training-pipeline-design.md)
 - [Master roadmap and engineering record](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md)
 
