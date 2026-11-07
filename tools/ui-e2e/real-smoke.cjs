@@ -42,13 +42,17 @@ async function main() {
     assert.ok(answer.length > 0, "the live model returned assistant text");
     assert.deepEqual(pageErrors, [], "real-model chat produced no uncaught UI errors");
 
-    await page.locator("#model-search-query").fill("QuantFactory/SmolLM2-135M-Instruct-GGUF");
-    await page.getByRole("button", { name: "Search", exact: true }).click();
-    await page.locator("#remote-models").getByText("QuantFactory/SmolLM2-135M-Instruct-GGUF", { exact: true }).waitFor();
-    await page.getByRole("button", { name: /Download SmolLM2-135M-Instruct.Q2_K.gguf/ }).click();
-    await page.getByText(/Downloading SmolLM2-135M-Instruct.Q2_K.gguf/).waitFor();
-    await page.getByRole("button", { name: "Cancel download" }).click();
-    await page.getByText("Download canceled; the partial file was removed.", { exact: true }).waitFor();
+    const modelsPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    modelsPage.on("pageerror", (error) => pageErrors.push(error.message));
+    await modelsPage.goto(baseUrl, { waitUntil: "networkidle" });
+    await modelsPage.locator("#model-search-query").fill("QuantFactory/SmolLM2-135M-Instruct-GGUF");
+    await modelsPage.getByRole("button", { name: "Search", exact: true }).click();
+    const remoteResults = modelsPage.locator("#remote-models");
+    await remoteResults.getByText("QuantFactory/SmolLM2-135M-Instruct-GGUF", { exact: true }).waitFor();
+    await remoteResults.getByRole("button", { name: /Download SmolLM2-135M-Instruct.Q2_K.gguf/ }).click();
+    await modelsPage.getByText(/Downloading SmolLM2-135M-Instruct.Q2_K.gguf/).waitFor();
+    await modelsPage.getByRole("button", { name: "Cancel download" }).click();
+    await modelsPage.getByText("Download canceled; the partial file was removed.", { exact: true }).waitFor();
 
     const hasPartialDownload = () => {
       const visit = (directory) => fs.readdirSync(directory, { withFileTypes: true }).some((entry) => {
