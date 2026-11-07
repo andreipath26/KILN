@@ -44,7 +44,7 @@ async function main() {
 
     await page.locator("#model-search-query").fill("QuantFactory/SmolLM2-135M-Instruct-GGUF");
     await page.getByRole("button", { name: "Search", exact: true }).click();
-    await page.getByText("QuantFactory/SmolLM2-135M-Instruct-GGUF", { exact: true }).waitFor();
+    await page.locator("#remote-models").getByText("QuantFactory/SmolLM2-135M-Instruct-GGUF", { exact: true }).waitFor();
     await page.getByRole("button", { name: /Download SmolLM2-135M-Instruct.Q2_K.gguf/ }).click();
     await page.getByText(/Downloading SmolLM2-135M-Instruct.Q2_K.gguf/).waitFor();
     await page.getByRole("button", { name: "Cancel download" }).click();
