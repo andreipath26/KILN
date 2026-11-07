@@ -1,5 +1,5 @@
 //! The single backend for Phase 1.5: CPU scalar.
-//! See docs/dispatch-integration-design.md.
+//! See docs/architecture.md.
 
 use crate::dispatch::{Backend, DispatchError, ExecContext, Operation, QuantKind};
 

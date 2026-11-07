@@ -1,6 +1,6 @@
 /* KILN kernel: Q4_K dequantization and fused matmul.
  *
- * See docs/q4k-design.md for the format specification.
+ * See docs/quantization-policy.md for the format specification.
  *
  * Q4_K super-block: 256 weights, 144 bytes.
  *   2 bytes: d    (F16 super-block scale)

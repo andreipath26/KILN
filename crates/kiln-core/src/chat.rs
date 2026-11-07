@@ -1,6 +1,6 @@
 //! The chat loop.
 //!
-//! See docs/chat-loop-design.md for the design. The generation loop
+//! See docs/runtime-loading-design.md for the design. The generation loop
 //! that turns a single matmul into a conversation.
 
 use kiln_models::tokenizer::{BpeTokenizer, TokenizerError};

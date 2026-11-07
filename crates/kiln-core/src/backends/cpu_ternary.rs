@@ -1,6 +1,6 @@
 //! Phase 2 backend: TQ1.0 ternary matmul.
 //! Supports only Matmul with QuantKind::TQ1_0.
-//! See docs/ternary-runtime-design.md.
+//! See docs/quantization-policy.md.
 
 use crate::dispatch::{Backend, DispatchError, ExecContext, Operation, QuantKind};
 

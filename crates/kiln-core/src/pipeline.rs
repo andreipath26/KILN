@@ -1,6 +1,6 @@
 //! The end-to-end inference pipeline.
 //!
-//! See docs/pipeline-design.md for the design. This is the minimal path
+//! See docs/architecture.md for the design. This is the minimal path
 //! that loads a synthetic model, selects a plan, schedules it, executes
 //! one matmul through the fused kernel, and reports the timing.
 

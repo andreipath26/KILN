@@ -5,7 +5,7 @@
 //! event fires, it revokes the current plan and asks the selector for a new
 //! one. Every revision is recorded in an append-only change log.
 //!
-//! See docs/core-design.md, Subsystem 3.
+//! See docs/architecture.md, Subsystem 3.
 
 use std::time::SystemTime;
 

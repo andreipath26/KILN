@@ -1,7 +1,7 @@
 //! The Performance Monitor.
 //!
 //! Samples the machine every 500 milliseconds and exposes the current
-//! performance envelope. See docs/core-design.md, Subsystem 1.
+//! performance envelope. See docs/architecture.md, Subsystem 1.
 
 use std::time::{Duration, Instant, SystemTime};
 

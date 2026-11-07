@@ -1,6 +1,6 @@
 /* KILN kernels: TQ1.0 ternary packing.
  *
- * See docs/kernels-design.md for the format specification and the ABI.
+ * See docs/quantization-policy.md for the format specification and the ABI.
  *
  * Base-3 encoding: five trits pack into one byte. Each trit is in
  * {-1, 0, +1} and is shifted to a digit in {0, 1, 2}. The packed value

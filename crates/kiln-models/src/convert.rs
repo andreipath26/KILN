@@ -1,5 +1,5 @@
 //! Convert a GGUF model to a different quantization. Phase 2: Q4_K
-//! and Q6_K input, TQ1.0 output. See docs/convert-design.md.
+//! and Q6_K input, TQ1.0 output. See docs/quantization-policy.md.
 
 use std::path::Path;
 

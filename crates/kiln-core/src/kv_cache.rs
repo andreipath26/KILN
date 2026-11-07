@@ -1,6 +1,6 @@
 //! Per-layer KV cache.
 //!
-//! See docs/kv-cache-design.md. Stores post-bias, post-RoPE K and V
+//! Stores post-bias, post-RoPE K and V
 //! for every layer at every position already processed. The cache is
 //! grown by append; it is reset when the caller's token sequence does
 //! not start with the cached tokens.

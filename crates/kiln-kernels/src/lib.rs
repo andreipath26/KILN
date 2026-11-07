@@ -1,7 +1,7 @@
 //! KILN Kernels.
 //!
 //! Safe Rust wrappers around the C kernels in cpp/kernels/. See
-//! docs/kernels-design.md for the format, the ABI, and the build process.
+//! docs/quantization-policy.md for the format, the ABI, and the build process.
 
 use std::os::raw::{c_float, c_int};
 

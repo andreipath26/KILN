@@ -1,4 +1,4 @@
-//! GGUF writer. See docs/convert-design.md.
+//! GGUF writer. See docs/quantization-policy.md.
 //! Writes a GGUF v3 file from header, metadata, tensor table, and data.
 
 use std::fs::File;

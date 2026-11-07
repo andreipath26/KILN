@@ -1,7 +1,7 @@
 //! KILN Core.
 //!
 //! The heart of the runtime. Contains the Performance Monitor, the Automatic
-//! Mode Selector, and the DAG Scheduler. See docs/core-design.md for the
+//! Mode Selector, and the DAG Scheduler. See docs/architecture.md for the
 //! full design.
 //!
 //! This first pass defines the data structures and error types. Behavior
