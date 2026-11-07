@@ -58,11 +58,12 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #daf0
 .model-search input { flex: 1; min-width: 0; padding: 11px 13px; color: var(--text); background: var(--surface-raised); border: 1px solid var(--line); border-radius: 8px; font: inherit; }
 .model-search input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .model-list { display: grid; gap: 9px; margin-top: 12px; }
-.model-entry { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-raised); }
-.model-entry-main { min-width: 0; }
+.model-entry { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-raised); }
+.model-entry-main { min-width: 0; flex: 1 1 16rem; }
 .model-entry-title { overflow-wrap: anywhere; font-weight: 650; }
 .model-entry-meta { margin-top: 4px; color: var(--muted); font-size: .82rem; }
-.model-entry-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.model-entry-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: 1 1 20rem; flex-wrap: wrap; min-width: 0; }
+.model-entry-actions .button { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .inline-status { min-height: 1.3em; margin: 8px 0 0; color: var(--muted); font-size: .84rem; }
 #cancel-download[hidden] { display: none; }
 .chat-card { min-height: min(650px, 69vh); display: flex; flex-direction: column; overflow: hidden; }
@@ -135,4 +136,15 @@ td:last-child { color: var(--muted); line-height: 1.5; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
+
+@media (forced-colors: active) {
+  button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible {
+    outline-color: Highlight;
+  }
+  .composer:focus-within {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+    box-shadow: none;
+  }
 }

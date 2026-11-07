@@ -1,0 +1,13 @@
+{
+  "name": "kiln-ui-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Browser-based release checks for the bundled KILN local UI",
+  "scripts": {
+    "test": "node run.cjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "playwright": "1.62.1"
+  }
+}

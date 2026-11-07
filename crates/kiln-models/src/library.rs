@@ -198,6 +198,14 @@ fn https_redirect_policy() -> Policy {
     })
 }
 
+fn sha256_from_metadata(file: &Value) -> Option<String> {
+    file.pointer("/lfs/sha256")
+        .or_else(|| file.pointer("/lfs/oid"))
+        .or_else(|| file.get("sha256"))
+        .and_then(Value::as_str)
+        .map(|value| value.strip_prefix("sha256:").unwrap_or(value).to_ascii_lowercase())
+}
+
 pub fn search_hugging_face(query: &str, limit: usize) -> Result<Vec<RemoteModel>, String> {
     if query.trim().is_empty() { return Err("search query must not be empty".into()); }
     if !(1..=50).contains(&limit) { return Err("--limit must be between 1 and 50".into()); }
@@ -224,8 +232,7 @@ pub fn search_hugging_face(query: &str, limit: usize) -> Result<Vec<RemoteModel>
             let name = file.get("rfilename")?.as_str()?;
             if !name.to_ascii_lowercase().ends_with(".gguf") { return None; }
             let size = file.get("size").and_then(Value::as_u64).or_else(|| file.pointer("/lfs/size").and_then(Value::as_u64));
-            let sha256 = file.pointer("/lfs/oid").or_else(|| file.get("sha256"))
-                .and_then(Value::as_str).map(|x| x.strip_prefix("sha256:").unwrap_or(x).to_ascii_lowercase());
+            let sha256 = sha256_from_metadata(file);
             Some(RemoteArtifact { path: name.to_string(), size_bytes: size, sha256 })
         }).collect();
         results.push(RemoteModel { repository: id.to_string(), downloads, license, gated, artifacts });
@@ -285,8 +292,7 @@ pub fn pull_hugging_face_with_progress(
     let siblings = info.get("siblings").and_then(Value::as_array).ok_or("model metadata contains no file list")?;
     let sibling = siblings.iter().find(|item| item.get("rfilename").and_then(Value::as_str) == Some(file))
         .ok_or("the selected GGUF file was not found in that public repository")?;
-    let expected = sibling.pointer("/lfs/oid").or_else(|| sibling.get("sha256"))
-        .and_then(Value::as_str).map(|x| x.strip_prefix("sha256:").unwrap_or(x).to_ascii_lowercase())
+    let expected = sha256_from_metadata(sibling)
         .ok_or("Hugging Face did not provide a SHA-256 digest for this file; refusing an unverifiable download")?;
     if expected.len() != 64 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("Hugging Face returned an invalid SHA-256 digest".into());
@@ -400,8 +406,7 @@ pub async fn pull_hugging_face_async_with_progress(
     let siblings = info.get("siblings").and_then(Value::as_array).ok_or("model metadata contains no file list")?;
     let sibling = siblings.iter().find(|item| item.get("rfilename").and_then(Value::as_str) == Some(file))
         .ok_or("the selected GGUF file was not found in that public repository")?;
-    let expected = sibling.pointer("/lfs/oid").or_else(|| sibling.get("sha256"))
-        .and_then(Value::as_str).map(|x| x.strip_prefix("sha256:").unwrap_or(x).to_ascii_lowercase())
+    let expected = sha256_from_metadata(sibling)
         .ok_or("Hugging Face did not provide a SHA-256 digest for this file; refusing an unverifiable download")?;
     if expected.len() != 64 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("Hugging Face returned an invalid SHA-256 digest".into());
@@ -477,7 +482,8 @@ pub async fn pull_hugging_face_async_with_progress(
 
 #[cfg(test)]
 mod tests {
-    use super::{valid_repo_file, valid_repo_id};
+    use super::{sha256_from_metadata, valid_repo_file, valid_repo_id};
+    use serde_json::json;
 
     #[test]
     fn model_library_rejects_traversal_and_non_gguf_files() {
@@ -487,6 +493,23 @@ mod tests {
         assert!(valid_repo_file("nested/model.Q4_K_M.gguf"));
         assert!(!valid_repo_file("../outside.gguf"));
         assert!(!valid_repo_file("model.bin"));
+    }
+
+    #[test]
+    fn reads_current_hugging_face_lfs_sha256_metadata() {
+        let metadata = json!({"lfs":{"sha256":"8030F04528538D47BDA434F6F0BDF3952C40A58123E4D5E755332F23731A8684","size":105454144}});
+        assert_eq!(
+            sha256_from_metadata(&metadata).as_deref(),
+            Some("8030f04528538d47bda434f6f0bdf3952c40a58123e4d5e755332f23731a8684"),
+        );
+    }
+
+    #[test]
+    fn supports_legacy_hugging_face_digest_fields() {
+        let oid = json!({"lfs":{"oid":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}});
+        let top_level = json!({"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"});
+        assert_eq!(sha256_from_metadata(&oid).as_deref(), Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+        assert_eq!(sha256_from_metadata(&top_level).as_deref(), Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
     }
 }
 
