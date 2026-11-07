@@ -1155,9 +1155,18 @@ fn validate_verified_draft(accepted: usize, draft_len: usize, next: i32)
     Ok((accepted, next))
 }
 
+/// Extend generation history only with the prefix retained in native KV.
+fn record_verified_draft(history: &mut Vec<i32>, draft: &[i32], accepted: usize, next: i32)
+    -> Result<i32, String>
+{
+    let (accepted, next) = validate_verified_draft(accepted, draft.len(), next)?;
+    history.extend_from_slice(&draft[..accepted]);
+    Ok(next)
+}
+
 #[cfg(test)]
 mod speculative_cli_tests {
-    use super::validate_verified_draft;
+    use super::{record_verified_draft, validate_verified_draft};
 
     #[test]
     fn accepts_valid_full_and_partial_draft_results() {
@@ -1170,6 +1179,21 @@ mod speculative_cli_tests {
     fn rejects_impossible_accept_count_and_negative_token() {
         assert!(validate_verified_draft(5, 4, 9).is_err());
         assert!(validate_verified_draft(0, 4, -1).is_err());
+    }
+
+    #[test]
+    fn records_only_the_native_kv_accepted_prefix() {
+        let mut history = vec![1, 2, 3];
+        let next = record_verified_draft(&mut history, &[4, 5, 6], 2, 7).unwrap();
+        assert_eq!(next, 7);
+        assert_eq!(history, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn invalid_verification_does_not_mutate_history() {
+        let mut history = vec![1, 2, 3];
+        assert!(record_verified_draft(&mut history, &[4, 5], 3, 7).is_err());
+        assert_eq!(history, vec![1, 2, 3]);
     }
 }
 
@@ -1393,6 +1417,20 @@ mod interactive_kv_tests {
         assert!(!reset);
         assert_eq!(tail, vec![8, 1, 2]);
     }
+
+    #[test]
+    fn accepted_batched_tokens_extend_context_once_before_corrected_pending_token() {
+        let mut cache = InteractiveKvState::default();
+        let (_, prompt) = cache.prepare(vec![1, 2], 8, 32).unwrap();
+        cache.forwarded(prompt.len());
+        // A two-token draft was accepted and is already resident in native KV.
+        cache.forwarded(2);
+        cache.emitted(9); // corrected next token is output but not forwarded yet
+        let (reset, next_turn) = cache.prepare(vec![10, 11], 8, 32).unwrap();
+        assert!(!reset);
+        assert_eq!(cache.cached_tokens, 4);
+        assert_eq!(next_turn, vec![9, 10, 11]);
+    }
 }
 
 /// Run a real interactive text session using the runtime dispatcher.
@@ -1546,13 +1584,15 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_gr
                         RuntimeResult::VerifiedGreedy { accepted, next } => (accepted, next),
                         _ => return Err("backend returned an unexpected n-gram verification result".to_string()),
                     };
-                    let (accepted, corrected_next) = validate_verified_draft(
-                        verification.0, draft.len(), verification.1,
-                    )?;
+                    let (accepted, corrected_next) = {
+                        let corrected_next = record_verified_draft(
+                            &mut speculative_history, &draft, verification.0, verification.1,
+                        )?;
+                        (verification.0, corrected_next)
+                    };
                     accepted_draft_tokens += accepted;
                     // The verifier retains only this accepted prefix in KV and
                     // rolls back rejected/unverified draft positions.
-                    speculative_history.extend_from_slice(&draft[..accepted]);
                     if keep_context {
                         kv_state.forwarded(accepted);
                     }
@@ -1626,7 +1666,7 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_gr
         println!();
         if speculative {
             let elapsed = generation_started.elapsed().as_secs_f64().max(f64::MIN_POSITIVE);
-            eprintln!("[ngram-mod: {} proposed, {} accepted ({:.1}%), {:.2} generated tok/s]",
+            eprintln!("[ngram-mod: {} proposed, {} accepted ({:.1}%), {:.2} wall-clock interactive tok/s]",
                 proposed_draft_tokens,
                 accepted_draft_tokens,
                 if proposed_draft_tokens == 0 { 0.0 }
