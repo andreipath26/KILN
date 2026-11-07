@@ -50,16 +50,7 @@ async function main() {
     await modelsPage.waitForFunction(() => /repositories found\./.test(document.querySelector("#model-library-status").textContent), { timeout: 30_000 });
     const remoteResults = modelsPage.locator("#remote-models");
     const resultTitle = remoteResults.getByText("QuantFactory/SmolLM2-135M-Instruct-GGUF", { exact: true });
-    const diagnostics = await modelsPage.evaluate(() => {
-      const title = document.querySelector("#remote-models .model-entry-title");
-      const details = [];
-      for (let element = title; element; element = element.parentElement) {
-        const style = getComputedStyle(element);
-        details.push({ tag: element.tagName, id: element.id, className: element.className, hidden: element.hidden, display: style.display, visibility: style.visibility, rect: element.getBoundingClientRect().toJSON() });
-      }
-      return { status: document.querySelector("#model-library-status").textContent, panelHidden: document.querySelector("#panel-simple").hidden, details };
-    });
-    assert.equal(await resultTitle.isVisible(), true, `live search result must be visible: ${JSON.stringify(diagnostics)}`);
+    await resultTitle.waitFor();
     await remoteResults.getByRole("button", { name: /Download SmolLM2-135M-Instruct.Q2_K.gguf/ }).click();
     await modelsPage.getByText(/Downloading SmolLM2-135M-Instruct.Q2_K.gguf/).waitFor();
     await modelsPage.getByRole("button", { name: "Cancel download" }).click();
