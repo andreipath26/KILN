@@ -190,6 +190,10 @@ async function main() {
     await page.emulateMedia({ forcedColors: "active" });
     await page.locator("#prompt").focus();
     assert.equal(await page.locator("#prompt").evaluate((element) => document.activeElement === element), true, "keyboard focus remains visible and reachable in forced-colors mode");
+    assert.equal(await page.locator(".composer").evaluate((element) => {
+      const style = getComputedStyle(element);
+      return style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) >= 2;
+    }), true, "the chat composer has a visible system-color focus ring in forced-colors mode");
     await context.close();
 
     const emptyContext = await browser.newContext({ viewport: { width: 390, height: 844 } });

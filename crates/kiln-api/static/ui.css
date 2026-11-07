@@ -136,3 +136,14 @@ td:last-child { color: var(--muted); line-height: 1.5; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
+
+@media (forced-colors: active) {
+  button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible {
+    outline-color: Highlight;
+  }
+  .composer:focus-within {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+    box-shadow: none;
+  }
+}
