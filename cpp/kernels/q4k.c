@@ -1,6 +1,6 @@
 /* KILN kernel: Q4_K dequantization and fused matmul.
  *
- * See docs/q4k-design.md for the format specification.
+ * See docs/quantization-policy.md for the format specification.
  */
 
 #include "q4k.h"

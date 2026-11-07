@@ -1,5 +1,5 @@
 //! System profile. Probed at first run, read on every run.
-//! See docs/system-profile-design.md.
+//! See docs/architecture.md.
 //!
 //! No external crates. Core count from std. RAM from /proc/meminfo
 //! on Linux, sysctl on macOS, GlobalMemoryStatusEx on Windows. The

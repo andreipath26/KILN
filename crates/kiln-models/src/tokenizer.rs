@@ -1,6 +1,6 @@
 //! Byte-pair encoding tokenizer.
 //!
-//! See docs/tokenizer-design.md for the design. Reads vocabulary and
+//! See docs/runtime-loading-design.md for the design. Reads vocabulary and
 //! merge rules from GGUF metadata, encodes text to token IDs, decodes
 //! token IDs back to text.
 

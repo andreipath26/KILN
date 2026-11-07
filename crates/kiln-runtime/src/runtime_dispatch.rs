@@ -1,4 +1,4 @@
-//! Runtime dispatch. Phase 3. See docs/runtime-dispatch-design.md.
+//! Runtime dispatch. Phase 3. See docs/architecture.md.
 //! Rule KILN-E36 applies at the runtime layer, not only the kernel
 //! layer. Every model operation goes through this dispatcher.
 

@@ -1,6 +1,6 @@
 //! Partial GGUF loader.
 //!
-//! See docs/gguf-design.md for the full design. This first version
+//! See docs/runtime-loading-design.md for the full design. This first version
 //! implements the header parser. Metadata, tensor table, and data
 //! section access land in subsequent commits.
 

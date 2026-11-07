@@ -1,4 +1,4 @@
-//! Dispatch seam. See docs/dispatch-integration-design.md.
+//! Dispatch seam. See docs/architecture.md.
 //! Rule KILN-E36: every operation goes through the registry.
 
 /// The quantization formats the runtime understands.

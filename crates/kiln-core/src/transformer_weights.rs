@@ -3,7 +3,7 @@
 //! Weights stay packed (Q4_K, Q6_K, F32). The forward pass feeds the
 //! packed bytes to the fused matmul kernels.
 //!
-//! See docs/transformer-design.md for the design.
+//! See docs/architecture.md for the design.
 
 use std::sync::Arc;
 

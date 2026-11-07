@@ -2,7 +2,7 @@
 //!
 //! Reads the model manifest, the current performance envelope, and the
 //! Constraint-Aware Registry, then produces an ExecutionPlan. See
-//! docs/core-design.md, Subsystem 2.
+//! docs/architecture.md, Subsystem 2.
 //!
 //! Version 1 produces a linear chain of nodes, one per layer. MoE subgraphs
 //! and diffusion loops land in Phase 1.

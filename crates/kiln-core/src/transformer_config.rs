@@ -1,6 +1,6 @@
 //! Transformer configuration read from GGUF metadata.
 //!
-//! See docs/transformer-design.md for the design.
+//! See docs/architecture.md for the design.
 
 use kiln_models::gguf::{GgufFile, GgufValue};
 
