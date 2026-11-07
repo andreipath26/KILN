@@ -33,6 +33,13 @@ cargo run -p kiln-cli -- run /path/to/model.gguf --spec-type ngram-mod
 
 The mode is opt-in, uses the same bounded history drafter and target-model verifier, and works with `--keep-context`. It fails closed on invalid verifier metadata. Do not combine it with `--native-greedy`; speculative verification already uses the native greedy target path. The normal `run` path remains unchanged by default. This is a functional integration, not evidence of a speedup; retain it only if the pinned Dell A/B shows a repeatable end-to-end gain with exact greedy token parity.
 
+The ignored real-model CLI parity test exercises two append-only conversation turns through the ordinary and speculative interactive paths:
+
+```sh
+KILN_TEST_MODEL_PATH=/path/to/pinned-model.gguf \
+  cargo test -p kiln-cli --test interactive_speculative_parity -- --ignored --nocapture
+```
+
 ### Real-model rollback parity test
 
 ```sh
