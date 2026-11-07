@@ -96,6 +96,11 @@ jobs:
           KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
         run: target/debug/kiln pull QuantFactory/SmolLM2-135M-Instruct-GGUF --file SmolLM2-135M-Instruct.Q4_K_M.gguf
 
+      - name: Test interactive speculative CLI parity on the smoke model
+        env:
+          KILN_TEST_MODEL_PATH: ${{ runner.temp }}/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf
+        run: cargo test -p kiln-cli --test interactive_speculative_parity -- --ignored --nocapture
+
       - name: Prepare real activation and recovery candidates
         run: |
           MODEL="$RUNNER_TEMP/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf"
