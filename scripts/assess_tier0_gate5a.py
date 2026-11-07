@@ -25,13 +25,39 @@ def positive(value: str) -> float:
 
 def summarize(paths: list[Path]) -> list[dict]:
     rows = []
+    capture_identity = None
     for path in paths:
         data = json.loads(path.read_text(encoding="utf-8"))
         if data.get("phase_gate") != "5A-expert-block-io-feasibility":
             raise ValueError(f"{path}: not a Phase 5A I/O report")
+        index_file = data.get("index_file")
+        range_count = data.get("indexed_expert_ranges")
+        if not isinstance(index_file, str) or not index_file.strip():
+            raise ValueError(f"{path}: Gate 5A requires an indexed expert-range report")
+        if not isinstance(range_count, int) or isinstance(range_count, bool) or range_count <= 0:
+            raise ValueError(f"{path}: missing or invalid indexed_expert_ranges")
+        model_file = data.get("file")
+        model_size = data.get("file_size_bytes")
+        if not isinstance(model_file, str) or not model_file.strip():
+            raise ValueError(f"{path}: missing model/blob path")
+        if not isinstance(model_size, int) or isinstance(model_size, bool) or model_size <= 0:
+            raise ValueError(f"{path}: missing or invalid model/blob size")
+        requests_per_run = data.get("requests_per_run")
+        repetitions = data.get("repetitions")
+        if (not isinstance(requests_per_run, int) or isinstance(requests_per_run, bool) or requests_per_run <= 0
+                or not isinstance(repetitions, int) or isinstance(repetitions, bool) or repetitions <= 0):
+            raise ValueError(f"{path}: invalid request/repetition counts")
+        identity = (model_file, model_size, index_file, range_count)
+        if capture_identity is None:
+            capture_identity = identity
+        elif identity != capture_identity:
+            raise ValueError(f"{path}: model/index identity differs across block-size captures")
         patterns = data.get("patterns")
         if not isinstance(patterns, list) or not patterns:
             raise ValueError(f"{path}: no access-pattern data")
+        names = [item.get("access_pattern") for item in patterns]
+        if sorted(names) != ["random", "sequential"]:
+            raise ValueError(f"{path}: expected exactly sequential and random access patterns")
         for item in patterns:
             if item.get("access_pattern") not in ("sequential", "random"):
                 raise ValueError(f"{path}: unsupported access pattern")
@@ -41,14 +67,38 @@ def summarize(paths: list[Path]) -> list[dict]:
                 raise ValueError(f"{path}: invalid requested-byte count")
             if not isinstance(rate, (int, float)) or not math.isfinite(rate) or rate < 0:
                 raise ValueError(f"{path}: invalid throughput")
+            expert_keys = item.get("expert_keys")
+            if (not isinstance(expert_keys, list) or not expert_keys
+                    or any(not isinstance(key, dict)
+                           or not isinstance(key.get("layer"), int)
+                           or not isinstance(key.get("expert_id"), int)
+                           for key in expert_keys)):
+                raise ValueError(f"{path}: pattern does not identify sampled expert ranges")
+            if len(expert_keys) != requests_per_run:
+                raise ValueError(f"{path}: sampled expert-key count does not match requests_per_run")
+            measured_requests = item.get("requests")
+            if measured_requests != requests_per_run * repetitions:
+                raise ValueError(f"{path}: measured request count does not match request/repetition counts")
+            min_request = item.get("min_request_bytes")
+            max_request = item.get("max_request_bytes")
+            if (not isinstance(min_request, int) or min_request <= 0
+                    or not isinstance(max_request, int) or max_request < min_request):
+                raise ValueError(f"{path}: invalid actual expert-range request sizes")
             attributed = item.get("linux_process_storage_read_bytes")
             if attributed is not None and (not isinstance(attributed, int) or attributed < 0):
                 raise ValueError(f"{path}: invalid process I/O counter")
             rows.append({
                 "artifact": str(path),
+                "model_file": model_file,
+                "model_size_bytes": model_size,
+                "index_file": index_file,
+                "indexed_expert_ranges": range_count,
                 "block_bytes": data["block_bytes"],
                 "pattern": item["access_pattern"],
+                "sampled_expert_keys": expert_keys,
                 "requested_bytes": requested,
+                "min_request_bytes": min_request,
+                "max_request_bytes": max_request,
                 "process_attributed_read_bytes": attributed,
                 "rate_mib_s_page_cache_uncontrolled": rate,
                 "p50_us": item["request_latency_p50_us"],
@@ -89,7 +139,7 @@ def main() -> int:
         "probe_cache_controlled": False,
         "records": records,
         "traffic_budget": None,
-        "caveat": "I/O probe results are page-cache uncontrolled and cannot prove cold-device speed; no real-model inference or memory/quality acceptance is inferred.",
+        "caveat": "I/O probe results use indexed expert ranges but remain page-cache uncontrolled; they do not prove cold-device speed or real-model inference, memory, or quality acceptance.",
     }
     if args.effective_ssd_mib_s is not None:
         out["traffic_budget"] = traffic_budget(
