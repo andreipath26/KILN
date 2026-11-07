@@ -23,6 +23,16 @@ kiln bench-spec /path/to/Qwen2.5-1.5B-Q4_K.gguf \
 
 This command alternates baseline-greedy and speculative runs on **the same loaded model** and demands identical token IDs/EOS conditions in each trial. It reports generated tokens, proposed/accepted drafts, batch verification calls, forward calls, median generation throughput and relative rate. The timing excludes model load and prompt prefill. A low-repetition prompt may produce no draft proposals and no speed benefit.
 
+### Interactive CLI opt-in
+
+The verified n-gram path is also available during interactive CLI inference:
+
+```sh
+cargo run -p kiln-cli -- run /path/to/model.gguf --spec-type ngram-mod
+```
+
+The mode is opt-in, uses the same bounded history drafter and target-model verifier, and works with `--keep-context`. It fails closed on invalid verifier metadata. Do not combine it with `--native-greedy`; speculative verification already uses the native greedy target path. The normal `run` path remains unchanged by default. This is a functional integration, not evidence of a speedup; retain it only if the pinned Dell A/B shows a repeatable end-to-end gain with exact greedy token parity.
+
 ### Real-model rollback parity test
 
 ```sh

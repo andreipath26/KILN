@@ -106,8 +106,11 @@ enum Commands {
         #[arg(long)]
         keep_context: bool,
         /// Experimental greedy fast path: bypass vocabulary-sized logits transfers.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "spec_type")]
         native_greedy: bool,
+        /// Experimental exact n-gram speculative decode mode.
+        #[arg(long, value_parser = ["ngram-mod"])]
+        spec_type: Option<String>,
     },
     /// Controlled Phase 3.5 second-turn prompt-cache A/B experiment.
     BenchKv {
@@ -780,9 +783,13 @@ async fn main() {
                 }
             }
         }
-        Commands::Run { model, max_tokens, keep_context, native_greedy } => {
+        Commands::Run { model, max_tokens, keep_context, native_greedy, spec_type } => {
             if max_tokens == 0 {
                 eprintln!("run: --max-tokens must be at least 1");
+                std::process::exit(2);
+            }
+            if native_greedy && spec_type.is_some() {
+                eprintln!("run: --native-greedy cannot be combined with --spec-type; n-gram verification already uses the native greedy target path");
                 std::process::exit(2);
             }
             let selected_model = if model == "auto" {
@@ -794,7 +801,10 @@ async fn main() {
                     Err(error) => { eprintln!("run auto: {error}"); std::process::exit(2); }
                 }
             } else { model };
-            if let Err(error) = run_interactive(&selected_model, max_tokens, keep_context, native_greedy) {
+            if let Err(error) = run_interactive(
+                &selected_model, max_tokens, keep_context, native_greedy,
+                spec_type.as_deref() == Some("ngram-mod"),
+            ) {
                 eprintln!("run: {}", error);
                 std::process::exit(1);
             }
@@ -1132,6 +1142,61 @@ fn decode_utf8_piece(pending: &mut Vec<u8>, bytes: &[u8]) -> String {
     }
 }
 
+/// Validate backend draft-verification metadata before updating history/KV.
+fn validate_verified_draft(accepted: usize, draft_len: usize, next: i32)
+    -> Result<(usize, i32), String>
+{
+    if accepted > draft_len {
+        return Err(format!("verifier accepted {accepted} tokens from a {draft_len}-token draft"));
+    }
+    if next < 0 {
+        return Err(format!("verifier returned invalid next token ID {next}"));
+    }
+    Ok((accepted, next))
+}
+
+/// Extend generation history only with the prefix retained in native KV.
+fn record_verified_draft(history: &mut Vec<i32>, draft: &[i32], accepted: usize, next: i32)
+    -> Result<i32, String>
+{
+    let (accepted, next) = validate_verified_draft(accepted, draft.len(), next)?;
+    history.extend_from_slice(&draft[..accepted]);
+    Ok(next)
+}
+
+#[cfg(test)]
+mod speculative_cli_tests {
+    use super::{record_verified_draft, validate_verified_draft};
+
+    #[test]
+    fn accepts_valid_full_and_partial_draft_results() {
+        assert_eq!(validate_verified_draft(0, 4, 9), Ok((0, 9)));
+        assert_eq!(validate_verified_draft(2, 4, 9), Ok((2, 9)));
+        assert_eq!(validate_verified_draft(4, 4, 9), Ok((4, 9)));
+    }
+
+    #[test]
+    fn rejects_impossible_accept_count_and_negative_token() {
+        assert!(validate_verified_draft(5, 4, 9).is_err());
+        assert!(validate_verified_draft(0, 4, -1).is_err());
+    }
+
+    #[test]
+    fn records_only_the_native_kv_accepted_prefix() {
+        let mut history = vec![1, 2, 3];
+        let next = record_verified_draft(&mut history, &[4, 5, 6], 2, 7).unwrap();
+        assert_eq!(next, 7);
+        assert_eq!(history, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn invalid_verification_does_not_mutate_history() {
+        let mut history = vec![1, 2, 3];
+        assert!(record_verified_draft(&mut history, &[4, 5], 3, 7).is_err());
+        assert_eq!(history, vec![1, 2, 3]);
+    }
+}
+
 #[cfg(test)]
 mod utf8_stream_tests {
     use super::decode_utf8_piece;
@@ -1195,6 +1260,22 @@ mod cli_tests {
         assert!(matches!(opted.command, Commands::Run {
             keep_context: true, max_tokens: 32, ..
         }));
+    }
+
+    #[test]
+    fn ngram_speculation_is_explicit_and_conflicts_with_plain_native_greedy_flag() {
+        let selected = Cli::try_parse_from([
+            "kiln", "run", "model.gguf", "--spec-type", "ngram-mod",
+        ]).unwrap();
+        assert!(matches!(selected.command, Commands::Run {
+            spec_type: Some(ref kind), native_greedy: false, ..
+        } if kind == "ngram-mod"));
+        assert!(Cli::try_parse_from([
+            "kiln", "run", "model.gguf", "--spec-type", "unknown",
+        ]).is_err());
+        assert!(Cli::try_parse_from([
+            "kiln", "run", "model.gguf", "--spec-type", "ngram-mod", "--native-greedy",
+        ]).is_err());
     }
 
     #[test]
@@ -1336,12 +1417,26 @@ mod interactive_kv_tests {
         assert!(!reset);
         assert_eq!(tail, vec![8, 1, 2]);
     }
+
+    #[test]
+    fn accepted_batched_tokens_extend_context_once_before_corrected_pending_token() {
+        let mut cache = InteractiveKvState::default();
+        let (_, prompt) = cache.prepare(vec![1, 2], 8, 32).unwrap();
+        cache.forwarded(prompt.len());
+        // A two-token draft was accepted and is already resident in native KV.
+        cache.forwarded(2);
+        cache.emitted(9); // corrected next token is output but not forwarded yet
+        let (reset, next_turn) = cache.prepare(vec![10, 11], 8, 32).unwrap();
+        assert!(!reset);
+        assert_eq!(cache.cached_tokens, 4);
+        assert_eq!(next_turn, vec![9, 10, 11]);
+    }
 }
 
 /// Run a real interactive text session using the runtime dispatcher.
-fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_greedy: bool) -> Result<(), String> {
+fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_greedy: bool, speculative: bool) -> Result<(), String> {
     use kiln_core::chat::{Sampler, SamplingStrategy};
-    use kiln_runtime::{LlamaCppBackend, RuntimeDispatcher, RuntimeOp, RuntimeResult, SystemProfile};
+    use kiln_runtime::{draft_ngram, LlamaCppBackend, NgramDraftConfig, RuntimeDispatcher, RuntimeOp, RuntimeResult, SystemProfile};
     use std::io::{self, Write};
 
     let profile = SystemProfile::load_or_probe();
@@ -1364,9 +1459,15 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_gr
     println!("KILN interactive session — model: {}", model);
     println!("Type /exit to quit. Profile: {:?}, threads={}, context={}",
         profile.tier, profile.n_threads, profile.n_ctx);
+    if speculative {
+        println!("Speculative decode: ngram-mod (experimental; target-verified)");
+    }
 
     let stdin = io::stdin();
     let mut kv_state = InteractiveKvState::default();
+    let mut speculative_history = Vec::<i32>::new();
+    let draft_config = NgramDraftConfig::default();
+    let fast_greedy = native_greedy || speculative;
     let mut first_turn = true;
     loop {
         print!("you> ");
@@ -1420,6 +1521,7 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_gr
                 let (_, fresh) = kv_state.prepare(fresh, max_tokens, profile.n_ctx as usize)?;
                 dispatcher.dispatch(RuntimeOp::Reset)
                     .map_err(|e| format!("KV reset on context boundary failed: {e}"))?;
+                speculative_history.clear();
                 eprintln!("note: context limit approached; starting a fresh conversation window");
                 fresh
             } else {
@@ -1428,11 +1530,13 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_gr
         } else {
             dispatcher.dispatch(RuntimeOp::Reset)
                 .map_err(|e| format!("session reset failed: {}", e))?;
+            speculative_history.clear();
             tokens
         };
         let prefill_count = tokens.len();
+        let prefill_tokens = if speculative { Some(tokens.clone()) } else { None };
         let prefill_start = std::time::Instant::now();
-        let (mut logits, mut native_next) = if native_greedy {
+        let (mut logits, mut native_next) = if fast_greedy {
             match dispatcher.dispatch(RuntimeOp::ForwardGreedy { tokens })
                 .map_err(|e| format!("native greedy prompt evaluation failed: {e}"))? {
                 RuntimeResult::Int(token) => (None, Some(token)),
@@ -1456,13 +1560,61 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_gr
                 "append-only interactive prefill"
             );
         }
+        if let Some(tokens) = prefill_tokens {
+            speculative_history.extend(tokens);
+        }
 
         print!("kiln> ");
         io::stdout().flush().map_err(|e| format!("response output failed: {}", e))?;
         let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
         let mut pending_utf8 = Vec::new();
-        for step in 0..max_tokens {
-            let token = if native_greedy {
+        let mut generated = 0usize;
+        let mut proposed_draft_tokens = 0usize;
+        let mut accepted_draft_tokens = 0usize;
+        let generation_started = std::time::Instant::now();
+        while generated < max_tokens {
+            if speculative {
+                let mut draft = draft_ngram(&speculative_history, draft_config, Some(eos));
+                draft.truncate(max_tokens - generated);
+                if !draft.is_empty() {
+                    proposed_draft_tokens += draft.len();
+                    let verification = match dispatcher.dispatch(RuntimeOp::VerifyGreedyDraft {
+                        tokens: draft.clone(),
+                    }).map_err(|e| format!("n-gram target verification failed: {e}"))? {
+                        RuntimeResult::VerifiedGreedy { accepted, next } => (accepted, next),
+                        _ => return Err("backend returned an unexpected n-gram verification result".to_string()),
+                    };
+                    let (accepted, corrected_next) = {
+                        let corrected_next = record_verified_draft(
+                            &mut speculative_history, &draft, verification.0, verification.1,
+                        )?;
+                        (verification.0, corrected_next)
+                    };
+                    accepted_draft_tokens += accepted;
+                    // The verifier retains only this accepted prefix in KV and
+                    // rolls back rejected/unverified draft positions.
+                    if keep_context {
+                        kv_state.forwarded(accepted);
+                    }
+                    for &draft_token in &draft[..accepted] {
+                        let piece = match dispatcher.dispatch(RuntimeOp::TokenToStr { token: draft_token })
+                            .map_err(|e| format!("speculative token decoding failed: {e}"))? {
+                            RuntimeResult::Bytes(bytes) => decode_utf8_piece(&mut pending_utf8, &bytes),
+                            RuntimeResult::Str(text) => text,
+                            _ => return Err("backend returned an unexpected speculative token-string result".to_string()),
+                        };
+                        print!("{}", piece);
+                        io::stdout().flush().map_err(|e| format!("response output failed: {e}"))?;
+                        generated += 1;
+                    }
+                    if generated >= max_tokens {
+                        break;
+                    }
+                    native_next = Some(corrected_next);
+                }
+            }
+
+            let token = if fast_greedy {
                 native_next.ok_or_else(|| "no native next token".to_string())?
             } else {
                 sampler.sample(logits.as_deref().ok_or("missing logits")?)
@@ -1484,8 +1636,9 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_gr
             };
             print!("{}", piece);
             io::stdout().flush().map_err(|e| format!("response output failed: {}", e))?;
-            if step + 1 < max_tokens {
-                if native_greedy {
+            generated += 1;
+            if generated < max_tokens {
+                if fast_greedy {
                     native_next = match dispatcher.dispatch(RuntimeOp::ForwardGreedy { tokens: vec![token] })
                         .map_err(|e| format!("native greedy decode failed: {e}"))? {
                         RuntimeResult::Int(next) => Some(next),
@@ -1498,6 +1651,9 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_gr
                         _ => return Err("backend returned an unexpected decode result".to_string()),
                     };
                 }
+                if speculative {
+                    speculative_history.push(token);
+                }
                 if keep_context {
                     kv_state.pending_token = None;
                     kv_state.forwarded(1);
@@ -1508,6 +1664,15 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_gr
             print!("{}", String::from_utf8_lossy(&pending_utf8));
         }
         println!();
+        if speculative {
+            let elapsed = generation_started.elapsed().as_secs_f64().max(f64::MIN_POSITIVE);
+            eprintln!("[ngram-mod: {} proposed, {} accepted ({:.1}%), {:.2} wall-clock interactive tok/s]",
+                proposed_draft_tokens,
+                accepted_draft_tokens,
+                if proposed_draft_tokens == 0 { 0.0 }
+                    else { accepted_draft_tokens as f64 * 100.0 / proposed_draft_tokens as f64 },
+                generated as f64 / elapsed);
+        }
     }
     dispatcher.dispatch(RuntimeOp::Unload)
         .map_err(|e| format!("model unload failed: {}", e))?;

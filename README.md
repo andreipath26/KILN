@@ -43,6 +43,8 @@ cmake --build vendor/llama.cpp/build --config Release -j
 
 cargo run -p kiln-cli -- --help
 cargo run -p kiln-cli -- run /path/to/model.gguf --max-tokens 50
+# Optional, experimental draftless n-gram speculative decoding:
+cargo run -p kiln-cli -- run /path/to/model.gguf --spec-type ngram-mod
 ```
 
 Find local GGUF files, search public Hugging Face GGUF repositories, or download a selected file:
