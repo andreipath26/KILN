@@ -1,9 +1,0 @@
-# Phase 5.3 — bounded asynchronous expert-read CPU fallback
-
-This change implements an actual background expert-read worker over KILN's verified, cache-backed expert reader. It is a **portable buffered-I/O fallback**, not the final Linux `io_uring` or `SQPOLL` implementation. Its usefulness must be measured against the compute graph, not inferred from synthetic queue tests.
-
-A session coordinator calls `begin_epoch(token_epoch)`, then `submit(epoch, ExpertKey)`. Submission looks up the exact expert byte length from the validated index before initiating any I/O. The coordinator reserves both a maximum number of pending reads and a maximum number of pending bytes. Duplicate keys are not scheduled twice. The worker reads into an Arc-backed shared expert cache; `poll_ready()` drains completed requests without blocking, returns shared allocations and releases the corresponding pending bytes. Stale completions from earlier token epochs are never admitted for execution.
-
-The worker uses one dedicated thread and `sync_channel` with bounded request capacity. This is sufficient to exercise actual read/compute overlap under a controlled protocol. It is **not** an io_uring backend, does not guarantee read cancellation after a syscall begins, and does not automatically cap all memory held by callers who retain returned Arc blocks or the OS page cache. The enclosing model router must still use the Phase 5.2 `ExpertCommitGuard` to authorize only actual model-selected experts; the worker's predictions are never authoritative.
-
-Unit tests exercise real file-backed expert reads, invalid key/epoch rejection, queue and byte caps, correct returned bytes, and zero cache misses for rejected oversized requests. Future integration work must connect this worker to live llama.cpp MoE router decisions and measure overlap, RSS and SSD pressure on the Dell. The milestone's `io_uring` / `SQPOLL` experiments and end-to-end MoE streaming target are explicitly still open.

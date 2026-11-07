@@ -1,96 +1,33 @@
-# KILN Quantization Policy
+# KILN quantization policy
 
-Status: DRAFT
-Owner: project lead
-Created: 2026-10-03
-Purpose: Record the design decision about which quantization formats
-KILN supports natively.
+**Status:** Active policy record under KILN-E35. The master roadmap remains authoritative for phase status and acceptance gates.
 
-## The problem
+## Policy
 
-The masses bring models they already have. Those models are almost
-never in TQ1_0. They are in the standard GGUF quantizations that the
-ecosystem uses: Q4_0, Q4_K, Q5_K, Q6_K, Q8_0, F16, F32. If KILN only
-supports TQ1_0, it fails the vast majority of real models.
+GGUF structural recognition, tensor decoding, backend kernel coverage, and end-to-end model compatibility are separate claims. A file that parses is not necessarily executable by the active inference backend. Format support must be stated at the level actually demonstrated: parser, tensor operation, backend, or pinned model/workload.
 
-The inspect of a real Qwen2.5 1.5B model proved it:
+KILN should retain compatibility with widely used GGUF formats while developing its TQ1_0 path. Ternary is an optimization and research direction; it is not a requirement imposed on users. No quantization format may be called generally supported based only on a design draft, converter, isolated decoder, or synthetic test.
 
-  168 tensors at dtype code 12 (Q4_K)
-   29 tensors at dtype code 14 (Q6_K)
-  141 tensors at F32
+## Current evidence
 
-If KILN cannot decode Q4_K and Q6_K, it cannot run this model. This
-is a 986 MB model that a user already has. Rejecting it is not
-acceptable.
+| Format or layer | Evidence/status | What may be claimed |
+|---|---|---|
+| GGUF container | The repository has GGUF discovery and structural validation. | Structural validation only; it does not certify architecture or runtime compatibility. |
+| Q4_K | README records a historical Qwen2.5-1.5B Q4_K run on the Dell Latitude 7490. | This is a historical model-level result, not a current-head benchmark or universal Q4_K support guarantee. |
+| TQ1_0 | The repository and roadmap record a native ternary path; current GGML type is 34 and packing is five trits per byte. | Identify the format/path as implemented; performance and quality claims still require their specific gates. |
+| Other GGUF tensor types | Support depends on the pinned parser, tensor operations, and backend path. | Do not claim broad support without a verified support matrix and model-level evidence. |
 
-## The decision
+The roadmap records measured and historical results with their conditions. Re-run the pinned Phase 3.5 benchmark before using old rates as current performance.
 
-KILN supports the standard GGUF quantizations as first-class formats.
-Ternary is an optimization, not a requirement.
+## Adding or changing a format
 
-Natively supported in Phase 1:
+Before declaring a format supported, document:
 
-  F32        32-bit float, uncompressed
-  F16        16-bit float, uncompressed
-  Q4_0       4-bit, group size 32, legacy
-  Q4_K       4-bit, group size 32, K-quant, modern
-  Q5_K       5-bit, group size 32, K-quant, modern
-  Q6_K       6-bit, group size 32, K-quant, modern
-  Q8_0       8-bit, group size 32, legacy
-  TQ1_0      KILN ternary, 5 trits per byte
+1. GGUF type ID, block layout, alignment, effective bits/weight, scales and metadata.
+2. Parser and validation behavior, including malformed/truncated input handling.
+3. Implemented decode and compute operations, supported backends, and fallback behavior.
+4. Differential correctness against a pinned reference implementation and representative tensors.
+5. At least one pinned real-model load/inference result, with quality and performance reported separately.
+6. Licensing/provenance and whether conversion is required.
 
-Deferred to Phase 2:
-
-  Q2_K, Q3_K, Q3_K_S, Q3_K_M, Q3_K_L
-  IQ1_S, IQ1_M, IQ2_XXS, IQ2_XS, IQ2_S, IQ2_M
-  IQ3_XXS, IQ3_XS, IQ3_S, IQ3_M
-  IQ4_XS, IQ4_NL
-
-The deferred formats are lower priority because they are less common.
-They will be added if users need them.
-
-## Why Q4_K and Q6_K matter most
-
-They are the two most common quantizations in the ecosystem. Ollama,
-LM Studio, llama.cpp, and HuggingFace all default to Q4_K_M for
-distribution. A user who downloads a model from HuggingFace gets a
-Q4_K_M file. That file must load.
-
-## The kernel strategy
-
-Each supported format needs a decode function and a matmul kernel.
-
-The decode function takes packed bytes and returns f32 values. It is
-used for norms, biases, and any tensor where the caller needs the
-actual float values.
-
-The matmul kernel takes packed bytes and an activation vector and
-returns the dot product. It does not materialize the weights. It is
-the hot path for inference.
-
-For the first version, only the decode functions are needed. The
-matmul uses decode-then-matvec. That is slower than a fused kernel
-but correct. The fused kernels come later, in priority order:
-
-  1. Q4_K fused matmul  (most common format)
-  2. Q6_K fused matmul
-  3. Q8_0 fused matmul
-  4. TQ1_0 fused matmul (already exists, scalar only)
-
-## What this means for the roadmap
-
-The Phase 1 transformer can load a real Q4_K model once the decode
-functions exist. That is the fastest path to a working assistant.
-
-The Phase 2 SSD streaming and MoE work still applies. Those optimizations
-work on top of whatever quantization the model uses.
-
-The TQ1_0 ternary path remains the KILN-specific speed advantage. It is
-what makes the smallest, slowest machines fast enough. But it is an
-optimization, not a gate.
-
-## Rule
-
-Rule KILN-E35. KILN supports the standard GGUF quantizations natively.
-Ternary is an optimization. No user is excluded because their model is
-in a different format.
+Keep exact execution and lossy/approximate changes distinct. Any loss of precision or route substitution requires an explicit quality budget and evaluation. Never infer runtime performance from nominal bits per parameter alone.
