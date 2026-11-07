@@ -640,3 +640,10 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - `node --check crates/kiln-api/static/ui.js` and `git diff --check` pass. Rust compilation and live browser/API behavior have not been verified in this environment; no phase acceptance gate is claimed complete.
 - Expanded the Advanced overview to show the API's actual fixed inference defaults (greedy sampling, 128-token chat limit and role-prefixed prompts), and made its cards adapt to available width. Sampling remains reported as limited rather than presented as an editable setting.
 - CI exposed a workspace compile error in the just-merged model-library code (`Option::or_else` passed a value instead of a closure). Corrected the fallback to `Option::or`; rerun CI before merge.
+
+
+### 2026-11-07 — Phase 3.5 interactive n-gram speculative decode integration
+
+- Wired the existing bounded n-gram proposer and target-model `VerifyGreedyDraft` operation into interactive `kiln run` behind the explicit `--spec-type ngram-mod` option. The ordinary greedy path remains the default; speculative mode uses exact target verification, bounds proposals to the remaining output budget, and updates append-only KV history only for tokens retained by the verifier.
+- Added fail-closed validation for impossible verifier acceptance counts and negative next-token IDs, CLI parsing/conflict checks, per-turn proposal/acceptance counters, and an experimental CLI usage example.
+- This is an implementation milestone only. No speedup, output-quality gain, Phase 3.5 completion, or Dell acceptance is claimed. Validate native KV rollback/output parity with a pinned real GGUF, then retain the option only if the controlled Dell A/B demonstrates a repeatable end-to-end gain.
