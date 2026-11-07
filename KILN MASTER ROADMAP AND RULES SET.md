@@ -649,3 +649,15 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Added an ignored real-GGUF CLI integration test that runs baseline and speculative interactive inference across append-only turns and compares generated response text. The existing real-model verifier rollback test covers native KV restoration separately.
 - CI now executes the CLI integration test against its verified SmolLM2 smoke GGUF; this is a functional integration check, not a Tier 0 performance result.
 - This is an implementation milestone only. No speedup, output-quality gain, Phase 3.5 completion, or Dell acceptance is claimed. Validate native KV rollback/output parity with a pinned real GGUF, then retain the option only if the controlled Dell A/B demonstrates a repeatable end-to-end gain.
+
+
+### 2026-11-07 — Phase 3.5 unified capture and profiling workflow
+
+- Added `scripts/run_phase35_suite.sh` to build once and capture the 15-point dense thread/batch/microbatch matrix, isolated Rust/native greedy sampler A/B, three exact-parity n-gram draft widths, and KV reuse A/B under a shared model/revision provenance record.
+- Added `scripts/profile_phase35_hotpath.sh` for an isolated Linux `perf` profile; profile samples are not mixed with throughput measurements. The capture summary explicitly reports missing or permission-blocked profiling, incomplete matrices, and any greedy/speculative/KV parity failure.
+- Added optional `scripts/capture_phase35_ollama.py` raw-completion capture against a local Ollama model. It alternates paired KILN/Ollama trials using matching prompt length, greedy temperature, thread/batch/context settings and records Ollama version/digest plus the source GGUF SHA. Same-weight identity remains a required manual verification.
+- Added an explicit KILN-versus-Ollama rate ratio and per-setting match flags to `summary.json`; model-weight identity and target thermal/power equivalence remain manual gates. The docs include same-GGUF Ollama import commands.
+- Dense matrix defaults are now 128 generated tokens and five measured repetitions, overridable through environment variables. A run-notes template captures the Dell target identity, pinned Ollama settings, thermal state, profile interpretation and repeatable optimization evidence.
+- CI now invokes the dense, speculative and KV benchmark commands against the verified small real-GGUF smoke model to catch CLI/report integration errors before the Dell run.
+- Shell syntax checks, `git diff --check`, and ten synthetic evidence-summary/Ollama API tests pass. The summary verifies the exact dense matrix filenames/settings as well as completeness. The same checks are now part of GitHub CI; CI is pending for the latest PR revision.
+- This workflow improves measurement readiness only. Phase 3.5 remains open until the pinned Qwen2.5-1.5B Q4_K Dell baseline and Ollama comparison, thermally stable repeated runs, hot-path profile, and measured optimization gains satisfy the existing exit gate. No performance or acceptance result is claimed.

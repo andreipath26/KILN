@@ -14,6 +14,13 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 OUT="${2:-tier0-dense-$(date -u +%Y%m%dT%H%M%SZ)}"
+TOKENS="${KILN_BENCH_TOKENS:-128}"
+RUNS="${KILN_BENCH_RUNS:-5}"
+WARMUP="${KILN_BENCH_WARMUP:-1}"
+if [[ ! "$TOKENS" =~ ^[1-9][0-9]*$ || ! "$RUNS" =~ ^[1-9][0-9]*$ || ! "$WARMUP" =~ ^[0-9]+$ ]]; then
+  echo "KILN_BENCH_TOKENS/RUNS must be positive integers; WARMUP must be a nonnegative integer" >&2
+  exit 2
+fi
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 {
@@ -31,14 +38,16 @@ OUT="$(cd "$OUT" && pwd)"
   echo "NOTE=controlled KILN-only comparisons; Ollama baseline measured separately"
 } > "$OUT/provenance.txt"
 
-cargo build --release -p kiln-cli > "$OUT/build.log" 2>&1
+if [[ "${KILN_SKIP_BUILD:-0}" != 1 ]]; then
+  cargo build --release -p kiln-cli > "$OUT/build.log" 2>&1
+fi
 for threads in 2 3 4; do
   for batch in 256 512 1024 2048; do
     label="t${threads}-b${batch}"
     /usr/bin/time -v -o "$OUT/time-${label}.txt" \
       target/release/kiln bench "$MODEL" \
-      --prompt "The meaning of life is" --tokens 64 \
-      --warmup 1 --runs 3 --threads "$threads" --batch "$batch" --json \
+      --prompt "The meaning of life is" --tokens "$TOKENS" \
+      --warmup "$WARMUP" --runs "$RUNS" --threads "$threads" --batch "$batch" --json \
       > "$OUT/${label}.json"
     echo "completed $label"
   done
@@ -49,8 +58,8 @@ for ubatch in 128 256 512; do
   label="t4-b512-u${ubatch}"
   /usr/bin/time -v -o "$OUT/time-${label}.txt" \
     target/release/kiln bench "$MODEL" \
-    --prompt "The meaning of life is" --tokens 64 \
-    --warmup 1 --runs 3 --threads 4 --batch 512 --ubatch "$ubatch" --json \
+    --prompt "The meaning of life is" --tokens "$TOKENS" \
+    --warmup "$WARMUP" --runs "$RUNS" --threads 4 --batch 512 --ubatch "$ubatch" --json \
     > "$OUT/${label}.json"
   echo "completed $label"
 done

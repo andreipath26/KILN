@@ -53,6 +53,12 @@ jobs:
       - name: Test Tier 0 feasibility report assessor
         run: python3 -m unittest scripts.test_assess_tier0_gate5a -v
 
+      - name: Test Phase 3.5 evidence summary and capture scripts
+        run: |
+          python3 -m unittest scripts.test_summarize_phase35 -v
+          python3 -m unittest scripts.test_capture_phase35_ollama -v
+          bash -n scripts/run_phase35_suite.sh scripts/run_tier0_dense_matrix.sh scripts/profile_phase35_hotpath.sh
+
       - name: Run workspace tests
         run: cargo test --workspace --all-targets
 
@@ -95,6 +101,28 @@ jobs:
         env:
           KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
         run: target/debug/kiln pull QuantFactory/SmolLM2-135M-Instruct-GGUF --file SmolLM2-135M-Instruct.Q4_K_M.gguf
+
+      - name: Smoke-test Phase 3.5 real-model benchmark commands
+        env:
+          KILN_TEST_MODEL_PATH: ${{ runner.temp }}/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf
+        run: |
+          target/debug/kiln bench "$KILN_TEST_MODEL_PATH" --tokens 8 --warmup 0 --runs 1 --threads 2 --batch 128 --ubatch 64 --json > "$RUNNER_TEMP/phase35-dense.json"
+          target/debug/kiln bench-spec "$KILN_TEST_MODEL_PATH" --tokens 8 --warmup 0 --runs 1 --threads 2 --batch 128 --ubatch 64 --draft-max 4 --json > "$RUNNER_TEMP/phase35-spec.json"
+          target/debug/kiln bench-kv "$KILN_TEST_MODEL_PATH" --runs 1 --threads 2 --batch 128 --ubatch 64 --json > "$RUNNER_TEMP/phase35-kv.json"
+          python3 - "$RUNNER_TEMP" <<'PY'
+          import json
+          import pathlib
+          import sys
+          root = pathlib.Path(sys.argv[1])
+          dense = json.loads((root / "phase35-dense.json").read_text())
+          spec = json.loads((root / "phase35-spec.json").read_text())
+          kv = json.loads((root / "phase35-kv.json").read_text())
+          assert dense["sampling_path"] == "rust_logits_greedy"
+          assert dense["requested_microbatch"] == 64
+          assert spec["all_output_sequences_equal"] is True
+          assert kv["all_argmax_equal"] is True
+          print("Phase 3.5 real-GGUF benchmark smoke passed")
+          PY
 
       - name: Test interactive speculative CLI parity on the smoke model
         env:
