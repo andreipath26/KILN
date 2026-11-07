@@ -20,6 +20,8 @@ struct kiln_llama_params {
     int32_t n_batch;
     int32_t n_ubatch;
     int32_t n_threads;
+    /* Opt into on-demand mmap reads for supported routed-expert tensors. */
+    int32_t lazy_moe_experts;
 };
 
 /* Returns NULL on failure. */

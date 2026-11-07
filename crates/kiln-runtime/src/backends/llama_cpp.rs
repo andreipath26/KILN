@@ -36,7 +36,7 @@ impl RuntimeBackend for LlamaCppBackend {
         match op {
             RuntimeOp::MoEBeginToken { .. } | RuntimeOp::MoEPrefetch { .. }
                 | RuntimeOp::MoEPoll | RuntimeOp::MoECommit { .. } => Err(RuntimeError::NoBackend),
-            RuntimeOp::Load { path, n_ctx, n_batch, n_ubatch, n_threads } => {
+            RuntimeOp::Load { path, n_ctx, n_batch, n_ubatch, n_threads, lazy_moe_experts } => {
                 let max = i32::MAX as u32;
                 if *n_ctx == 0 || *n_batch == 0 || *n_ubatch == 0 || *n_threads == 0
                     || *n_ctx > max || *n_batch > max || *n_ubatch > max || *n_threads > max
@@ -46,9 +46,10 @@ impl RuntimeBackend for LlamaCppBackend {
                         "n_ctx, n_batch, n_ubatch, and n_threads must be valid positive values within i32 range, and n_ubatch <= n_batch".to_string(),
                     )));
                 }
-                let ctx = LlamaContext::load_with_ubatch(
+                let ctx = LlamaContext::load_with_ubatch_and_lazy_moe(
                     path,
                     Some((*n_ctx as i32, *n_batch as i32, *n_ubatch as i32, *n_threads as i32)),
+                    *lazy_moe_experts,
                 )?;
                 self.ctx = Some(ctx);
                 Ok(RuntimeResult::Unit)
@@ -131,6 +132,7 @@ mod tests {
             n_batch: 512,
             n_ubatch: 256,
             n_threads: 4,
+            lazy_moe_experts: false,
         });
         assert!(matches!(result, Err(RuntimeError::Llama(LlamaError::Load(_)))));
     }
@@ -144,6 +146,7 @@ mod tests {
             n_batch: 256,
             n_ubatch: 512,
             n_threads: 4,
+            lazy_moe_experts: false,
         });
         assert!(matches!(result, Err(RuntimeError::Llama(LlamaError::Load(_)))));
     }
@@ -157,6 +160,7 @@ mod tests {
             n_batch: 512,
             n_ubatch: 256,
             n_threads: 4,
+            lazy_moe_experts: false,
         });
         assert!(matches!(result, Err(RuntimeError::Llama(LlamaError::Load(_)))));
     }

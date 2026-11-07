@@ -103,6 +103,7 @@ fn load_session(path: PathBuf) -> Result<RuntimeSession, String> {
             n_batch: profile.n_batch,
             n_ubatch: profile.n_batch.min(512),
             n_threads: profile.n_threads,
+            lazy_moe_experts: false,
         }).map_err(|e| format!("failed to load configured model {}: {}", path.display(), e))?;
 
         let eos_token = match dispatcher.dispatch(RuntimeOp::EosToken)

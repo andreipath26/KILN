@@ -91,6 +91,7 @@ pub fn run(
         n_batch: profile.n_batch,
         n_ubatch: physical,
         n_threads: profile.n_threads,
+        lazy_moe_experts: false,
     }).map_err(|e| format!("model load: {e}"))?;
 
     // The same separately tokenized segments are used in both candidates,

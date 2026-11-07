@@ -32,6 +32,7 @@ pub struct LlamaParamsRaw {
     pub n_batch: c_int,
     pub n_ubatch: c_int,
     pub n_threads: c_int,
+    pub lazy_moe_experts: c_int,
 }
 
 extern "C" {
@@ -108,6 +109,15 @@ impl LlamaContext {
 
     /// Explicit physical microbatch tuning for controlled Phase 3.5 experiments.
     pub fn load_with_ubatch(path: &Path, params: Option<(i32, i32, i32, i32)>) -> Result<Self, LlamaError> {
+        Self::load_with_ubatch_and_lazy_moe(path, params, false)
+    }
+
+    /// Load with optional on-demand mmap reads for supported MoE expert tensors.
+    pub fn load_with_ubatch_and_lazy_moe(
+        path: &Path,
+        params: Option<(i32, i32, i32, i32)>,
+        lazy_moe_experts: bool,
+    ) -> Result<Self, LlamaError> {
         if let Some((ctx, batch, ubatch, threads)) = params {
             if ctx <= 0 || batch <= 0 || ubatch <= 0 || threads <= 0 || ubatch > batch {
                 return Err(LlamaError::Load("invalid native context/batch/microbatch/thread parameters".into()));
@@ -120,6 +130,7 @@ impl LlamaContext {
             n_batch: n_batch as c_int,
             n_ubatch: n_ubatch as c_int,
             n_threads: n_threads as c_int,
+            lazy_moe_experts: if lazy_moe_experts { 1 } else { 0 },
         });
         let raw_ptr = raw.as_ref().map(|r| r as *const LlamaParamsRaw).unwrap_or(std::ptr::null());
         let handle = unsafe { kiln_llama_load(cpath.as_ptr(), raw_ptr) };

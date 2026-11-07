@@ -178,13 +178,14 @@ Phase 5 aims to stream MoE experts through the memory hierarchy while retaining 
 - **Phase 5.1:** PRs #41–44 add explicit GGUF tensor-to-expert component maps, a 4 KiB-aligned separate sidecar pack, CRC32 verification, and component readers. The original GGUF remains unchanged. Mapping is explicit; fused expert tensors are not generally decomposed automatically.
 - **Phase 5.2/5.3:** PRs #15, #31, #47, #49, #52, #53 and #55 add bounded expert-file reads, byte-bounded cache/admission, authoritative-router Commit Guard behavior, bounded asynchronous prefetch, and a Linux io_uring reader with buffered fallback.
 - **Phase 5.4:** PR #56 registers `MoEStreamBackend` (`cpu_moe_streamed`) for token-scoped expert-byte operations. A real-file test covers predictions, misses, router order, and stale epochs.
+- **Lazy-mmap baseline:** PR #70 adds an opt-in llama.cpp shared-loader path for standard routed-expert tensor types across supported MoE architectures, with `kiln run`, `kiln chat`, and `kiln bench` entry points. It keeps the original GGUF and uses llama.cpp mmap/page-cache behavior; it does not connect the KILN sidecar, cache, predictor, prefetch, or `cpu_moe_streamed` to model compute, and it is not Gate 5A evidence.
 - **Integration boundary:** These are real code and test milestones, not end-to-end streamed inference. The stock llama.cpp model graph does not call the new expert operations or materialize sidecar tensor components into its compute path. Dell real-model speed, physical RSS, SSD traffic per token, quality, and Phase 5 exit criteria remain open.
 
 
 
 ### Existing design targets (not universal guarantees)
 
-Recorded Phase 5 items: UMF container and bit-slicing; multi-layer prerouter plus commit guard; asynchronous I/O investigation; FlashMoE/RF-cache research; registration of cpu_moe_streamed; predictor feasibility ≥80% at k=2; cache hit ≥85%; peak RAM below 15 GB; Qwen3-30B-A3B at ≥3 tok/s. The `cpu_moe_streamed` name identifies the required Tier 0 path, not a CPU-only product boundary. These differ from the top-level 70B-class ≥4 tok/s mission. State exactly which model, hardware tier and target each result addresses.
+Recorded Phase 5 items: UMF container and bit-slicing; multi-layer prerouter plus commit guard; asynchronous I/O investigation; FlashMoE/RF-cache research; registration of cpu_moe_streamed; predictor feasibility ≥80% at k=2; cache hit ≥85%; peak RAM below 15 GB; Qwen3-30B-A3B at ≥3 tok/s as the named Tier 0 pilot. That pilot is a measurement target, not the runtime's architecture limit or sole supported model. The `cpu_moe_streamed` name identifies the required Tier 0 path, not a CPU-only product boundary. These differ from the top-level 70B-class ≥4 tok/s mission. State exactly which model, hardware tier and target each result addresses.
 
 ### Gate 5A — Measure storage/RAM/compute ceiling first
 
