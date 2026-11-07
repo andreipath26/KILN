@@ -1,7 +1,7 @@
 # KILN MASTER ROADMAP AND RULES SET
 
-**Version:** 9.1 — current repository reconciliation  
-**Last updated:** 2026-11-06  
+**Version:** 9.2 — documentation consolidation  
+**Last updated:** 2026-11-07  
 **Status:** Active master roadmap  
 **Repository:** https://github.com/andreipath26/KILN  
 **Runtime fork:** https://github.com/andreipath26/kiln-llama
@@ -68,7 +68,7 @@ KILN is a per-layer dispatcher over a unified memory hierarchy. It schedules wor
 - **kiln-bench:** benchmark harness.
 - **cpp/:** C kernels; **backends/:** hardware backends; **docs/:** design documents; **models/:** curated model catalog; **tests/:** integration, acceptance and performance tests; **scripts/:** build and release scripts.
 
-Design documents referenced by README include docs/architecture.md, docs/core-design.md, docs/kernels-design.md, docs/fused-kernel-design.md, docs/pipeline-design.md, docs/gguf-design.md, docs/tokenizer-design.md, docs/chat-loop-design.md, docs/transformer-design.md, docs/quantization-policy.md, docs/kv-cache-design.md, and docs/avx2-matmul-design.md. Keep them aligned with actual implementation.
+Maintained documentation is indexed in docs/README.md: docs/architecture.md, docs/quantization-policy.md, docs/phase35-measurement.md, docs/phase5-streaming.md, docs/training-pipeline-design.md, docs/umf-design.md, docs/runtime-loading-design.md, and docs/ui-architecture.md. These documents explain current boundaries and procedures; the roadmap remains the only source for phase status, targets, and research history. Superseded October design drafts and one-off experiment notes were consolidated; their original versions remain available in Git history.
 
 ## 4. Current phase ledger
 
@@ -662,3 +662,12 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Shell syntax checks, `git diff --check`, and ten synthetic evidence-summary/Ollama API tests pass. GitHub CI also passes with real-GGUF smoke runs for the dense, speculative and KV benchmark commands.
 - **Implementation status:** Phase 3.5 code and its capture workflow are ready to deploy; PR #66 is merged as `37e2760ffd48da423432db785b158dbabdae6682`. Deployment readiness is independent of target-hardware acceptance.
 - **Measurement status:** Phase 3.5 remains open under the existing exit gate until the pinned Qwen2.5-1.5B Q4_K Dell baseline and Ollama comparison, thermally stable repeated runs, hot-path profile and measured optimization gains are recorded. No performance or acceptance result is claimed.
+
+
+### 2026-11-07 — Documentation consolidation
+
+- Read and reconciled every document previously under docs/ against the current repository README and authoritative roadmap.
+- Consolidated the scattered Phase 3.5 experiment notes into docs/phase35-measurement.md and the Phase 5 cache, predictor, I/O, and dispatch notes into docs/phase5-streaming.md; retained distinct predictor training, sidecar/UMF, runtime-loading, UI, architecture, and quantization references.
+- Replaced the October quantization draft with an evidence-scoped policy consistent with KILN-E35. It separates GGUF structural validation, tensor/backend support, and model-level evidence; it does not expand support claims.
+- Removed superseded standalone draft/experiment files after incorporating their current procedures, status, and caveats. Git history retains the original text.
+- Added docs/README.md as the maintained index and updated this map and the repository README. No implementation, phase status, performance result, or acceptance gate changed.

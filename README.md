@@ -73,15 +73,16 @@ The CLI and backend interfaces are still changing. Check command help for the cu
 
 ## Documentation
 
-- [UI architecture and continuation guide](docs/ui-architecture.md)
-- [Third-party notices](THIRD_PARTY_NOTICES.md)
+- [Documentation index](docs/README.md)
 - [Architecture](docs/architecture.md)
-- [Runtime dispatch design](docs/runtime-dispatch-design.md)
-- [GGUF design](docs/gguf-design.md)
 - [Quantization policy](docs/quantization-policy.md)
-- [Decode-rate measurement contract](docs/phase35-decode-rate-contract.md)
-- [Phase 3.5 benchmark capture suite](docs/phase35-capture-suite.md)
-- [MoE predictor training and evaluation](docs/training-pipeline-design.md)
+- [Phase 3.5 measurement guide](docs/phase35-measurement.md)
+- [Phase 5 streaming guide](docs/phase5-streaming.md)
+- [Predictor training and evaluation](docs/training-pipeline-design.md)
+- [UMF and expert sidecar status](docs/umf-design.md)
+- [Runtime loading and release design](docs/runtime-loading-design.md)
+- [UI architecture and continuation guide](docs/ui-architecture.md)
 - [Master roadmap and engineering record](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 KILN is licensed under MIT. See [LICENSE](LICENSE).

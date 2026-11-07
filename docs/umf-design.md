@@ -11,7 +11,7 @@ Merged PRs #41–44 add:
 - per-expert CRC32 integrity checks and verified component reads;
 - bounded copy/read paths that preserve the original GGUF bytes.
 
-The mapping is supplied explicitly and validated against the GGUF. Automatic decomposition of fused expert matrices is not generally implemented. CRC32 detects accidental corruption; it is not an authenticity mechanism. KILN does not yet materialize those sidecar components into llama.cpp's live MoE compute graph. See docs/phase54-streamed-expert-dispatch.md for the current inference integration boundary.
+The mapping is supplied explicitly and validated against the GGUF. Automatic decomposition of fused expert matrices is not generally implemented. CRC32 detects accidental corruption; it is not an authenticity mechanism. KILN does not yet materialize those sidecar components into llama.cpp's live MoE compute graph. See docs/phase5-streaming.md for the current inference integration boundary.
 
 ## Current sidecar artifact
 
