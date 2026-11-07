@@ -111,6 +111,9 @@ enum Commands {
         /// Experimental exact n-gram speculative decode mode.
         #[arg(long, value_parser = ["ngram-mod"])]
         spec_type: Option<String>,
+        /// Opt into on-demand mmap reads for routed expert tensors in supported MoE models.
+        #[arg(long)]
+        lazy_moe_experts: bool,
     },
     /// Controlled Phase 3.5 second-turn prompt-cache A/B experiment.
     BenchKv {
@@ -211,6 +214,9 @@ enum Commands {
         /// Compare native greedy sampling against Rust vocabulary logits sampling.
         #[arg(long)]
         native_greedy: bool,
+        /// Opt into on-demand mmap reads for supported MoE expert tensors.
+        #[arg(long)]
+        lazy_moe_experts: bool,
         /// Emit machine-readable JSON.
         #[arg(long)]
         json: bool,
@@ -273,6 +279,9 @@ enum Commands {
         /// Sampling strategy: greedy, topk, or topp.
         #[arg(long, default_value = "greedy")]
         strategy: String,
+        /// Opt into on-demand mmap reads for routed expert tensors in supported MoE models.
+        #[arg(long)]
+        lazy_moe_experts: bool,
     },
     /// Run the pipeline once on a GGUF model file.
     Pipeline {
@@ -418,6 +427,7 @@ async fn main() {
                 n_batch: prof.n_batch,
                 n_ubatch: prof.n_batch.min(512),
                 n_threads: prof.n_threads,
+                lazy_moe_experts: false,
             }) {
                 eprintln!("load: {}", e);
                 std::process::exit(1);
@@ -547,7 +557,7 @@ async fn main() {
                 Err(e) => { eprintln!("convert error: {}", e); std::process::exit(1); }
             }
         }
-        Commands::Chat { model, seed, max_tokens, strategy } => {
+        Commands::Chat { model, seed, max_tokens, strategy, lazy_moe_experts } => {
             use kiln_core::chat::{Sampler, SamplingStrategy};
             use kiln_runtime::{RuntimeDispatcher, RuntimeOp, RuntimeResult, LlamaCppBackend};
 
@@ -561,6 +571,7 @@ async fn main() {
                 n_batch: prof.n_batch,
                 n_ubatch: prof.n_batch.min(512),
                 n_threads: prof.n_threads,
+                lazy_moe_experts,
             }) {
                 eprintln!("load: {}", e);
                 std::process::exit(1);
@@ -733,6 +744,7 @@ async fn main() {
                 n_batch: prof.n_batch,
                 n_ubatch: prof.n_batch.min(512),
                 n_threads: prof.n_threads,
+                lazy_moe_experts: false,
             }) {
                 Ok(_) => println!("  load: PASS"),
                 Err(e) => { println!("  load: FAIL ({})", e); std::process::exit(1); }
@@ -783,7 +795,7 @@ async fn main() {
                 }
             }
         }
-        Commands::Run { model, max_tokens, keep_context, native_greedy, spec_type } => {
+        Commands::Run { model, max_tokens, keep_context, native_greedy, spec_type, lazy_moe_experts } => {
             if max_tokens == 0 {
                 eprintln!("run: --max-tokens must be at least 1");
                 std::process::exit(2);
@@ -804,6 +816,7 @@ async fn main() {
             if let Err(error) = run_interactive(
                 &selected_model, max_tokens, keep_context, native_greedy,
                 spec_type.as_deref() == Some("ngram-mod"),
+                lazy_moe_experts,
             ) {
                 eprintln!("run: {}", error);
                 std::process::exit(1);
@@ -848,7 +861,7 @@ async fn main() {
                 Err(error) => { eprintln!("search worker failed: {error}"); std::process::exit(1); }
             }
         }
-        Commands::Bench { model, prompt, tokens, runs, warmup, threads, batch, ubatch, native_greedy, json } => {
+        Commands::Bench { model, prompt, tokens, runs, warmup, threads, batch, ubatch, native_greedy, lazy_moe_experts, json } => {
             if runs == 0 {
                 eprintln!("bench: --runs must be at least 1");
                 std::process::exit(2);
@@ -890,6 +903,7 @@ async fn main() {
                 n_batch: profile.n_batch,
                 n_ubatch: microbatch,
                 n_threads: profile.n_threads,
+                lazy_moe_experts,
             }) {
                 eprintln!("bench: model load failed: {}", error);
                 std::process::exit(1);
@@ -956,6 +970,7 @@ async fn main() {
                 "requested_batch": profile.n_batch,
                 "requested_microbatch": microbatch,
                 "sampling_path": if native_greedy { "native_greedy" } else { "rust_logits_greedy" },
+                "lazy_moe_experts": lazy_moe_experts,
                 "measured_runs": runs,
                 "load_ms": load_ms,
                 "process_memory": {
@@ -1009,6 +1024,7 @@ async fn main() {
                 println!("  model:             {}", model);
                 println!("  profile:           {:?}, threads={}, batch={}, microbatch={}, context={}",
                     profile.tier, profile.n_threads, profile.n_batch, microbatch, profile.n_ctx);
+                println!("  lazy MoE experts:  {}", lazy_moe_experts);
                 println!("  load:              {:.2} ms", load_ms);
                 if let Some(memory) = memory_after_benchmark {
                     println!("  process RSS:       {} KiB (peak to date {} KiB; does not include OS page cache)",
@@ -1434,7 +1450,7 @@ mod interactive_kv_tests {
 }
 
 /// Run a real interactive text session using the runtime dispatcher.
-fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_greedy: bool, speculative: bool) -> Result<(), String> {
+fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_greedy: bool, speculative: bool, lazy_moe_experts: bool) -> Result<(), String> {
     use kiln_core::chat::{Sampler, SamplingStrategy};
     use kiln_runtime::{draft_ngram, LlamaCppBackend, NgramDraftConfig, RuntimeDispatcher, RuntimeOp, RuntimeResult, SystemProfile};
     use std::io::{self, Write};
@@ -1448,6 +1464,7 @@ fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_gr
         n_batch: profile.n_batch,
         n_ubatch: profile.n_batch.min(512),
         n_threads: profile.n_threads,
+        lazy_moe_experts,
     }).map_err(|e| format!("model load failed: {}", e))?;
 
     let eos = match dispatcher.dispatch(RuntimeOp::EosToken)

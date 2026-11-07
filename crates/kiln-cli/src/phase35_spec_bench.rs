@@ -138,6 +138,7 @@ pub fn run(
     d.dispatch(RuntimeOp::Load {
         path: PathBuf::from(&model), n_ctx: profile.n_ctx,
         n_batch: profile.n_batch, n_ubatch: microbatch, n_threads: profile.n_threads,
+        lazy_moe_experts: false,
     }).map_err(|e| format!("load: {e}"))?;
     let prompt_ids = match d.dispatch(RuntimeOp::Tokenize { text: prompt.clone() })
         .map_err(|e| e.to_string())? {

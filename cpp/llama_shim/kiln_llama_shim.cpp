@@ -25,6 +25,9 @@ kiln_llama_t kiln_llama_load(const char* model_path, const struct kiln_llama_par
     llama_backend_init();
 
     struct llama_model_params mparams = llama_model_default_params();
+    if (params && params->lazy_moe_experts) {
+        mparams.lazy_mode = LLAMA_LAZY_MODE_ON;
+    }
     struct llama_model* model = llama_model_load_from_file(model_path, mparams);
     if (!model) {
         return NULL;

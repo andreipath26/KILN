@@ -16,6 +16,12 @@ The current main-branch roadmap records these components: validated expert tenso
 
 These are distinct implementation milestones. The stock llama.cpp model graph does not yet call the expert operations or materialize sidecar components into inference. Real-model Dell throughput, physical SSD traffic per generated token, total memory under shared handles, model quality and Phase 5 exit criteria remain open. See [UMF and sidecar status](umf-design.md) for artifact details; the [roadmap](../KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md) logs the merged component history.
 
+### Supported-MoE lazy-mmap baseline
+
+The KILN llama.cpp fork's shared loader recognizes the standard routed-expert GGUF tensor types used by supported MoE architectures, including split, merged, gate-up and chunk expert tensors. `kiln run MODEL --lazy-moe-experts` and `kiln chat --model MODEL --lazy-moe-experts` opt into `LLAMA_LAZY_MODE_ON`; `kiln bench MODEL --lazy-moe-experts --json` records the selected mode in its report for paired measurements. The default remains the normal loader mode. Dense models are unaffected. Architecture coverage still follows the pinned llama.cpp fork and its GGUF support; this option does not make unsupported models loadable.
+
+This is a resident-GGUF feasibility baseline. It does not use the KILN sidecar, expert cache, predictor, prefetch queue or `cpu_moe_streamed`, and it does not establish bounded RSS or SSD bytes per token. Compare it against the default loader on the same pinned model and host, recording peak RSS and cold/warm behavior. Treat results as diagnostic evidence, not completion of Gate 5A or Phase 5. The roadmap names Qwen3-30B-A3B as a Tier 0 pilot target; that target does not limit the runtime's architecture scope.
+
 ## Predictor evaluation
 
 Evaluate the exact active expert set for each token/layer using real router traces from a pinned model and fork. Keep chronological train/holdout separation; never train on future labels. Group simultaneous experts per token/layer and report coverage, precision/recall, cold-start behavior, distribution shift, predictor CPU cost and memory. The grouped `router-holdout` tool is exploratory evaluation; it is not a trained neural prerouter and does not physically prefetch expert bytes.
