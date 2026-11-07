@@ -1,4 +1,6 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { chromium } = require("playwright");
 
 const baseUrl = process.env.KILN_UI_URL || "http://127.0.0.1:11435";
@@ -15,6 +17,16 @@ async function main() {
     await page.getByText("SmolLM2-135M-Instruct.Q4_K_M.gguf", { exact: true }).waitFor();
     assert.equal(await page.locator("#send-button").isDisabled(), false);
 
+    const alternate = page.locator(".model-entry").filter({ hasText: "alternate-smoke.gguf" });
+    await alternate.getByRole("button", { name: "Use model" }).click();
+    await page.getByText("alternate-smoke", { exact: true }).first().waitFor();
+    await page.waitForFunction(() => document.querySelector("#active-model-name").textContent === "alternate-smoke");
+
+    const invalid = page.locator(".model-entry").filter({ hasText: "zz-invalid-arch.gguf" });
+    await invalid.getByRole("button", { name: "Use model" }).click();
+    await page.getByText(/restored previous model 'alternate-smoke'/).waitFor();
+    assert.equal(await page.locator("#active-model-name").textContent(), "alternate-smoke");
+
     await page.getByRole("tab", { name: "Advanced" }).click();
     await page.locator("#max-tokens").fill("16");
     await page.locator("#max-tokens").dispatchEvent("change");
@@ -29,7 +41,28 @@ async function main() {
     const answer = (await page.locator(".message.assistant div").textContent()).trim();
     assert.ok(answer.length > 0, "the live model returned assistant text");
     assert.deepEqual(pageErrors, [], "real-model chat produced no uncaught UI errors");
-    console.log(`KILN real-model browser smoke test passed (${answer.length} response characters).`);
+
+    await page.locator("#model-search-query").fill("QuantFactory/SmolLM2-135M-Instruct-GGUF");
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await page.getByText("QuantFactory/SmolLM2-135M-Instruct-GGUF", { exact: true }).waitFor();
+    await page.getByRole("button", { name: /Download SmolLM2-135M-Instruct.Q2_K.gguf/ }).click();
+    await page.getByText(/Downloading SmolLM2-135M-Instruct.Q2_K.gguf/).waitFor();
+    await page.getByRole("button", { name: "Cancel download" }).click();
+    await page.getByText("Download canceled; the partial file was removed.", { exact: true }).waitFor();
+
+    const hasPartialDownload = () => {
+      const visit = (directory) => fs.readdirSync(directory, { withFileTypes: true }).some((entry) => {
+        const entryPath = path.join(directory, entry.name);
+        return entry.isDirectory() ? visit(entryPath) : entry.name.endsWith(".part");
+      });
+      return visit(process.env.KILN_MODELS_DIR);
+    };
+    const cleanupDeadline = Date.now() + 60_000;
+    while (hasPartialDownload() && Date.now() < cleanupDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    assert.equal(hasPartialDownload(), false, "canceling a real model download removes its partial file");
+    console.log(`KILN real-model browser smoke passed: activation, rollback, chat (${answer.length} response characters), and canceled-download cleanup.`);
   } finally {
     await browser.close();
   }

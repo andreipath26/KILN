@@ -90,7 +90,7 @@
               <div class="section-title"><div><p class="eyebrow">INFERENCE</p><h2>Current behavior</h2></div><span class="badge">API defaults</span></div>
               <dl id="inference-details" class="detail-list">
                 <div><dt>Sampling</dt><dd>Greedy</dd></div>
-                <div><dt>Chat output limit</dt><dd><input id="max-tokens" class="number-control" type="number" min="1" max="4096" step="1" value="128" aria-describedby="sampling-limit-note" /></dd></div>
+                <div><dt id="max-tokens-label">Chat output limit</dt><dd><input id="max-tokens" class="number-control" type="number" min="1" max="4096" step="1" value="128" aria-labelledby="max-tokens-label" aria-describedby="sampling-limit-note" /></dd></div>
                 <div><dt>Prompt format</dt><dd>Role-prefixed text</dd></div>
               </dl>
               <p id="sampling-limit-note" class="muted small">The token limit is configurable from 1 to 4096 and shared with Simple chat. Sampling remains greedy; model-specific chat templates are not exposed yet.</p>

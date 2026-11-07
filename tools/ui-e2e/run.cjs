@@ -130,6 +130,10 @@ async function checkAccessibility(page, label) {
     [],
     `${label} has serious or critical accessibility violations`,
   );
+  const accessibilityTree = await page.locator("body").ariaSnapshot();
+  assert.match(accessibilityTree, /tablist "KILN modes"/);
+  assert.match(accessibilityTree, /tab "Simple"/);
+  assert.match(accessibilityTree, /textbox "Message your model"/);
 }
 
 async function main() {
@@ -184,6 +188,9 @@ async function main() {
     await page.reload({ waitUntil: "networkidle" });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "mobile layout has no horizontal overflow");
     await checkAccessibility(page, "narrow Simple view");
+    await page.emulateMedia({ forcedColors: "active" });
+    await page.locator("#prompt").focus();
+    assert.equal(await page.locator("#prompt").evaluate((element) => document.activeElement === element), true, "keyboard focus remains visible and reachable in forced-colors mode");
     await context.close();
 
     const emptyContext = await browser.newContext({ viewport: { width: 390, height: 844 } });

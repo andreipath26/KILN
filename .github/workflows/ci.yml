@@ -96,6 +96,12 @@ jobs:
           KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
         run: target/debug/kiln pull QuantFactory/SmolLM2-135M-Instruct-GGUF --file SmolLM2-135M-Instruct.Q4_K_M.gguf
 
+      - name: Prepare real activation and recovery candidates
+        run: |
+          MODEL="$RUNNER_TEMP/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf"
+          ln "$MODEL" "$RUNNER_TEMP/kiln-models/alternate-smoke.gguf"
+          python3 tools/ui-e2e/create_bad_arch_model.py "$MODEL" "$RUNNER_TEMP/kiln-models/zz-invalid-arch.gguf"
+
       - name: Start the local API with the real model
         run: |
           KILN_MODELS_DIR="$RUNNER_TEMP/kiln-models" \
@@ -110,6 +116,8 @@ jobs:
           exit 1
 
       - name: Smoke-test real model chat in Chromium
+        env:
+          KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
         run: node tools/ui-e2e/real-smoke.cjs
 
       - name: Stop the local API
