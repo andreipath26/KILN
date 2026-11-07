@@ -55,3 +55,38 @@ jobs:
 
       - name: Run workspace tests
         run: cargo test --workspace --all-targets
+
+      - name: Build the API executable for browser testing
+        run: cargo build -p kiln-cli
+
+      - name: Set up Node.js for local UI release checks
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tools/ui-e2e/package-lock.json
+
+      - name: Install UI browser-test dependencies
+        run: npm ci --prefix tools/ui-e2e
+
+      - name: Install headless Chromium
+        run: npx --prefix tools/ui-e2e playwright install --with-deps chromium
+
+      - name: Start the local API without a model
+        run: |
+          mkdir -p "$RUNNER_TEMP/kiln-models"
+          KILN_MODELS_DIR="$RUNNER_TEMP/kiln-models" target/debug/kiln serve --host 127.0.0.1 --port 11435 > "$RUNNER_TEMP/kiln-api.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/kiln-api.pid"
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:11435/api/version >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/kiln-api.log"
+          exit 1
+
+      - name: Run browser, accessibility, and responsive UI checks
+        run: npm test --prefix tools/ui-e2e
+
+      - name: Stop the local API
+        if: always()
+        run: if [ -f "$RUNNER_TEMP/kiln-api.pid" ]; then kill "$(cat "$RUNNER_TEMP/kiln-api.pid")" || true; fi
