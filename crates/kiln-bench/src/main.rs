@@ -184,9 +184,12 @@ enum Commands {
     },
     /// Measure bounded random and sequential reads from a real model/expert blob.
     ExpertIo {
-        /// Path to an expert blob or other representative large model file.
+        /// Path to a model file or expert sidecar containing indexed expert ranges.
         #[arg(long)]
         file: PathBuf,
+        /// Validated ExpertTable mapping (layer, expert_id) to real file ranges.
+        #[arg(long)]
+        index_file: Option<PathBuf>,
         /// Bytes per expert-block read (default 1 MiB).
         #[arg(long, default_value_t = 1_048_576)]
         block_bytes: usize,
@@ -237,7 +240,11 @@ struct ExpertIoPattern {
     access_pattern: String,
     requests: usize,
     block_bytes: usize,
+    min_request_bytes: usize,
+    max_request_bytes: usize,
     total_bytes_read: u64,
+    /// Expert identities sampled in request order for one repetition.
+    expert_keys: Vec<ExpertKey>,
     /// Linux /proc/self/io read_bytes delta for this pattern, when accessible.
     /// Includes read-ahead and cannot be equated with device-only bytes.
     linux_process_storage_read_bytes: Option<u64>,
@@ -312,6 +319,8 @@ struct ExpertIoReport {
     phase_gate: String,
     file: String,
     file_size_bytes: u64,
+    index_file: Option<String>,
+    indexed_expert_ranges: Option<usize>,
     os: String,
     architecture: String,
     block_bytes: usize,
@@ -372,27 +381,45 @@ mod physical_io_counter_tests {
     }
 }
 
+#[derive(Debug, Clone)]
+struct ExpertIoRequest {
+    offset: u64,
+    length: usize,
+    expert_key: Option<ExpertKey>,
+}
+
 fn run_expert_io_pattern(
     reader: &mut FileRangeReader,
-    offsets: &[u64],
+    requests: &[ExpertIoRequest],
     block_bytes: usize,
     repetitions: usize,
     access_pattern: &str,
 ) -> Result<ExpertIoPattern, Box<dyn std::error::Error>> {
+    if requests.is_empty() || requests.iter().any(|request| request.length == 0 || request.length > block_bytes) {
+        return Err("I/O request list must be non-empty and every request length must be within 1..=block-bytes".into());
+    }
     let mut buffer = vec![0u8; block_bytes];
-    let mut latencies = Vec::with_capacity(offsets.len().saturating_mul(repetitions));
+    let measured_requests = requests.len().saturating_mul(repetitions);
+    let mut latencies = Vec::with_capacity(measured_requests);
     let mut checksum = 0u64;
+    let mut expert_keys = Vec::with_capacity(requests.len());
     let storage_before = linux_process_read_bytes();
     let total_start = Instant::now();
 
-    for _ in 0..repetitions {
-        for offset in offsets {
+    for repetition in 0..repetitions {
+        for request in requests {
             let start = Instant::now();
-            reader.read_exact_at(*offset, &mut buffer)?;
+            let bytes = &mut buffer[..request.length];
+            reader.read_exact_at(request.offset, bytes)?;
             latencies.push(start.elapsed().as_nanos().min(u64::MAX as u128) as u64);
+            if repetition == 0 {
+                if let Some(key) = request.expert_key {
+                    expert_keys.push(key);
+                }
+            }
             // Touch a deterministic sample of the bytes to prevent this from
             // becoming a pure seek-only benchmark.
-            for byte in buffer.iter().step_by(4096) {
+            for byte in bytes.iter().step_by(4096) {
                 checksum = checksum.rotate_left(5) ^ u64::from(*byte);
             }
         }
@@ -403,16 +430,22 @@ fn run_expert_io_pattern(
     let linux_process_storage_read_bytes = storage_before.zip(storage_after)
         .and_then(|(before, after)| after.checked_sub(before));
     let elapsed_secs = elapsed.as_secs_f64().max(f64::MIN_POSITIVE);
-    let total_bytes_read = (block_bytes as u64)
-        .saturating_mul(offsets.len() as u64)
-        .saturating_mul(repetitions as u64);
+    let bytes_per_run = requests.iter().fold(0u64, |sum, request| {
+        sum.saturating_add(request.length as u64)
+    });
+    let total_bytes_read = bytes_per_run.saturating_mul(repetitions as u64);
+    let min_request_bytes = requests.iter().map(|request| request.length).min().unwrap_or(0);
+    let max_request_bytes = requests.iter().map(|request| request.length).max().unwrap_or(0);
     latencies.sort_unstable();
 
     Ok(ExpertIoPattern {
         access_pattern: access_pattern.to_string(),
-        requests: offsets.len().saturating_mul(repetitions),
+        requests: measured_requests,
         block_bytes,
+        min_request_bytes,
+        max_request_bytes,
         total_bytes_read,
+        expert_keys,
         linux_process_storage_read_bytes,
         elapsed_ms: elapsed.as_secs_f64() * 1000.0,
         throughput_mib_s: total_bytes_read as f64 / (1024.0 * 1024.0) / elapsed_secs,
@@ -429,9 +462,7 @@ fn run_expert_io(
     runs: usize,
     seed: u64,
 ) -> Result<ExpertIoReport, Box<dyn std::error::Error>> {
-    if block_bytes == 0 || requests == 0 || runs == 0 {
-        return Err("block-bytes, requests, and runs must all be greater than zero".into());
-    }
+    validate_expert_io_args(block_bytes, requests, runs)?;
     let mut reader = FileRangeReader::open(file)?;
     let blocks_available = reader.file_size() / block_bytes as u64;
     if blocks_available == 0 {
@@ -441,24 +472,70 @@ fn run_expert_io(
         ).into());
     }
 
-    let mut sequential_offsets = Vec::with_capacity(requests);
-    let mut random_offsets = Vec::with_capacity(requests);
+    let mut sequential_requests = Vec::with_capacity(requests);
+    let mut random_requests = Vec::with_capacity(requests);
     let mut state = seed;
     for i in 0..requests {
-        sequential_offsets.push((i as u64 % blocks_available) * block_bytes as u64);
+        sequential_requests.push(ExpertIoRequest {
+            offset: (i as u64 % blocks_available) * block_bytes as u64,
+            length: block_bytes,
+            expert_key: None,
+        });
         // Stable LCG: repeatable across platforms and Rust versions.
-        state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
-        random_offsets.push((state % blocks_available) * block_bytes as u64);
+        state = next_expert_io_random(state);
+        random_requests.push(ExpertIoRequest {
+            offset: (state % blocks_available) * block_bytes as u64,
+            length: block_bytes,
+            expert_key: None,
+        });
     }
 
-    let sequential = run_expert_io_pattern(&mut reader, &sequential_offsets, block_bytes, runs, "sequential")?;
-    let random = run_expert_io_pattern(&mut reader, &random_offsets, block_bytes, runs, "random")?;
+    let sequential = run_expert_io_pattern(&mut reader, &sequential_requests, block_bytes, runs, "sequential")?;
+    let random = run_expert_io_pattern(&mut reader, &random_requests, block_bytes, runs, "random")?;
 
-    Ok(ExpertIoReport {
+    Ok(expert_io_report(file, reader.file_size(), None, None, block_bytes, requests, runs, seed,
+        "Fixed-size file offsets are a synthetic layout, not mapped MoE expert ranges.".to_string(),
+        vec![sequential, random]))
+}
+
+fn validate_expert_io_args(
+    block_bytes: usize,
+    requests: usize,
+    runs: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if block_bytes == 0 || requests == 0 || runs == 0 {
+        return Err("block-bytes, requests, and runs must all be greater than zero".into());
+    }
+    if block_bytes > 64 * 1024 * 1024 || requests > 100_000 || runs > 100
+        || requests.checked_mul(runs).filter(|&n| n <= 1_000_000).is_none() {
+        return Err("expert-io limits are block-bytes <= 64 MiB, requests <= 100,000, runs <= 100, and requests*runs <= 1,000,000".into());
+    }
+    Ok(())
+}
+
+fn next_expert_io_random(state: u64) -> u64 {
+    state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407)
+}
+
+fn expert_io_report(
+    file: &std::path::Path,
+    file_size_bytes: u64,
+    index_file: Option<&std::path::Path>,
+    indexed_expert_ranges: Option<usize>,
+    block_bytes: usize,
+    requests: usize,
+    runs: usize,
+    seed: u64,
+    range_note: String,
+    patterns: Vec<ExpertIoPattern>,
+) -> ExpertIoReport {
+    ExpertIoReport {
         version: env!("CARGO_PKG_VERSION").to_string(),
         phase_gate: "5A-expert-block-io-feasibility".to_string(),
         file: file.display().to_string(),
-        file_size_bytes: reader.file_size(),
+        file_size_bytes,
+        index_file: index_file.map(|path| path.display().to_string()),
+        indexed_expert_ranges,
         os: std::env::consts::OS.to_string(),
         architecture: std::env::consts::ARCH.to_string(),
         block_bytes,
@@ -466,9 +543,72 @@ fn run_expert_io(
         repetitions: runs,
         seed,
         page_cache_controlled: false,
-        note: "Portable seek/read baseline. OS page cache is not controlled; repeated runs may be warm. Linux /proc/self/io read_bytes is a process-attributed diagnostic including readahead, not a device utilization measurement. Not model tokens/s.".to_string(),
-        patterns: vec![sequential, random],
-    })
+        note: format!("{range_note} OS page cache is uncontrolled; repeated runs may be warm. Linux /proc/self/io read_bytes is process-attributed and includes readahead; it is not a direct device-byte counter. This probe does not measure model inference tokens/s."),
+        patterns,
+    }
+}
+
+fn run_expert_io_indexed(
+    file: &std::path::Path,
+    index_file: &std::path::Path,
+    block_bytes: usize,
+    requests: usize,
+    runs: usize,
+    seed: u64,
+) -> Result<ExpertIoReport, Box<dyn std::error::Error>> {
+    validate_expert_io_args(block_bytes, requests, runs)?;
+    let mut reader = FileRangeReader::open(file)?;
+    let index_bytes = read_bounded_input(index_file, MAX_EXPERT_INDEX_BYTES, "expert range index")?;
+    let table: ExpertTable = serde_json::from_slice(&index_bytes)?;
+    table.validate(reader.file_size())?;
+    if table.ranges.is_empty() {
+        return Err("expert range index contains no entries".into());
+    }
+    let mut ranges: Vec<_> = table.ranges.iter().collect();
+    ranges.sort_by_key(|range| range.byte_offset);
+
+    let mut sequential = Vec::with_capacity(requests);
+    let mut random = Vec::with_capacity(requests);
+    let mut state = seed;
+    for i in 0..requests {
+        // Spread sequential samples across the full offset-sorted expert index,
+        // rather than accidentally timing only the first layers.
+        let selected = ((i as u128 * ranges.len() as u128) / requests as u128) as usize;
+        let range = ranges[selected.min(ranges.len() - 1)];
+        let sequential_length = usize::try_from(range.byte_length.min(block_bytes as u64))?;
+        sequential.push(ExpertIoRequest {
+            offset: range.byte_offset,
+            length: sequential_length,
+            expert_key: Some(ExpertKey { layer: range.layer, expert_id: range.expert_id }),
+        });
+
+        state = next_expert_io_random(state);
+        let random_range = ranges[(state % ranges.len() as u64) as usize];
+        let random_length = usize::try_from(random_range.byte_length.min(block_bytes as u64))?;
+        let available_starts = random_range.byte_length - random_length as u64 + 1;
+        state = next_expert_io_random(state);
+        let within_expert = state % available_starts;
+        random.push(ExpertIoRequest {
+            offset: random_range.byte_offset + within_expert,
+            length: random_length,
+            expert_key: Some(ExpertKey { layer: random_range.layer, expert_id: random_range.expert_id }),
+        });
+    }
+
+    let sequential_pattern = run_expert_io_pattern(&mut reader, &sequential, block_bytes, runs, "sequential")?;
+    let random_pattern = run_expert_io_pattern(&mut reader, &random, block_bytes, runs, "random")?;
+    Ok(expert_io_report(
+        file,
+        reader.file_size(),
+        Some(index_file),
+        Some(table.ranges.len()),
+        block_bytes,
+        requests,
+        runs,
+        seed,
+        format!("Reads are sampled from validated ExpertTable ranges; sequential samples follow file-offset order and random samples choose offsets within real experts. {} indexed expert ranges were available.", table.ranges.len()),
+        vec![sequential_pattern, random_pattern],
+    ))
 }
 
 fn make_key_trace(
@@ -883,6 +1023,11 @@ fn print_expert_io_human(report: &ExpertIoReport) {
     println!("  phase gate:     {}", report.phase_gate);
     println!("  file:           {}", report.file);
     println!("  file size:      {} bytes", report.file_size_bytes);
+    if let Some(index_file) = &report.index_file {
+        println!("  expert index:  {} ({} mapped ranges)", index_file, report.indexed_expert_ranges.unwrap_or(0));
+    } else {
+        println!("  expert index:  none (fixed-offset file probe)");
+    }
     println!("  host:           {} / {}", report.os, report.architecture);
     println!("  block size:     {} bytes", report.block_bytes);
     println!("  requests/run:   {}", report.requests_per_run);
@@ -896,6 +1041,10 @@ fn print_expert_io_human(report: &ExpertIoReport) {
         println!("    latency p50:  {:.2} us", pattern.request_latency_p50_us);
         println!("    latency p95:  {:.2} us", pattern.request_latency_p95_us);
         println!("    total read:   {} bytes", pattern.total_bytes_read);
+        println!("    request size: {}..{} bytes", pattern.min_request_bytes, pattern.max_request_bytes);
+        if !pattern.expert_keys.is_empty() {
+            println!("    mapped expert requests: {}", pattern.expert_keys.len());
+        }
     if let Some(bytes) = pattern.linux_process_storage_read_bytes {
         println!("    Linux process storage read: {} bytes (page-cache influenced)", bytes);
     }
@@ -1528,8 +1677,13 @@ async fn main() {
                 }
             }
         }
-        Commands::ExpertIo { file, block_bytes, requests, runs, seed, json } => {
-            match run_expert_io(&file, block_bytes, requests, runs, seed) {
+        Commands::ExpertIo { file, index_file, block_bytes, requests, runs, seed, json } => {
+            let result = if let Some(index_file) = index_file.as_deref() {
+                run_expert_io_indexed(&file, index_file, block_bytes, requests, runs, seed)
+            } else {
+                run_expert_io(&file, block_bytes, requests, runs, seed)
+            };
+            match result {
                 Ok(report) if json => println!("{}", serde_json::to_string_pretty(&report).unwrap()),
                 Ok(report) => print_expert_io_human(&report),
                 Err(error) => {
@@ -1570,7 +1724,79 @@ mod expert_io_tests {
         assert_eq!(report.patterns[0].access_pattern, "sequential");
         assert_eq!(report.patterns[1].access_pattern, "random");
         assert_eq!(report.patterns[0].total_bytes_read, 16 * 1024);
+        assert_eq!(report.patterns[0].min_request_bytes, 1024);
+        assert_eq!(report.patterns[0].max_request_bytes, 1024);
+        assert!(report.index_file.is_none());
         assert!(report.patterns.iter().all(|p| p.throughput_mib_s > 0.0));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    fn write_expert_index(path: &std::path::Path, blob_size: u64) -> PathBuf {
+        let index_path = path.with_extension("experts.index.json");
+        let ranges = (0..8).map(|expert_id| ExpertRange {
+            layer: expert_id / 4,
+            expert_id: expert_id % 4,
+            byte_offset: u64::from(expert_id) * 8192,
+            byte_length: 4096,
+        }).collect();
+        let table = ExpertTable { blob_version: 1, blob_size, ranges };
+        std::fs::write(&index_path, serde_json::to_vec(&table).unwrap()).unwrap();
+        index_path
+    }
+
+    #[test]
+    fn indexed_expert_io_reads_only_validated_model_expert_ranges() {
+        let path = fixture();
+        let index_path = write_expert_index(&path, 64 * 1024);
+        let report = run_expert_io_indexed(&path, &index_path, 1024, 4, 2, 42).unwrap();
+        assert_eq!(report.indexed_expert_ranges, Some(8));
+        let index_path_string = index_path.display().to_string();
+        assert_eq!(report.index_file.as_deref(), Some(index_path_string.as_str()));
+        assert_eq!(report.patterns[0].access_pattern, "sequential");
+        assert_eq!(report.patterns[1].access_pattern, "random");
+        assert_eq!(report.patterns[0].total_bytes_read, 8 * 1024);
+        assert_eq!(report.patterns[0].expert_keys.len(), 4);
+        assert!(report.patterns.iter().all(|pattern| pattern.expert_keys.iter().all(|key| key.layer < 2)));
+        std::fs::remove_file(index_path).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn indexed_expert_io_rejects_index_for_different_blob_size() {
+        let path = fixture();
+        let index_path = write_expert_index(&path, 64 * 1024 - 1);
+        assert!(run_expert_io_indexed(&path, &index_path, 1024, 4, 1, 42).is_err());
+        std::fs::remove_file(index_path).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn indexed_expert_io_clips_reads_to_each_experts_real_range() {
+        let path = fixture();
+        let index_path = path.with_extension("variable.experts.index.json");
+        let table = ExpertTable {
+            blob_version: 1,
+            blob_size: 64 * 1024,
+            ranges: vec![
+                ExpertRange { layer: 0, expert_id: 0, byte_offset: 0, byte_length: 512 },
+                ExpertRange { layer: 0, expert_id: 1, byte_offset: 8192, byte_length: 4096 },
+            ],
+        };
+        std::fs::write(&index_path, serde_json::to_vec(&table).unwrap()).unwrap();
+
+        let report = run_expert_io_indexed(&path, &index_path, 1024, 2, 1, 42).unwrap();
+        let sequential = &report.patterns[0];
+        assert_eq!(sequential.min_request_bytes, 512);
+        assert_eq!(sequential.max_request_bytes, 1024);
+        assert_eq!(sequential.total_bytes_read, 512 + 1024);
+        assert_eq!(sequential.expert_keys.len(), 2);
+        let random = &report.patterns[1];
+        assert!(random.min_request_bytes == 512 || random.min_request_bytes == 1024);
+        assert!(random.max_request_bytes == 512 || random.max_request_bytes == 1024);
+        assert!(random.total_bytes_read == 2 * 512 || random.total_bytes_read == 512 + 1024 || random.total_bytes_read == 2 * 1024);
+        assert_eq!(random.expert_keys.len(), 2);
+
+        std::fs::remove_file(index_path).unwrap();
         std::fs::remove_file(path).unwrap();
     }
 

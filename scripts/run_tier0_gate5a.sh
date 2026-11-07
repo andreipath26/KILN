@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
-# Tier 0 Phase 5A evidence capture. No root, no cache dropping, no model download.
-# Usage: bash scripts/run_tier0_gate5a.sh /path/to/representative-experts.bin [output-directory]
+# Tier 0 Phase 5A capture over validated, mapped expert byte ranges.
+# Usage: bash scripts/run_tier0_gate5a.sh /path/to/expert-blob.bin /path/to/experts.index.json [output-directory]
 set -euo pipefail
-if [[ $# -lt 1 || $# -gt 2 ]]; then
-  echo "Usage: bash $0 /path/to/representative-experts.bin [output-directory]" >&2
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+  echo "Usage: bash $0 /path/to/expert-blob.bin /path/to/experts.index.json [output-directory]" >&2
   exit 2
 fi
 MODEL="$1"
+INDEX="$2"
 if [[ ! -f "$MODEL" || ! -r "$MODEL" ]]; then
-  echo "Readable representative file is required: $MODEL" >&2
+  echo "Readable expert blob/model file is required: $MODEL" >&2
+  exit 2
+fi
+if [[ ! -f "$INDEX" || ! -r "$INDEX" ]]; then
+  echo "Readable validated ExpertTable index is required: $INDEX" >&2
   exit 2
 fi
 MODEL="$(realpath "$MODEL")"
+INDEX="$(realpath "$INDEX")"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-OUT="${2:-tier0-gate5a-$(date -u +%Y%m%dT%H%M%SZ)}"
+OUT="${3:-tier0-gate5a-$(date -u +%Y%m%dT%H%M%SZ)}"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 {
@@ -27,6 +33,9 @@ OUT="$(cd "$OUT" && pwd)"
  echo "model_path=$MODEL"
  echo "model_size_bytes=$(stat -c %s "$MODEL")"
  echo "model_sha256=$(sha256sum "$MODEL" | awk '{print $1}')"
+ echo "expert_index_path=$INDEX"
+ echo "expert_index_size_bytes=$(stat -c %s "$INDEX")"
+ echo "expert_index_sha256=$(sha256sum "$INDEX" | awk '{print $1}')"
  echo "cargo=$(cargo --version)"
  echo "rustc=$(rustc --version)"
  echo "cpuinfo=$(grep -m1 'model name' /proc/cpuinfo || true)"
@@ -35,11 +44,11 @@ OUT="$(cd "$OUT" && pwd)"
 } > "$OUT/provenance.txt"
 cargo build --release -p kiln-bench > "$OUT/build.log" 2>&1
 for BLOCK in 65536 262144 1048576 4194304; do
-  if [[ "$(stat -c %s "$MODEL")" -lt "$BLOCK" ]]; then continue; fi
-  # All probes are read-only; time records max resident set size.
+  # The CLI chooses actual indexed expert ranges and clips each read to that
+  # expert's length. All probes are read-only; time records max resident set size.
   /usr/bin/time -v -o "$OUT/rss-$BLOCK.txt" \
     target/release/kiln-bench expert-io \
-    --file "$MODEL" --block-bytes "$BLOCK" --requests 256 \
+    --file "$MODEL" --index-file "$INDEX" --block-bytes "$BLOCK" --requests 256 \
     --runs 5 --seed 42 --json > "$OUT/expert-io-$BLOCK.json"
 done
 # The report deliberately does not infer SSD throughput from page-cache-influenced reads.

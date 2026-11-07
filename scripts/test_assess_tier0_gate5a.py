@@ -25,13 +25,33 @@ class Gate5aTests(unittest.TestCase):
             artifact = Path(temp) / "probe.json"
             artifact.write_text(json.dumps({
                 "phase_gate": "5A-expert-block-io-feasibility",
+                "file": "/tmp/expert-blob.bin",
+                "file_size_bytes": 65536,
+                "index_file": "/tmp/experts.index.json",
+                "indexed_expert_ranges": 4,
+                "requests_per_run": 1,
+                "repetitions": 1,
                 "block_bytes": 4096,
                 "patterns": [{
                     "access_pattern": "random",
+                    "requests": 1,
                     "total_bytes_read": 8192,
                     "throughput_mib_s": 2000.0,
+                    "expert_keys": [{"layer": 0, "expert_id": 1}],
+                    "min_request_bytes": 4096,
+                    "max_request_bytes": 4096,
                     "request_latency_p50_us": 10.0,
                     "request_latency_p95_us": 15.0,
+                }, {
+                    "access_pattern": "sequential",
+                    "requests": 1,
+                    "total_bytes_read": 8192,
+                    "throughput_mib_s": 1800.0,
+                    "expert_keys": [{"layer": 0, "expert_id": 0}],
+                    "min_request_bytes": 4096,
+                    "max_request_bytes": 4096,
+                    "request_latency_p50_us": 11.0,
+                    "request_latency_p95_us": 16.0,
                 }],
             }))
             result = assessor.summarize([artifact])[0]
@@ -43,6 +63,16 @@ class Gate5aTests(unittest.TestCase):
             artifact = Path(temp) / "invalid.json"
             artifact.write_text(json.dumps({"phase_gate": "wrong", "patterns": []}))
             with self.assertRaises(ValueError):
+                assessor.summarize([artifact])
+
+    def test_rejects_unindexed_legacy_read_reports(self):
+        with tempfile.TemporaryDirectory() as temp:
+            artifact = Path(temp) / "legacy.json"
+            artifact.write_text(json.dumps({
+                "phase_gate": "5A-expert-block-io-feasibility",
+                "patterns": [],
+            }))
+            with self.assertRaisesRegex(ValueError, "requires an indexed expert-range"):
                 assessor.summarize([artifact])
 
 

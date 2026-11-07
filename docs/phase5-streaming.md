@@ -28,6 +28,23 @@ Keep queues, bytes and speculative reads bounded. A cancellation/epoch guard mus
 
 Treat expert caching as a variable-size admission problem. Compare transparent LRU/LFU baselines and confidence/reuse-aware options on the same byte budget and trace. Include caller-owned shared handles in physical RSS even if evicted entries leave the logical cache. Synthetic traces and simulated hit rates must remain separate from real model routing and hardware results.
 
+## Gate 5A indexed expert-read capture
+
+The probe samples real byte ranges from a validated `ExpertTable`; arbitrary fixed offsets are not evidence about expert reads. Build an index for the representative blob/model, then run:
+
+```sh
+kiln-bench expert-io --file /path/to/expert-blob.bin \
+  --index-file /path/to/experts.index.json --block-bytes 1048576 \
+  --requests 256 --runs 5 --seed 42 --json
+
+bash scripts/run_tier0_gate5a.sh /path/to/expert-blob.bin \
+  /path/to/experts.index.json [output-directory]
+```
+
+The CLI validates the index against the blob, samples sequential and seeded-random offsets within indexed experts, and clips each request to the expert's real byte range. JSON records the input paths/size, indexed range count, sampled `(layer, expert_id)` keys, request-size bounds, requested bytes, latency and throughput. The wrapper records model/blob and index SHA-256 hashes with host/toolchain provenance and runs the block-size sweep. Keep `provenance.txt` beside the JSON reports.
+
+This is a buffered read probe. OS page cache is uncontrolled, and Linux process `read_bytes` includes readahead; neither reported throughput nor that counter is a direct cold-NVMe measurement. It does not measure inference, total RSS, useful overlap, or model quality. Use the capture only as Gate 5A input evidence, and apply the roadmap's storage/RAM/compute gate before expanding runtime integration.
+
 ## Stop/go rule
 
 Do not expand or wire these components into the active model path until Gate 5A has credible Tier 0 evidence. Do not declare Phase 5 complete until the exact model graph produces a reproducible end-to-end result with pinned model/runtime, sustained tokens/s, memory peak, storage bytes/token, cache/prefetch behavior, quality, and a fair baseline. If evidence fails, retain it and use the explicit mission decision process in the roadmap.
