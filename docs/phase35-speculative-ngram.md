@@ -40,6 +40,8 @@ KILN_TEST_MODEL_PATH=/path/to/pinned-model.gguf \
   cargo test -p kiln-cli --test interactive_speculative_parity -- --ignored --nocapture
 ```
 
+CI runs this test against its verified SmolLM2 smoke GGUF. That verifies live CLI integration on a small supported model; it does not substitute for the pinned Tier 0 performance and model-parity gates.
+
 ### Real-model rollback parity test
 
 ```sh
