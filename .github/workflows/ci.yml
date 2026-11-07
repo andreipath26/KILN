@@ -87,6 +87,31 @@ jobs:
       - name: Run browser, accessibility, and responsive UI checks
         run: npm test --prefix tools/ui-e2e
 
+      - name: Stop the no-model API
+        if: always()
+        run: if [ -f "$RUNNER_TEMP/kiln-api.pid" ]; then kill "$(cat "$RUNNER_TEMP/kiln-api.pid")" || true; fi
+
+      - name: Download and verify a real smoke-test model
+        env:
+          KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
+        run: target/debug/kiln pull QuantFactory/SmolLM2-135M-Instruct-GGUF --file SmolLM2-135M-Instruct.Q4_K_M.gguf
+
+      - name: Start the local API with the real model
+        run: |
+          KILN_MODELS_DIR="$RUNNER_TEMP/kiln-models" \
+          KILN_MODEL_PATH="$RUNNER_TEMP/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf" \
+          target/debug/kiln serve --host 127.0.0.1 --port 11435 > "$RUNNER_TEMP/kiln-api.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/kiln-api.pid"
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:11435/api/tags >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/kiln-api.log"
+          exit 1
+
+      - name: Smoke-test real model chat in Chromium
+        run: node tools/ui-e2e/real-smoke.cjs
+
       - name: Stop the local API
         if: always()
         run: if [ -f "$RUNNER_TEMP/kiln-api.pid" ]; then kill "$(cat "$RUNNER_TEMP/kiln-api.pid")" || true; fi
