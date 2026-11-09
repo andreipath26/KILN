@@ -11,6 +11,7 @@ pub struct AsyncGuardedExpertCoordinator {
     prefetch: AsyncExpertPrefetch,
     guard: ExpertCommitGuard,
     predictor: ExpertPrefetcher,
+    closed_epoch: Option<u64>,
 }
 
 impl AsyncGuardedExpertCoordinator {
@@ -30,6 +31,7 @@ impl AsyncGuardedExpertCoordinator {
                 speculative_guard_bytes, speculative_guard_entries,
             ),
             predictor: ExpertPrefetcher::new(pending_requests, pending_bytes),
+            closed_epoch: None,
         }
     }
 
@@ -63,6 +65,7 @@ impl AsyncGuardedExpertCoordinator {
             prefetch,
             guard:ExpertCommitGuard::new(guard_bytes,guard_entries),
             predictor: ExpertPrefetcher::new(pending_requests,pending_bytes),
+            closed_epoch: None,
         })
     }
 
@@ -102,7 +105,7 @@ impl AsyncGuardedExpertCoordinator {
         candidates: &[ExpertKey],
         top_k: usize,
     ) -> Result<(usize, usize), ExpertBlobError> {
-        if self.guard.epoch() != epoch || epoch == 0 {
+        if self.guard.epoch() != epoch || epoch == 0 || self.closed_epoch == Some(epoch) {
             return Err(ExpertBlobError::InvalidRoute("prediction epoch mismatch".into()));
         }
         if candidates.len() > 4096 || top_k > 16 {
@@ -147,12 +150,14 @@ impl AsyncGuardedExpertCoordinator {
         self.prefetch.begin_epoch(epoch)?;
         self.guard.begin_token(epoch)?;
         self.predictor.clear_pending();
+        self.closed_epoch = None;
         Ok(())
     }
 
     pub fn schedule_prediction(
         &mut self, epoch: u64, key: ExpertKey,
     ) -> SubmitResult {
+        if self.closed_epoch == Some(epoch) { return SubmitResult::StaleEpoch; }
         self.prefetch.submit(epoch, key)
     }
 
@@ -161,6 +166,10 @@ impl AsyncGuardedExpertCoordinator {
     pub fn poll_and_stage(&mut self) -> usize {
         let mut accepted = 0usize;
         for done in self.prefetch.poll_ready() {
+            if self.closed_epoch == Some(done.epoch) {
+                self.predictor.mark_unused(done.key);
+                continue;
+            }
             match done.result {
                 Ok(bytes) => {
                     if self.guard.stage(done.epoch, done.key, bytes) == StageResult::Staged {
@@ -187,6 +196,11 @@ impl AsyncGuardedExpertCoordinator {
     pub fn load_actual(
         &mut self, epoch: u64, actual: &[ExpertKey],
     ) -> Result<RoutedExpertLoad, ExpertBlobError> {
+        if self.closed_epoch == Some(epoch) {
+            return Err(ExpertBlobError::InvalidRoute(
+                "authoritative expert selection already committed for epoch".into()
+            ));
+        }
         self.poll_and_stage();
         // Real batched MoE graphs may route multiple token rows to one
         // physical expert. Never issue repeated disk reads or reject those
@@ -219,6 +233,8 @@ impl AsyncGuardedExpertCoordinator {
         for &key in actual {
             self.predictor.observe(key);
         }
+        self.predictor.mark_all_unused();
+        self.closed_epoch = Some(epoch);
         Ok(RoutedExpertLoad {
             experts, predicted_hits, authoritative_reads,
         })
@@ -452,6 +468,9 @@ mod tests {
         assert_eq!(result.experts[1].0,key(1));
         assert_eq!(result.experts[1].1.as_ref(),&original[16..32]);
         assert_eq!(coordinator.predictor_stats().useful,1);
+        assert!(coordinator.load_actual(4, &[key(1)]).is_err());
+        assert_eq!(coordinator.schedule_prediction(4, key(1)), SubmitResult::StaleEpoch);
+        assert!(coordinator.predict_from_router_trace(4, key(0), &[key(1)], 1).is_err());
         assert_eq!(coordinator.prefetch_stats().completed_operand_bytes,16);
         assert!(coordinator.begin_epoch(4).is_err());
         assert_eq!(coordinator.predictor_stats().in_flight_requests,0);
