@@ -120,6 +120,18 @@ mod tests {
   assert_eq!(reader.read_range(0, 512).unwrap(), expected[..512]);
   std::fs::remove_file(path).unwrap();
  }
+ #[cfg(unix)]
+ #[test] fn forked_file_descriptor_survives_path_replacement() {
+  let (path, original) = temp_file();
+  let reader = FileRangeReader::open(&path).unwrap();
+  let mut fork = reader.try_clone().unwrap();
+  std::fs::remove_file(&path).unwrap();
+  std::fs::write(&path, vec![200u8; original.len()]).unwrap();
+  assert_eq!(fork.read_range(0, 512).unwrap(), original[..512]);
+  let mut new_reader = FileRangeReader::open(&path).unwrap();
+  assert_eq!(new_reader.read_range(0, 512).unwrap(), vec![200u8;512]);
+  std::fs::remove_file(path).unwrap();
+ }
  #[test] fn independent_positional_file_clones_do_not_share_seek_cursor() {
   let (path, data) = temp_file();
   let original = FileRangeReader::open(&path).unwrap();

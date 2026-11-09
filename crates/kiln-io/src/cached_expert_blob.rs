@@ -371,6 +371,23 @@ mod tests {
         (path, bytes, table)
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn forked_expert_source_never_follows_replaced_model_path() {
+        let (path, original, table) = fixture();
+        let reader=CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap();
+        let mut fork=reader.fork_source_reader().unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&path,vec![255u8;original.len()]).unwrap();
+        assert_eq!(fork.read_expert(0,0).unwrap(),original[..8]);
+        assert_eq!(reader.read_with_fork(&mut fork,ExpertKey {
+            layer:0,expert_id:1
+        }).unwrap().as_ref(),&original[8..16]);
+        std::fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn parallel_fork_reads_preserve_source_bytes_and_cache_bounds() {
         let (path, data, table) = fixture();

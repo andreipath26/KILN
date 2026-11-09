@@ -20,6 +20,8 @@ pub struct AsyncExpertStats {
     pub rejected_capacity: u64,
     pub pending_requests: usize,
     pub pending_bytes: u64,
+    /// Number of independent read workers, not a measured I/O speedup.
+    pub worker_count: usize,
     /// Elapsed worker service time including cache lookup / read. This is
     /// NOT physical NVMe latency and does not prove I/O/compute overlap.
     pub worker_service_nanos: u64,
@@ -114,7 +116,7 @@ impl AsyncExpertPrefetch {
         for _ in 0..worker_count {
             readers.push(reader.fork_source_reader().map_err(|e| e.to_string())?);
         }
-        let (sender, recv) = mpsc::sync_channel(max_requests);
+        let (sender, recv) = mpsc::sync_channel::<ReadRequest>(max_requests);
         let recv = Arc::new(std::sync::Mutex::new(recv));
         let (completed, done) = mpsc::channel();
         let epoch = Arc::new(AtomicU64::new(0));
@@ -152,7 +154,9 @@ impl AsyncExpertPrefetch {
         Ok(Self {
             sender: Some(sender), done, workers, reader, epoch,
             pending: HashMap::new(), max_requests, max_bytes,
-            stats: AsyncExpertStats::default(),
+            stats: AsyncExpertStats {
+                worker_count, ..AsyncExpertStats::default()
+            },
         })
     }
 
@@ -204,7 +208,9 @@ impl AsyncExpertPrefetch {
         Self {
             sender:Some(sender),done,workers:vec![worker],reader,epoch,
             pending:HashMap::new(),max_requests,max_bytes,
-            stats:AsyncExpertStats::default(),
+            stats:AsyncExpertStats {
+                worker_count: 1, ..AsyncExpertStats::default()
+            },
         }
     }
 
@@ -316,6 +322,7 @@ mod tests {
         let mut io=AsyncExpertPrefetch::new_parallel(
             Arc::clone(&reader), 4, 4, 64
         ).unwrap();
+        assert_eq!(io.stats().worker_count, 4);
         io.begin_epoch(1).unwrap();
         for id in 0..4 {
             assert_eq!(io.submit(1,key(id)),SubmitResult::Submitted);
