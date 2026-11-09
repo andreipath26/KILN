@@ -179,29 +179,45 @@ jobs:
           import sys
           root = pathlib.Path(sys.argv[1])
           events = json.loads((root / "real-moe-router.json").read_text())
-          layer = events[0]["layer"]
           report = json.loads((root / "moe-fused-candidates.json").read_text())
           choices = []
           for item in report["three_dimensional_tensors"]:
               name = item["tensor_name"]
-              found = re.fullmatch(r"blk\.(\d+)\.[A-Za-z0-9_.-]+", name)
-              if found and int(found.group(1)) == layer and "_exps" in name:
-                  # CI-only known MoE fixture: explicit source axis-2 validation
-                  # must still be performed for every production model.
-                  choices.append({"layer": layer, "tensor_name": name,
+              found = re.fullmatch(r"blk\.(\d+)\.ffn_(up|down|gate)_exps\.weight", name)
+              if found:
+                  # This CI fixture has explicitly verified third-axis
+                  # expert slabs. Do not assume arbitrary model 3D axes.
+                  choices.append({"layer": int(found.group(1)), "tensor_name": name,
                                   "expert_count": item["shape"][2]})
           if not choices:
               print("Observed 3D tensor shapes (debug only):")
               print(json.dumps(report["three_dimensional_tensors"][:40], indent=2))
-              raise AssertionError("tiny MoE fixture has no explicitly identifiable third-axis expert tensors")
+              raise AssertionError("CI MoE fixture has no explicitly identified third-axis expert tensors")
+          by_layer = {}
+          for choice in choices:
+              by_layer.setdefault(choice["layer"], {})[
+                  choice["tensor_name"].split(".")[2]] = choice["expert_count"]
+          observed_layers = {row["layer"] for row in events}
+          assert observed_layers, "real CPU router did not select experts"
+          for layer in observed_layers:
+              projections = by_layer.get(layer)
+              assert projections is not None and len(projections) == 3, (
+                  f"layer {layer} lacks complete up/down/gate expert slabs")
+              assert len(set(projections.values())) == 1, (
+                  f"layer {layer} fused projections disagree on expert count")
           (root / "real-moe-fused-selections.json").write_text(json.dumps(choices))
-          keys = {(row["layer"], row["expert_id"]) for row in events}
-          available = choices[0]["expert_count"]
-          selected = [row for row in events if row["layer"] == layer
-                      and row["expert_id"] < available]
-          assert selected and all(row["expert_id"] < available for row in selected)
+          available_by_layer = {
+              layer: next(iter(projections.values()))
+              for layer, projections in by_layer.items()
+          }
+          selected = [row for row in events
+                      if row["layer"] in available_by_layer
+                      and row["expert_id"] < available_by_layer[row["layer"]]]
+          assert len(selected) == len(events), (
+              "every authoritative graph router selection must be covered by external GGUF slabs")
           (root / "real-moe-layer-router.json").write_text(json.dumps(selected))
-          print(f"Checking {len(choices)} distinct 3D expert weights in layer {layer}")
+          print(f"Checking {len(choices)} fused tensor projections across "
+                f"{len(observed_layers)} actual routed MoE layers")
           PY
           target/debug/kiln-bench expert-pack-fused \
             --source-gguf "$MODEL" \
@@ -242,15 +258,17 @@ jobs:
           assert baseline["runs"][0]["generated_tokens"] == streamed["runs"][0]["generated_tokens"]
           assert baseline["runs"][0]["token_fingerprint_fnv1a64"] == streamed["runs"][0]["token_fingerprint_fnv1a64"]
           audit = (root / "real-moe-stream-audit.tsv").read_text().splitlines()
-          layer0 = [line.split("\t") for line in audit if line.startswith("blk.0.")]
-          assert layer0 and len(layer0) >= 3, "the graph never reached the external expert kernel"
+          rows = [line.split("\t") for line in audit]
+          selected = json.loads((root / "real-moe-fused-selections.json").read_text())
+          tensor_names = {item["tensor_name"] for item in selected}
+          assert {row[0] for row in rows} == tensor_names, (
+              "all MoE tensor projections must execute the graph's external expert path")
+          assert all(len(row) == 6 for row in rows), "cache byte evidence missing"
           assert all(int(row[1]) > 0 and int(row[2]) == int(row[1]) and
-                     int(row[3]) > 0 for row in layer0), (
-              "all selected layer-0 expert slabs must really be loaded from sidecar"
-          )
-          assert all(len(row) == 6 for row in layer0), "cache byte evidence missing"
-          assert sum(int(row[5]) for row in layer0) > 0, "no hot expert cache reuse"
-          assert sum(int(row[4]) for row in layer0) < sum(int(row[3]) for row in layer0), (
+                     int(row[3]) > 0 for row in rows), (
+              "all selected expert slabs in every routed MoE layer must be externally loaded")
+          assert sum(int(row[5]) for row in rows) > 0, "no hot expert cache reuse"
+          assert sum(int(row[4]) for row in rows) < sum(int(row[3]) for row in rows), (
               "bounded cache did not reduce repeated external pread volume"
           )
           print("Real CPU MoE matmul used actual pread sidecar weights with exact token parity")
@@ -273,10 +291,9 @@ jobs:
                  uncached["runs"][0]["token_fingerprint_fnv1a64"]
           audit = [line.split("\t") for line in
                    (root / "real-moe-uncached-audit.tsv").read_text().splitlines()]
-          layer0 = [r for r in audit if r[0].startswith("blk.0.")]
-          assert layer0 and all(len(r) == 6 and int(r[5]) == 0 for r in layer0)
-          assert all(int(r[1]) == int(r[2]) for r in layer0)
-          assert sum(int(r[3]) for r in layer0) == sum(int(r[4]) for r in layer0)
+          assert audit and all(len(r) == 6 and int(r[5]) == 0 for r in audit)
+          assert all(int(r[1]) == int(r[2]) for r in audit)
+          assert sum(int(r[3]) for r in audit) == sum(int(r[4]) for r in audit)
           print("Zero-cache MoE stream path maintained exact parity with genuine pread for every expert slab")
           PY
           KILN_STREAM_TEST_TOKENS=8 KILN_CPU_THREADS=2 \
