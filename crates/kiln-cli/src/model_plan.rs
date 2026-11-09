@@ -26,7 +26,7 @@ fn cgroup_bytes(value: &str) -> Option<u64> {
 }
 
 fn cgroup_headroom(limit: &str, current: &str) -> Option<u64> {
-    cgroup_bytes(limit)?.checked_sub(cgroup_bytes(current)?)
+    Some(cgroup_bytes(limit)?.saturating_sub(cgroup_bytes(current)?))
 }
 
 #[cfg(target_os = "linux")]
@@ -89,13 +89,14 @@ fn feasibility(
 ) -> Value {
     // This is NOT the model working-set size. KV, graph scratch, page cache,
     // runtime buffers and other processes are not reliably bounded here.
-    let ratio = available_ram_bytes.filter(|n| *n > 0)
+    let ratio = available_ram_bytes.filter(|bytes| *bytes > 0)
         .map(|bytes| model_bytes as f64 / bytes as f64);
-    let status = match ratio {
-        Some(value) if value >= 1.0 => "model_file_exceeds_current_available_ram",
-        Some(value) if value >= 0.7 => "working_set_may_exceed_available_ram",
-        Some(_) => "file_size_within_available_ram_only",
-        None => "memory_feasibility_unknown",
+    let status = match (available_ram_bytes, ratio) {
+        (Some(0), _) => "model_file_exceeds_current_available_ram",
+        (_, Some(value)) if value >= 1.0 => "model_file_exceeds_current_available_ram",
+        (_, Some(value)) if value >= 0.7 => "working_set_may_exceed_available_ram",
+        (_, Some(_)) => "file_size_within_available_ram_only",
+        _ => "memory_feasibility_unknown",
     };
     json!({
         "status": "diagnostic_only_not_load_or_speed_acceptance",
@@ -210,7 +211,7 @@ mod tests {
     #[test]
     fn cgroup_budget_is_strict_and_never_wraps() {
         assert_eq!(cgroup_headroom("1073741824\\n", "268435456\\n"), Some(805306368));
-        assert_eq!(cgroup_headroom("268435456", "1073741824"), None);
+        assert_eq!(cgroup_headroom("268435456", "1073741824"), Some(0));
         assert_eq!(cgroup_headroom("max", "10"), None);
         assert_eq!(cgroup_headroom("9223372036854771712", "10"), None);
         assert_eq!(cgroup_headroom("123bad", "0"), None);
@@ -234,5 +235,8 @@ mod tests {
         let report = feasibility(10000, None, true, 4, 8);
         assert_eq!(report["memory"]["status"], "memory_feasibility_unknown");
         assert!(report["memory"]["model_file_to_available_ram_ratio"].is_null());
+        let exhausted = feasibility(1024, Some(0), true, 4, 8);
+        assert_eq!(exhausted["memory"]["status"], "model_file_exceeds_current_available_ram");
+        assert!(exhausted["memory"]["model_file_to_available_ram_ratio"].is_null());
     }
 }
