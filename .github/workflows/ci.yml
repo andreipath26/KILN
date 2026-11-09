@@ -283,6 +283,26 @@ jobs:
           assert result["experts"] > 0 and result["components"] > 0
           print("Fused quantized GGUF expert slabs packed with byte-exact source parity")
           PY
+          target/debug/kiln-bench expert-export-gguf-stream-index \
+            --source-gguf "$MODEL" --auto-verified \
+            --output-file "$RUNNER_TEMP/real-moe-auto-stream-index.tsv" \
+            --json > "$RUNNER_TEMP/real-moe-auto-stream-index-result.json"
+          target/debug/kiln-bench expert-export-gguf-stream-index \
+            --source-gguf "$MODEL" \
+            --selections-file "$RUNNER_TEMP/real-moe-fused-selections.json" \
+            --output-file "$RUNNER_TEMP/real-moe-explicit-stream-index.tsv" \
+            --json > "$RUNNER_TEMP/real-moe-explicit-stream-index-result.json"
+          cmp "$RUNNER_TEMP/real-moe-auto-stream-index.tsv" \
+              "$RUNNER_TEMP/real-moe-explicit-stream-index.tsv"
+          python3 - "$RUNNER_TEMP/real-moe-auto-stream-index-result.json" <<'PY'
+          import json
+          import sys
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert report["layout_selection"] == "metadata_verified_complete"
+          assert report["entries"] > 0
+          assert report["requires_duplicate_sidecar"] is False
+          print("Complete metadata-verified MoE tensor discovery matches explicit GGUF offset index")
+          PY
           target/debug/kiln-bench expert-export-stream-index \
             --blob-file "$RUNNER_TEMP/real-moe-fused.bin" \
             --index-file "$RUNNER_TEMP/real-moe-fused.index.json" \
@@ -419,6 +439,10 @@ jobs:
             ${{ runner.temp }}/real-moe-fused-replay.json
             ${{ runner.temp }}/real-moe-stream-index.tsv
             ${{ runner.temp }}/real-moe-stream-index-result.json
+            ${{ runner.temp }}/real-moe-auto-stream-index.tsv
+            ${{ runner.temp }}/real-moe-auto-stream-index-result.json
+            ${{ runner.temp }}/real-moe-explicit-stream-index.tsv
+            ${{ runner.temp }}/real-moe-explicit-stream-index-result.json
             ${{ runner.temp }}/real-moe-stream-audit.tsv
             ${{ runner.temp }}/real-moe-external-compute.json
             ${{ runner.temp }}/real-moe-uncached-compute.json
