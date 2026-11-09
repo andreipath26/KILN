@@ -167,6 +167,69 @@ jobs:
           assert report["evaluation"]["token_parity_exact"]
           print("Actual MoE model normal/lazy inference maintained exact greedy parity")
           PY
+          # Exercise actual fused GGUF expert extraction against authoritative
+          # router selections; packed data remains a diagnostic source.
+          cargo build -p kiln-bench
+          target/debug/kiln-bench expert-inspect-fused --source-gguf "$MODEL" \
+            --json > "$RUNNER_TEMP/moe-fused-candidates.json"
+          python3 - "$RUNNER_TEMP" <<'PY'
+          import json
+          import pathlib
+          import re
+          import sys
+          root = pathlib.Path(sys.argv[1])
+          events = json.loads((root / "real-moe-router.json").read_text())
+          layer = events[0]["layer"]
+          report = json.loads((root / "moe-fused-candidates.json").read_text())
+          choices = []
+          for item in report["three_dimensional_tensors"]:
+              name = item["tensor_name"]
+              found = re.fullmatch(r"blk\.(\d+)\.[A-Za-z0-9_.-]+_exps", name)
+              if found and int(found.group(1)) == layer:
+                  # CI-only known MoE fixture: explicit source axis-2 validation
+                  # must still be performed for every production model.
+                  choices.append({"layer": layer, "tensor_name": name,
+                                  "expert_count": item["shape"][2]})
+          assert choices, "tiny MoE fixture exposes no eligible 3D expert slabs"
+          (root / "real-moe-fused-selections.json").write_text(json.dumps(choices))
+          keys = {(row["layer"], row["expert_id"]) for row in events}
+          available = choices[0]["expert_count"]
+          selected = [row for row in events if row["layer"] == layer
+                      and row["expert_id"] < available]
+          assert selected and all(row["expert_id"] < available for row in selected)
+          (root / "real-moe-layer-router.json").write_text(json.dumps(selected))
+          print(f"Checking {len(choices)} distinct 3D expert weights in layer {layer}")
+          PY
+          target/debug/kiln-bench expert-pack-fused \
+            --source-gguf "$MODEL" \
+            --selections-file "$RUNNER_TEMP/real-moe-fused-selections.json" \
+            --blob-file "$RUNNER_TEMP/real-moe-fused.bin" \
+            --index-file "$RUNNER_TEMP/real-moe-fused.index.json" \
+            --integrity-file "$RUNNER_TEMP/real-moe-fused.integrity.json" \
+            --components-file "$RUNNER_TEMP/real-moe-fused.components.json" \
+            --json > "$RUNNER_TEMP/real-moe-pack-result.json"
+          python3 - "$RUNNER_TEMP/real-moe-pack-result.json" <<'PY'
+          import json
+          import sys
+          result = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert result["exact_source_bytes_verified"] is True
+          assert result["experts"] > 0 and result["components"] > 0
+          print("Fused quantized GGUF expert slabs packed with byte-exact source parity")
+          PY
+          target/debug/kiln-bench expert-io \
+            --file "$RUNNER_TEMP/real-moe-fused.bin" \
+            --index-file "$RUNNER_TEMP/real-moe-fused.index.json" \
+            --trace-file "$RUNNER_TEMP/real-moe-layer-router.json" \
+            --block-bytes 1048576 --runs 1 --json \
+            > "$RUNNER_TEMP/real-moe-fused-replay.json"
+          python3 - "$RUNNER_TEMP/real-moe-fused-replay.json" <<'PY'
+          import json
+          import sys
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert report["patterns"][0]["access_pattern"] == "router-trace"
+          assert report["patterns"][0]["total_bytes_read"] > 0
+          print("Actual router-selected expert byte ranges replayed from packed GGUF slabs")
+          PY
 
       - name: Smoke-test Phase 3.5 real-model benchmark commands
         env:
