@@ -1,7 +1,9 @@
 //! Bounds-checked random access to large model/expert blobs.
 
 use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom};
+#[cfg(not(any(unix, windows)))]
+use std::io::{Read, Seek, SeekFrom};
+use std::io;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -62,8 +64,24 @@ impl FileRangeReader {
    }
    Ok(())
   }
-  #[cfg(not(unix))]
+  #[cfg(windows)]
   {
+   use std::os::windows::fs::FileExt;
+   let mut done = 0usize;
+   while done < buffer.len() {
+    match self.file.seek_read(&mut buffer[done..], offset + done as u64) {
+     Ok(0) => return Err(RangeReadError::Io(io::Error::from(io::ErrorKind::UnexpectedEof))),
+     Ok(count) => done += count,
+     Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+     Err(error) => return Err(RangeReadError::Io(error)),
+    }
+   }
+   Ok(())
+  }
+  #[cfg(not(any(unix, windows)))]
+  {
+   // Platforms without positional file I/O retain the single-reader
+   // sequential fallback; multi-worker construction rejects these targets.
    self.file.seek(SeekFrom::Start(offset))?;
    self.file.read_exact(buffer)?;
    Ok(())
