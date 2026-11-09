@@ -488,6 +488,52 @@ jobs:
           print("Original-GGUF externally sourced MoE expert logits preserve baseline perplexity")
           PY
 
+      - name: Verify native external MoE log-likelihood parity, not only generated tokens
+        env:
+          KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
+        run: |
+          MODEL="$KILN_MODELS_DIR/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
+          test -s "$MODEL"
+          printf 'A model should agree with the same source weights during expert streaming. ' > "$RUNNER_TEMP/moe-quality-text.txt"
+          printf 'Exact next token likelihood matters beyond greedy sequence equality.\n' >> "$RUNNER_TEMP/moe-quality-text.txt"
+          target/debug/kiln eval-ppl "$MODEL" \
+            --text-file "$RUNNER_TEMP/moe-quality-text.txt" --max-tokens 24 \
+            --window-tokens 32 --threads 2 --json \
+            > "$RUNNER_TEMP/moe-quality-baseline.json"
+          KILN_MOE_STREAM_BLOB="$MODEL" \
+          KILN_MOE_STREAM_INDEX="$RUNNER_TEMP/real-moe-auto-stream-index.tsv" \
+          KILN_MOE_STREAM_CACHE_MIB=32 \
+          KILN_MOE_STREAM_PARALLEL=1 \
+          KILN_MOE_STREAM_AUDIT="$RUNNER_TEMP/moe-quality-external-audit.tsv" \
+            target/debug/kiln eval-ppl "$MODEL" \
+              --text-file "$RUNNER_TEMP/moe-quality-text.txt" --max-tokens 24 \
+              --window-tokens 32 --threads 2 --json \
+              > "$RUNNER_TEMP/moe-quality-external.json"
+          python3 - "$RUNNER_TEMP" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+          root = Path(sys.argv[1])
+          baseline = json.loads((root / "moe-quality-baseline.json").read_text())
+          streamed = json.loads((root / "moe-quality-external.json").read_text())
+          for key in ("token_fingerprint_fnv1a64", "token_ids_sha256_le_i32",
+                      "evaluated_token_count", "scored_target_tokens", "window_tokens"):
+              assert baseline[key] == streamed[key], f"quality-eval mismatch in {key}"
+          assert abs(baseline["mean_nll_nats"] - streamed["mean_nll_nats"]) < 1e-6, (
+              "external expert dot-product changed next-token log likelihood"
+          )
+          assert abs(baseline["perplexity"] - streamed["perplexity"]) < 1e-5
+          assert streamed["deployment_accepted"] is False
+          rows = [row.split("\t") for row in
+                  (root / "moe-quality-external-audit.tsv").read_text().splitlines()]
+          expected = {entry["tensor_name"] for entry in json.loads(
+              (root / "real-moe-fused-selections.json").read_text())}
+          assert {row[0] for row in rows} == expected
+          assert rows and all(len(row) == 6 and int(row[1]) == int(row[2]) and
+                              int(row[1]) > 0 for row in rows)
+          print("Real streamed MoE log-likelihood, perplexity, SHA-256 token IDs and full expert load parity passed")
+          PY
+
       - name: Smoke-test read-only model feasibility preflight
         env:
           KILN_TEST_MODEL_PATH: ${{ runner.temp }}/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf
@@ -552,6 +598,10 @@ jobs:
             ${{ runner.temp }}/real-moe-uncached-compute.json
             ${{ runner.temp }}/real-moe-uncached-audit.tsv
             ${{ runner.temp }}/real-moe-stream-script-result.json
+            ${{ runner.temp }}/moe-quality-text.txt
+            ${{ runner.temp }}/moe-quality-baseline.json
+            ${{ runner.temp }}/moe-quality-external.json
+            ${{ runner.temp }}/moe-quality-external-audit.tsv
             ${{ runner.temp }}/real-moe-stream-script-proof/*.json
             ${{ runner.temp }}/real-moe-stream-script-proof/*.tsv
             ${{ runner.temp }}/kiln-model-plan.json
