@@ -72,6 +72,23 @@ jobs:
       - name: Run workspace tests
         run: cargo test --workspace --all-targets
 
+      - name: Diagnose reproducible dependency lock drift
+        run: |
+          if ! git diff --quiet -- Cargo.lock; then
+            echo "Rebuild updated Cargo.lock; canonical committed lock is stale"
+            python3 - <<'PY'
+          import base64
+          import pathlib
+          import zlib
+          data = pathlib.Path("Cargo.lock").read_bytes()
+          packed = base64.b64encode(zlib.compress(data, 9)).decode("ascii")
+          print("KILN_RESOLVED_LOCK_ZLIB_BASE64_BEGIN")
+          for offset in range(0, len(packed), 120):
+              print("KILN_RESOLVED_LOCK_CHUNK=" + packed[offset:offset+120])
+          print("KILN_RESOLVED_LOCK_ZLIB_BASE64_END")
+          PY
+          fi
+
       - name: Build the API executable for browser testing
         run: cargo build -p kiln-cli
 
