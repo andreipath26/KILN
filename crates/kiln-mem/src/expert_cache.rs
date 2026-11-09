@@ -32,6 +32,8 @@ pub enum InsertOutcome {
     RejectedOversized { entry_bytes: u64, capacity_bytes: u64 },
     /// Active shared expert leases prevent enough eviction for admission.
     RejectedPinned { entry_bytes: u64, capacity_bytes: u64 },
+    /// Adaptive admission retained more frequently used resident experts.
+    RejectedCold { entry_bytes: u64, capacity_bytes: u64 },
     Disabled,
 }
 
@@ -44,6 +46,8 @@ pub struct ExpertCacheStats {
     pub hits: u64,
     pub misses: u64,
     pub evictions: u64,
+    /// Number of adaptive ghost-history admission rejections.
+    pub cold_rejections: u64,
 }
 
 struct Entry {
@@ -61,6 +65,9 @@ struct Inner {
     hits: u64,
     misses: u64,
     evictions: u64,
+    cold_rejections: u64,
+    /// Bounded history of recent misses, including experts not cached.
+    ghost: HashMap<ExpertKey, (u64, u64)>,
 }
 
 /// Thread-safe, byte-bounded cache. Operations are serialized under one mutex;
@@ -81,6 +88,8 @@ impl ExpertCache {
                 hits: 0,
                 misses: 0,
                 evictions: 0,
+                cold_rejections: 0,
+                ghost: HashMap::new(),
             }),
         }
     }
@@ -94,6 +103,11 @@ impl ExpertCache {
         if inner.policy == ExpertCachePolicy::Adaptive && inner.clock % 4096 == 0 {
             for entry in inner.entries.values_mut() {
                 entry.frequency = (entry.frequency / 2).max(1);
+            }
+            // Age historical misses too: old prompts cannot permanently
+            // suppress admission of newly useful experts.
+            for (score, _) in inner.ghost.values_mut() {
+                *score = (*score / 2).max(1);
             }
         }
         inner.clock
@@ -186,6 +200,24 @@ impl ExpertCache {
                 entry_bytes, capacity_bytes: inner.capacity_bytes,
             };
         }
+        let adaptive_score = if inner.policy == ExpertCachePolicy::Adaptive {
+            // Count actual arrivals, not prefetch predictions or passive
+            // residency probes. Bound ghost metadata independently of the
+            // cache byte budget to avoid a memory leak for huge model vocabularies.
+            const MAX_GHOST_KEYS: usize = 8192;
+            if !inner.ghost.contains_key(&key) && inner.ghost.len() >= MAX_GHOST_KEYS {
+                if let Some(oldest) = inner.ghost.iter()
+                    .min_by_key(|(key, (_, tick))| (*tick, key.layer, key.expert_id))
+                    .map(|(key, _)| *key) {
+                    inner.ghost.remove(&oldest);
+                }
+            }
+            let now = Self::tick(&mut inner);
+            let heat = inner.ghost.entry(key).or_insert((0, now));
+            heat.0 = heat.0.saturating_add(1);
+            heat.1 = now;
+            heat.0
+        } else { 0 };
         let replaced_bytes = inner.entries.get(&key)
             .map_or(0, |old| old.bytes.len() as u64);
         let projected = inner.used_bytes - replaced_bytes;
@@ -211,6 +243,21 @@ impl ExpertCache {
                 entry_bytes, capacity_bytes: inner.capacity_bytes,
             };
         }
+        if inner.policy == ExpertCachePolicy::Adaptive && needed > 0 {
+            // A cold scan must not eject repeatedly selected experts.
+            // Require candidate admission heat to reach the hottest victim's
+            // recent frequency before changing cache membership.
+            let protected_heat = victims.iter()
+                .filter_map(|victim| inner.entries.get(victim))
+                .map(|entry| entry.frequency)
+                .max().unwrap_or(0);
+            if adaptive_score < protected_heat {
+                inner.cold_rejections = inner.cold_rejections.saturating_add(1);
+                return InsertOutcome::RejectedCold {
+                    entry_bytes, capacity_bytes: inner.capacity_bytes,
+                };
+            }
+        }
         let replaced = if let Some(old) = inner.entries.remove(&key) {
             inner.used_bytes -= old.bytes.len() as u64;
             true
@@ -226,7 +273,12 @@ impl ExpertCache {
 
         let now = Self::tick(&mut inner);
         inner.used_bytes = inner.used_bytes.saturating_add(entry_bytes);
-        inner.entries.insert(key, Entry { bytes, last_access: now, frequency: 1 });
+        let initial_frequency = if inner.policy == ExpertCachePolicy::Adaptive {
+            adaptive_score.max(1)
+        } else { 1 };
+        inner.entries.insert(key, Entry {
+            bytes, last_access: now, frequency: initial_frequency,
+        });
         if replaced {
             InsertOutcome::Replaced { evicted_entries }
         } else {
@@ -275,6 +327,7 @@ impl ExpertCache {
             hits: inner.hits,
             misses: inner.misses,
             evictions: inner.evictions,
+            cold_rejections: inner.cold_rejections,
         }
     }
 }
@@ -456,6 +509,57 @@ mod tests {
         drop(pin);
         assert_eq!(cache.insert(key(1), vec![6; 8]),
                    InsertOutcome::Replaced { evicted_entries: 0 });
+    }
+
+    #[test]
+    fn adaptive_admission_resists_one_off_scan_then_promotes_repeated_expert() {
+        let cache = ExpertCache::new(8, ExpertCachePolicy::Adaptive);
+        assert_eq!(cache.insert(key(1), vec![1; 4]),
+                   InsertOutcome::Inserted { evicted_entries: 0 });
+        assert_eq!(cache.insert(key(2), vec![2; 4]),
+                   InsertOutcome::Inserted { evicted_entries: 0 });
+        for _ in 0..8 {
+            assert_eq!(cache.get(key(1)), Some(vec![1; 4]));
+            assert_eq!(cache.get(key(2)), Some(vec![2; 4]));
+        }
+        assert_eq!(cache.insert(key(3), vec![3; 4]),
+                   InsertOutcome::RejectedCold { entry_bytes: 4, capacity_bytes: 8 });
+        assert_eq!(cache.stats().used_bytes, 8);
+        assert_eq!(cache.stats().entries, 2);
+        assert_eq!(cache.get(key(1)), Some(vec![1; 4]));
+        assert_eq!(cache.get(key(2)), Some(vec![2; 4]));
+        let mut accepted = false;
+        for _ in 0..24 {
+            if matches!(cache.insert(key(3), vec![3; 4]),
+                        InsertOutcome::Inserted { .. }) {
+                accepted = true;
+                break;
+            }
+        }
+        assert!(accepted, "repeated expert must eventually displace one old resident");
+        assert_eq!(cache.get(key(3)), Some(vec![3; 4]));
+        assert!(cache.stats().cold_rejections > 0);
+        assert!(cache.stats().used_bytes <= 8);
+    }
+
+    #[test]
+    fn adaptive_history_is_bounded_under_unique_expert_scan() {
+        let cache = ExpertCache::new(8, ExpertCachePolicy::Adaptive);
+        for id in 0..10_000 {
+            cache.insert(key(id), vec![id as u8; 4]);
+        }
+        assert!(cache.lock().ghost.len() <= 8192);
+        assert!(cache.stats().used_bytes <= cache.stats().capacity_bytes);
+    }
+
+    #[test]
+    fn lru_does_not_use_adaptive_hysteresis() {
+        let cache = ExpertCache::new(4, ExpertCachePolicy::Lru);
+        cache.insert(key(1), vec![1; 4]);
+        for _ in 0..20 { let _ = cache.get(key(1)); }
+        assert_eq!(cache.insert(key(2), vec![2; 4]),
+                   InsertOutcome::Inserted { evicted_entries: 1 });
+        assert_eq!(cache.stats().cold_rejections, 0);
     }
 
     #[test]
