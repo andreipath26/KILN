@@ -365,7 +365,7 @@ jobs:
           assert sum(int(r[3]) for r in audit) == sum(int(r[4]) for r in audit)
           print("Zero-cache MoE stream path maintained exact parity with genuine pread for every expert slab")
           PY
-          KILN_STREAM_TEST_TOKENS=8 KILN_CPU_THREADS=2 \
+          KILN_STREAM_TEST_TOKENS=8 KILN_CPU_THREADS=2 KILN_STREAM_LAZY_MOE=1 \
             bash scripts/run_cpu_moe_stream_experiment.sh "$MODEL" \
             "$RUNNER_TEMP/real-moe-fused-selections.json" \
             "$RUNNER_TEMP/real-moe-stream-script-proof" \
@@ -382,6 +382,7 @@ jobs:
           assert report["external_decode_forward_tps"] > 0
           assert report["external_process_peak_rss_kib"] > 0
           assert report["source_mode"] == "original_gguf"
+          assert report["lazy_moe_experts_enabled"] is True
           assert report["duplicate_weight_blob_required"] is False
           assert report["tier0_deployment_accepted"] is False
           print("Real one-model-file GGUF pread inference passed exact-token parity")

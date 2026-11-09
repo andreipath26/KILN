@@ -17,6 +17,7 @@ KILN_BIN="${KILN_BIN:-target/debug/kiln}"
 KILN_BENCH_BIN="${KILN_BENCH_BIN:-target/debug/kiln-bench}"
 THREADS="${KILN_CPU_THREADS:-4}"
 TOKENS="${KILN_STREAM_TEST_TOKENS:-32}"
+STREAM_LAZY_MOE="${KILN_STREAM_LAZY_MOE:-0}"
 SOURCE_MODE="${KILN_STREAM_SOURCE_MODE:-gguf}"
 
 [[ -f "$MODEL" && -s "$MODEL" && -s "$SELECTIONS" ]] || {
@@ -65,12 +66,19 @@ fi
 "$KILN_BIN" bench "$MODEL" --native-greedy --tokens "$TOKENS" \
   --warmup 0 --runs 1 --threads "$THREADS" --batch 128 --ubatch 64 --json \
   > "$OUT/baseline.json"
+STREAM_ARGS=()
+if [[ "$STREAM_LAZY_MOE" == 1 ]]; then
+  STREAM_ARGS+=(--lazy-moe-experts)
+elif [[ "$STREAM_LAZY_MOE" != 0 ]]; then
+  echo "KILN_STREAM_LAZY_MOE must be 0 or 1" >&2
+  exit 2
+fi
 KILN_MOE_STREAM_BLOB="$STREAM_BLOB" \
 KILN_MOE_STREAM_INDEX="$OUT/expert.stream.tsv" \
 KILN_MOE_STREAM_AUDIT="$OUT/external.audit.tsv" \
   "$KILN_BIN" bench "$MODEL" --native-greedy --tokens "$TOKENS" \
-    --warmup 0 --runs 1 --threads "$THREADS" --batch 128 --ubatch 64 --json \
-    > "$OUT/external.json"
+    --warmup 0 --runs 1 --threads "$THREADS" --batch 128 --ubatch 64 \
+    "${STREAM_ARGS[@]}" --json > "$OUT/external.json"
 
 python3 - "$OUT" "$SELECTIONS" "$MODEL" <<'PY'
 import hashlib
@@ -137,6 +145,7 @@ proof = {
         .get("after_benchmark", {}).get("peak_rss_to_date"),
     "external_process_peak_rss_kib": external.get("process_memory", {})
         .get("after_benchmark", {}).get("peak_rss_to_date"),
+    "lazy_moe_experts_enabled": bool(external.get("lazy_moe_experts")),
     "resident_model_still_mapped": True,
     "duplicate_weight_blob_required": (out / "packed.json").exists(),
     "tier0_deployment_accepted": False,
