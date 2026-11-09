@@ -171,6 +171,14 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Inspect possible fused 3D tensor shapes (not an automatic expert-axis assertion).
+    ExpertInspectFused {
+        #[arg(long)]
+        source_gguf: PathBuf,
+        /// Emit machine-readable tensor names and full dimensions.
+        #[arg(long)]
+        json: bool,
+    },
     /// Pack individually addressable third-axis slabs of explicitly selected
     /// fused 3-D GGUF MoE tensors; never infer expert axes or quantization.
     ExpertPackFused {
@@ -1785,6 +1793,41 @@ async fn main() {
                 }
                 Err(e) => {
                     eprintln!("named GGUF expert pack failed: {e}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::ExpertInspectFused { source_gguf, json } => {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let model = kiln_models::GgufFile::open(&source_gguf)?;
+                let mut candidates: Vec<_> = model.tensors.iter()
+                    .filter(|tensor| tensor.shape.len() == 3 && tensor.shape[2] > 1)
+                    .map(|tensor| serde_json::json!({
+                        "tensor_name":tensor.name,
+                        "shape":tensor.shape,
+                        "dtype":format!("{:?}",tensor.dtype),
+                        "possible_expert_count_if_axis2":tensor.shape[2],
+                        "axis2_expert_identity_verified":false
+                    }))
+                    .collect();
+                candidates.sort_by(|a,b| a["tensor_name"].as_str().cmp(&b["tensor_name"].as_str()));
+                Ok(candidates)
+            })();
+            match result {
+                Ok(candidates) if json => println!("{}", serde_json::json!({
+                    "source_gguf":source_gguf,
+                    "three_dimensional_tensors":candidates,
+                    "note":"These are candidates, not identified experts. You must independently confirm that shape[2] is the expert axis before using expert-pack-fused."
+                })),
+                Ok(candidates) => {
+                    println!("Possible GGUF 3D fused weight tensors (expert axis NOT automatically verified)");
+                    for tensor in candidates {
+                        println!("  {}  {:?}  {}", tensor["tensor_name"].as_str().unwrap_or("unknown"),
+                            tensor["shape"],tensor["dtype"].as_str().unwrap_or("unknown"));
+                    }
+                }
+                Err(error) => {
+                    eprintln!("fused GGUF inspection failed: {error}");
                     std::process::exit(2);
                 }
             }
