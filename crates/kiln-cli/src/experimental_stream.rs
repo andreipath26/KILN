@@ -138,6 +138,12 @@ fn verify_stream_audit(contents: &str, expected_names: &HashSet<String>) -> Resu
         return Err(format!("external CPU expert graph executed {}/{} verified projections",
             observed.len(), expected_names.len()));
     }
+    // The launcher starts a new child with an empty process-local hot cache.
+    // An audit consisting entirely of cache hits is not credible evidence
+    // that any selected expert was fetched from the source GGUF.
+    if pread_bytes == 0 {
+        return Err("native streaming audit contained no external expert reads".into());
+    }
     Ok((bytes, pread_bytes, hits))
 }
 
@@ -315,6 +321,11 @@ mod tests {
         assert!(verify_stream_audit(&rows.lines().take(2).collect::<Vec<_>>().join("\n"), &expected).is_err());
         assert!(verify_stream_audit(&rows.replace("\t2\t2\t1024\t1024\t0", "\t2\t1\t1024\t1024\t0"), &expected).is_err());
         assert!(verify_stream_audit(&rows.replace("\t0\t2", "\t0\t0"), &expected).is_err());
+        // An all-cached audit cannot prove a cold child ever fetched a slab.
+        assert!(verify_stream_audit(
+            &rows.replace("\t1024\t1024\t0", "\t1024\t0\t2"),
+            &expected
+        ).is_err());
     }
 
     #[cfg(unix)]
