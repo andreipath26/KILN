@@ -23,6 +23,10 @@ pub struct LocalModel {
     pub size_bytes: u64,
     pub source: String,
     pub valid_gguf: bool,
+    /// All installed Ollama tags that refer to the same physical GGUF blob.
+    /// A single blob remains one model for auto-selection and memory accounting.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -229,6 +233,7 @@ pub fn discover_models(extra_roots: &[PathBuf]) -> Vec<LocalModel> {
             size_bytes: metadata.len(),
             source: if aliases.is_some() { "Ollama manifest".into() } else { root_label(&path) },
             valid_gguf: true,
+            aliases: aliases.cloned().unwrap_or_default(),
         });
     }
     models.sort_by(|a,b| a.name.to_lowercase().cmp(&b.name.to_lowercase()).then(a.path.cmp(&b.path)));

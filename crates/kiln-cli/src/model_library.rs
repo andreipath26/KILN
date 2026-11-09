@@ -25,8 +25,14 @@ pub fn resolve_model_identifier(input: &str) -> Result<PathBuf, String> {
         return Ok(candidate);
     }
     let models = library::discover_models(&[]);
-    let matching = models.iter().filter(|model| model.name.eq_ignore_ascii_case(input))
-        .collect::<Vec<_>>();
+    resolve_named_model(&models, input)
+}
+
+fn resolve_named_model(models: &[library::LocalModel], input: &str) -> Result<PathBuf, String> {
+    let matching = models.iter().filter(|model| {
+        model.name.eq_ignore_ascii_case(input)
+            || model.aliases.iter().any(|name| name.eq_ignore_ascii_case(input))
+    }).collect::<Vec<_>>();
     match matching.as_slice() {
         [model] => Ok(PathBuf::from(&model.path)),
         [] => Err(format!(
@@ -50,6 +56,12 @@ pub fn list_models(extra_roots: &[PathBuf], json: bool) -> Result<(), String> {
         for model in models {
             println!("{}  ({:.2} GiB)\n  {}\n  discovered in {}", model.name,
                 model.size_bytes as f64 / 1_073_741_824.0, model.path, model.source);
+            let alternative_tags: Vec<_> = model.aliases.iter()
+                .filter(|tag| *tag != &model.name).collect();
+            if !alternative_tags.is_empty() {
+                println!("  alternate Ollama tags: {}", alternative_tags.into_iter()
+                    .map(String::as_str).collect::<Vec<_>>().join(", "));
+            }
         }
     }
     Ok(())
@@ -84,16 +96,17 @@ mod model_identifier_tests {
         LocalModel {
             name: name.into(), path: path.into(), size_bytes: 4096,
             source: "Ollama manifest".into(), valid_gguf: true,
+            aliases: vec![name.to_owned()],
         }
     }
     #[test]
     fn rejects_ambiguous_names_instead_of_choosing_an_arbitrary_blob() {
-        let models = [fixture("model:latest","/tmp/model-a"), fixture("MODEL:latest","/tmp/model-b")];
-        let matches = models.iter().filter(|model| model.name.eq_ignore_ascii_case("model:latest"))
-            .collect::<Vec<_>>();
-        assert_eq!(matches.len(), 2);
-        let different = models.iter().filter(|model| model.name.eq_ignore_ascii_case("other:latest"))
-            .count();
-        assert_eq!(different, 0);
+        let mut a = fixture("model:latest","/tmp/model-a");
+        a.aliases.push("alternative:v1".into());
+        let models = [a, fixture("MODEL:latest","/tmp/model-b")];
+        assert!(resolve_named_model(&models, "model:latest").is_err());
+        assert_eq!(resolve_named_model(&models, "alternative:v1").unwrap(),
+            PathBuf::from("/tmp/model-a"));
+        assert!(resolve_named_model(&models, "other:latest").is_err());
     }
 }
