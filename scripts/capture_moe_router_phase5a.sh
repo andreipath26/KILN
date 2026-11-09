@@ -59,6 +59,11 @@ if [[ ! -s "$OUT/actual-router.tsv" ]]; then
 fi
 python3 scripts/convert_moe_router_trace.py "$OUT/actual-router.tsv" \
   --out "$OUT/actual-router.json" > "$OUT/router-conversion.json"
+# Retain model-keyed, provenance-bound routing heat for later measured
+# cache-admission experiments; no persistent global state or auto-activation.
+python3 scripts/route_usage_history.py --trace "$OUT/actual-router.json" \
+  --model-sha256 "$(sha256sum "$MODEL" | awk '{print $1}')" \
+  --out "$OUT/route-usage-history.json" > "$OUT/route-history-summary.json"
 bash scripts/run_tier0_gate5a.sh "$BLOB" "$INDEX" "$OUT/io-evidence" "$OUT/actual-router.json"
 echo "Actual CPU MoE route and indexed expert I/O captures: $OUT"
 echo "NOTE: This DOES NOT prove streamed inference, cold SSD throughput, or Tier 0 acceptance."
