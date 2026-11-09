@@ -203,6 +203,18 @@ jobs:
           assert rec["cpu_moe_streamed_end_to_end_ready"] is False
           print("Model preflight accurately identifies opt-in actual expert graph mode, not deployment readiness")
           PY
+          target/debug/kiln bench-kv-snapshot "$MODEL" \
+            --max-mib 256 --threads 2 --json > "$RUNNER_TEMP/moe-kv-snapshot.json"
+          python3 - "$RUNNER_TEMP/moe-kv-snapshot.json" <<'PY'
+          import json
+          import sys
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert report["parity_pass"] is True
+          assert report["token_argmax_identical"] is True
+          assert report["snapshot_bytes"] > 0
+          assert report["tier0_deployment_accepted"] is False
+          print("Real model bounded KV snapshot and target continuation parity verified")
+          PY
           mkdir -m 0700 "$RUNNER_TEMP/moe-stream-isolated-temp"
           if ! printf 'Hello from the KILN smoke test.\n/exit\n' | \
             TMPDIR="$RUNNER_TEMP/moe-stream-isolated-temp" \

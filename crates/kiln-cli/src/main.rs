@@ -246,6 +246,21 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Bounded real-model same-context KV snapshot and exact continuation test.
+    BenchKvSnapshot {
+        /// Existing local GGUF file; no downloads or cross-model state reuse.
+        model: String,
+        #[arg(long, default_value = "A local inference prefix is stored for replay.")]
+        prompt: String,
+        #[arg(long, default_value = " Continue from the identical prefix.")]
+        continuation: String,
+        #[arg(long, default_value_t = 256)]
+        max_mib: usize,
+        #[arg(long)]
+        threads: Option<u32>,
+        #[arg(long)]
+        json: bool,
+    },
     /// A/B test draftless n-gram speculative decoding with exact target-model verification.
     BenchSpec {
         /// Pinned GGUF; no download or external draft model required.
@@ -986,6 +1001,15 @@ async fn main() {
                 runs, threads, batch, ubatch, json
             ) {
                 eprintln!("bench-kv: {error}");
+                std::process::exit(1);
+            }
+        },
+        Commands::BenchKvSnapshot { model, prompt, continuation, max_mib,
+            threads, json } => {
+            if let Err(error) = phase35_kv_bench::run_snapshot(
+                model, prompt, continuation, max_mib, threads, json
+            ) {
+                eprintln!("bench-kv-snapshot: {error}");
                 std::process::exit(1);
             }
         },
