@@ -262,7 +262,10 @@ jobs:
           assert report["baseline_external_tokens_identical"]
           assert report["sidecar_matmul_tensors_covered"] == report["explicit_tensors"]
           assert report["external_bytes_read"] > 0
+          assert report["source_mode"] == "original_gguf"
+          assert report["duplicate_weight_blob_required"] is False
           assert report["tier0_deployment_accepted"] is False
+          print("Real one-model-file GGUF pread inference passed exact-token parity")
           print("Reproducible hardware runner passed external inference parity gate")
           PY
           target/debug/kiln-bench expert-io \
