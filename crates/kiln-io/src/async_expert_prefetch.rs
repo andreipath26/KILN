@@ -63,7 +63,9 @@ pub struct AsyncExpertPrefetch {
     worker: Option<JoinHandle<()>>,
     reader: Arc<CachedExpertBlobReader>,
     epoch: Arc<AtomicU64>,
-    pending: HashMap<ExpertKey, u64>,
+    // Include the epoch in identity. A stale completion must not release
+    // a newer request for the same expert or mask its admission.
+    pending: HashMap<(u64, ExpertKey), u64>,
     max_requests: usize,
     max_bytes: u64,
     stats: AsyncExpertStats,
@@ -146,7 +148,7 @@ impl AsyncExpertPrefetch {
         if epoch == 0 || self.epoch.load(Ordering::Acquire) != epoch {
             return SubmitResult::StaleEpoch;
         }
-        if self.pending.contains_key(&key) { return SubmitResult::AlreadyPending; }
+        if self.pending.contains_key(&(epoch, key)) { return SubmitResult::AlreadyPending; }
         if self.pending.len() >= self.max_requests {
             self.stats.rejected_capacity += 1;
             return SubmitResult::QueueFull;
@@ -164,7 +166,7 @@ impl AsyncExpertPrefetch {
             self.stats.rejected_capacity += 1;
             return SubmitResult::QueueFull;
         }
-        self.pending.insert(key,size);
+        self.pending.insert((epoch,key),size);
         self.stats.pending_bytes += size;
         self.stats.pending_requests = self.pending.len();
         self.stats.submitted += 1;
@@ -177,7 +179,7 @@ impl AsyncExpertPrefetch {
     pub fn poll_ready(&mut self) -> Vec<ExpertReadCompletion> {
         let mut results=Vec::new();
         while let Ok(item) = self.done.try_recv() {
-            if let Some(size)=self.pending.remove(&item.key) {
+            if let Some(size)=self.pending.remove(&(item.epoch,item.key)) {
                 self.stats.pending_bytes=self.stats.pending_bytes.saturating_sub(size);
             }
             self.stats.completed+=1;
@@ -247,6 +249,48 @@ mod tests {
         assert_eq!(prefetch.submit(2,key(1)),SubmitResult::StaleEpoch);
         drop(prefetch);
         std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn stale_completion_cannot_erase_new_epoch_same_expert_reservation() {
+        let root = std::env::temp_dir().join(format!(
+            "kiln-epoch-overlap-{}-{:?}",std::process::id(),std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("data.bin");
+        std::fs::write(&path, [5u8; 16]).unwrap();
+        let table = ExpertTable {blob_version:1,blob_size:16,ranges:vec![
+            ExpertRange{layer:0,expert_id:0,byte_offset:0,byte_length:16},
+        ]};
+        let reader = Arc::new(CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap());
+        let mut prefetch = AsyncExpertPrefetch::new(reader, 2, 32);
+        prefetch.begin_epoch(1).unwrap();
+        assert_eq!(prefetch.submit(1, key(0)), SubmitResult::Submitted);
+        prefetch.begin_epoch(2).unwrap();
+        // The same key was queued in an older epoch, but must still be
+        // admissible for the current router decision.
+        assert_eq!(prefetch.submit(2, key(0)), SubmitResult::Submitted);
+        assert_eq!(prefetch.stats().pending_requests, 2);
+        assert_eq!(prefetch.stats().pending_bytes, 32);
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
+        let mut current = Vec::new();
+        while prefetch.stats().completed < 2 {
+            current.extend(prefetch.poll_ready());
+            assert!(std::time::Instant::now() < deadline,
+                "stale/current completion pair timed out");
+            std::thread::yield_now();
+        }
+        assert_eq!(current.len(), 1);
+        assert_eq!(current[0].epoch, 2);
+        assert_eq!(current[0].result.as_ref().unwrap().as_ref(), &[5u8;16]);
+        assert_eq!(prefetch.stats().pending_requests, 0);
+        assert_eq!(prefetch.stats().pending_bytes, 0);
+        assert_eq!(prefetch.stats().skipped_stale, 1);
+        drop(prefetch);
+        std::fs::remove_file(path).unwrap();
         std::fs::remove_dir(root).unwrap();
     }
 

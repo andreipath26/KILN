@@ -105,8 +105,8 @@ impl ExpertCache {
     }
 
     /// Share retained bytes without copying the expert allocation.
-    /// The returned Arc remains valid after eviction. External Arc owners
-    /// are NOT charged to the membership limit of this cache.
+    /// The returned Arc acts as a lease: pinned entries cannot be evicted
+    /// until external handles are released.
     pub fn get_shared(&self, key: ExpertKey) -> Option<Arc<[u8]>> {
         self.get_impl(key, true, true)
     }
@@ -140,6 +140,14 @@ impl ExpertCache {
         value
     }
 
+    /// Inspect residency without treating the probe as an actual expert
+    /// access. Warmup/placement measurement must not inflate cache hit counts.
+    /// The Arc remains a read lease until dropped.
+    pub fn peek_shared(&self, key: ExpertKey) -> Option<Arc<[u8]>> {
+        self.lock().entries.get(&key)
+            .map(|entry| Arc::clone(&entry.bytes))
+    }
+
     /// Record a miss only after a caller has completed its coalescing/recheck path.
     /// This lets wrappers count one outcome per requested expert rather than one per probe.
     pub fn record_miss(&self) {
@@ -156,7 +164,7 @@ impl ExpertCache {
     }
 
     /// Admit a shared allocation without duplicating the expert bytes.
-    /// Existing external Arc references may outlive the cache entry.
+    /// Existing external Arc references keep the entry pinned in the cache.
     pub fn insert_shared(&self, key: ExpertKey, bytes: Arc<[u8]>) -> InsertOutcome {
         let entry_bytes = bytes.len() as u64;
         let mut inner = self.lock();
@@ -368,6 +376,22 @@ mod tests {
         assert_eq!(stats.entries, 1);
         assert_eq!(stats.used_bytes, 128);
         assert!(cache.get(key(1)).is_some());
+    }
+
+    #[test]
+    fn passive_residency_probe_does_not_fake_cache_hits() {
+        let cache = ExpertCache::new(8, ExpertCachePolicy::Adaptive);
+        cache.insert(key(1), vec![4; 8]);
+        let first = cache.peek_shared(key(1)).unwrap();
+        let second = cache.peek_shared(key(1)).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(cache.peek_shared(key(2)).is_none());
+        assert_eq!(cache.stats().hits, 0);
+        assert_eq!(cache.stats().misses, 0);
+        drop(first);
+        drop(second);
+        assert!(cache.get_shared(key(1)).is_some());
+        assert_eq!(cache.stats().hits, 1);
     }
 
     #[test]

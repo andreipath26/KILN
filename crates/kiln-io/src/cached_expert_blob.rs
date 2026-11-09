@@ -260,7 +260,7 @@ impl CachedExpertBlobReader {
         result.selected_bytes = planned_bytes;
         let mut pinned: Vec<Arc<[u8]>> = Vec::with_capacity(plan.len());
         for (key, bytes) in plan {
-            let was_cached = self.cache.get_shared_if_present(key);
+            let was_cached = self.cache.peek_shared(key);
             if let Some(handle) = was_cached {
                 result.already_resident += 1;
                 result.admitted += 1;
@@ -269,7 +269,7 @@ impl CachedExpertBlobReader {
                 continue;
             }
             let expert = self.read_expert_shared(key.layer, key.expert_id)?;
-            if self.cache.get_shared_if_present(key).is_some() {
+            if self.cache.peek_shared(key).is_some() {
                 result.admitted += 1;
                 result.admitted_bytes += bytes;
                 pinned.push(expert);
@@ -539,6 +539,8 @@ mod tests {
         assert_eq!(result.admitted, 2);
         assert_eq!(result.selected_bytes, 16);
         assert_eq!(result.admitted_bytes, 16);
+        // Passive residency inspection during prewarm is not a real cache hit.
+        assert_eq!(reader.cache_stats().hits, 0);
         assert_eq!(reader.cache_stats().used_bytes, 16);
         assert_eq!(reader.read_expert(0, 0).unwrap(), data[0..8]);
         assert_eq!(reader.read_expert(0, 1).unwrap(), data[8..16]);
