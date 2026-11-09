@@ -73,26 +73,10 @@ jobs:
           bash -n scripts/run_phase35_suite.sh scripts/run_tier0_dense_matrix.sh scripts/profile_phase35_hotpath.sh scripts/run_tier0_gate5a.sh scripts/capture_moe_router_phase5a.sh scripts/run_cpu_moe_stream_experiment.sh scripts/build_linux_release.sh scripts/install_linux_release.sh
 
       - name: Run workspace tests
-        run: cargo test --workspace --all-targets
-
-      - name: Diagnose reproducible dependency lock drift
-        run: |
-          if ! git diff --quiet -- Cargo.lock; then
-            echo "Rebuild updated Cargo.lock; canonical committed lock is stale"
-            python3 - <<'PY'
-          import base64
-          import pathlib
-          data = pathlib.Path("Cargo.lock").read_bytes()
-          packed = base64.b64encode(data).decode("ascii")
-          print("KILN_RESOLVED_LOCK_BASE64_BEGIN")
-          for offset in range(0, len(packed), 120):
-              print("KILN_RESOLVED_LOCK_CHUNK=" + packed[offset:offset+120])
-          print("KILN_RESOLVED_LOCK_BASE64_END")
-          PY
-          fi
+        run: cargo test --locked --workspace --all-targets
 
       - name: Build the API executable for browser testing
-        run: cargo build -p kiln-cli
+        run: cargo build --locked -p kiln-cli
 
       - name: Set up Node.js for local UI release checks
         uses: actions/setup-node@v4
