@@ -105,6 +105,48 @@ jobs:
           KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
         run: target/debug/kiln pull QuantFactory/SmolLM2-135M-Instruct-GGUF --file SmolLM2-135M-Instruct.Q4_K_M.gguf
 
+      - name: Validate real GGUF zero-copy Ollama manifest discovery
+        run: |
+          MODEL="$RUNNER_TEMP/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf"
+          OLLAMA_ROOT="$RUNNER_TEMP/kiln-ollama-manifest-smoke"
+          mkdir -p "$OLLAMA_ROOT/blobs" "$OLLAMA_ROOT/manifests/registry.ollama.ai/library/integration-fixture"
+          DIGEST="$(sha256sum "$MODEL" | cut -d ' ' -f 1)"
+          ln "$MODEL" "$OLLAMA_ROOT/blobs/sha256-$DIGEST"
+          python3 - "$OLLAMA_ROOT" "$DIGEST" <<'PY'
+          import json
+          import pathlib
+          import sys
+          root = pathlib.Path(sys.argv[1])
+          digest = sys.argv[2]
+          payload = {"schemaVersion": 2, "layers": [
+              {"mediaType": "application/vnd.ollama.image.model",
+               "digest": "sha256:" + digest}
+          ]}
+          manifest = root / "manifests/registry.ollama.ai/library/integration-fixture/latest"
+          manifest.write_text(json.dumps(payload), encoding="utf-8")
+          (manifest.parent / "stable").write_text(json.dumps(payload), encoding="utf-8")
+          PY
+          OLLAMA_MODELS="$OLLAMA_ROOT" \
+            target/debug/kiln list --json > "$RUNNER_TEMP/ollama-manifest-model-list.json"
+          python3 - "$RUNNER_TEMP/ollama-manifest-model-list.json" "$OLLAMA_ROOT" <<'PY'
+          import json
+          import pathlib
+          import sys
+          entries = json.load(open(sys.argv[1], encoding="utf-8"))
+          root = pathlib.Path(sys.argv[2]).resolve()
+          entries = [item for item in entries
+                     if pathlib.Path(item["path"]).is_relative_to(root)]
+          assert len(entries) == 1, "one physical Ollama GGUF should not duplicate tag models"
+          row = entries[0]
+          assert row["valid_gguf"] is True
+          assert row["source"] == "Ollama manifest"
+          assert set(row["aliases"]) == {"integration-fixture:latest",
+                                         "integration-fixture:stable"}
+          assert row["name"] in row["aliases"]
+          assert pathlib.Path(row["path"]).stat().st_ino > 0
+          print("Installed Ollama model tags resolve to a single valid GGUF without copying weights")
+          PY
+
       - name: Verify lazy-MoE A/B inference harness against actual dense GGUF
         env:
           KILN_TEST_MODEL_PATH: ${{ runner.temp }}/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf
