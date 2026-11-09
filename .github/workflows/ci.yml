@@ -184,13 +184,16 @@ jobs:
           choices = []
           for item in report["three_dimensional_tensors"]:
               name = item["tensor_name"]
-              found = re.fullmatch(r"blk\.(\d+)\.[A-Za-z0-9_.-]+_exps", name)
-              if found and int(found.group(1)) == layer:
+              found = re.fullmatch(r"blk\.(\d+)\.[A-Za-z0-9_.-]+", name)
+              if found and int(found.group(1)) == layer and "_exps" in name:
                   # CI-only known MoE fixture: explicit source axis-2 validation
                   # must still be performed for every production model.
                   choices.append({"layer": layer, "tensor_name": name,
                                   "expert_count": item["shape"][2]})
-          assert choices, "tiny MoE fixture exposes no eligible 3D expert slabs"
+          if not choices:
+              print("Observed 3D tensor shapes (debug only):")
+              print(json.dumps(report["three_dimensional_tensors"][:40], indent=2))
+              raise AssertionError("tiny MoE fixture has no explicitly identifiable third-axis expert tensors")
           (root / "real-moe-fused-selections.json").write_text(json.dumps(choices))
           keys = {(row["layer"], row["expert_id"]) for row in events}
           available = choices[0]["expert_count"]
