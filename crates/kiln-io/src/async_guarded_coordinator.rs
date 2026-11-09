@@ -212,7 +212,7 @@ impl AsyncGuardedExpertCoordinator {
                 unique.push(key);
             }
         }
-        let committed = self.guard.commit(epoch, &unique)
+        // Validate all actual router indices before consuming this epoch.\n        // An invalid key must not discard staged verified predictions.\n        for key in &unique {\n            self.reader.expert_byte_length(key.layer, key.expert_id)?;\n        }\n        let committed = self.guard.commit(epoch, &unique)
             .map_err(|err| ExpertBlobError::InvalidRoute(err.into()))?;
         let predicted_hits = committed.accepted.len();
         let authoritative_reads = committed.missing.len();
