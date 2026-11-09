@@ -1,4 +1,4 @@
-//! Expert blob reader with a byte-bounded expert cache.
+//! Expert blob reader with a byte-bounded expert cache and pinned leases.
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
@@ -107,12 +107,24 @@ impl CachedExpertBlobReader {
         }
     }
 
-    /// Write the recorded trace in the JSON format accepted by kiln-bench.
+    /// Export a bounded, private router trace to a new file only. Model
+    /// routing patterns may reveal workload characteristics; never overwrite
+    /// another file or write them world-readable on Unix.
     pub fn write_access_trace_json(&self, path: impl AsRef<Path>) -> std::io::Result<()> {
+        use std::io::Write;
         let snapshot = self.access_trace_snapshot();
         let bytes = serde_json::to_vec_pretty(&snapshot.events)
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-        std::fs::write(path, bytes)
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut output = options.open(path)?;
+        output.write_all(&bytes)?;
+        output.sync_all()
     }
 
     /// Backwards-compatible owned result; callers requiring a bounded
@@ -128,8 +140,9 @@ impl CachedExpertBlobReader {
 
     /// Return a reference-counted expert allocation. Hits do not duplicate
     /// the underlying block and concurrent cold requests are coalesced.
-    /// A caller holding the Arc after eviction keeps its bytes resident;
-    /// the cache budget limits membership, not all outstanding readers.
+    /// Active Arc leases prevent eviction of the retained entry. A cold
+    /// miss that cannot be cached may still return transient bytes; callers
+    /// must separately bound their aggregate in-flight allocations.
     pub fn read_expert_shared(
         &self,
         layer: u32,
@@ -151,7 +164,9 @@ impl CachedExpertBlobReader {
 
         self.cache.record_miss();
         let bytes: Arc<[u8]> = Arc::from(reader.read_expert(layer, expert_id)?);
-        self.cache.insert_shared(key, Arc::clone(&bytes));
+        // Admission can reject a cold block while all existing entries
+        // are pinned. Correctness takes precedence over cache residency.
+        let _admission = self.cache.insert_shared(key, Arc::clone(&bytes));
         self.record_access(key);
         Ok(bytes)
     }
@@ -402,6 +417,15 @@ mod tests {
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         reader.write_access_trace_json(&trace_path).unwrap();
+        // Repeated exports must fail rather than silently overwrite evidence.
+        assert_eq!(reader.write_access_trace_json(&trace_path).unwrap_err().kind(),
+            std::io::ErrorKind::AlreadyExists);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&trace_path).unwrap()
+                .permissions().mode() & 0o777, 0o600);
+        }
         let exported: Vec<ExpertKey> = serde_json::from_slice(&std::fs::read(&trace_path).unwrap()).unwrap();
         assert_eq!(exported, snapshot.events);
         reader.enable_access_trace(0);
