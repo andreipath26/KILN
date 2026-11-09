@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Phase 5: real CPU MoE inference against externally packed expert bytes.
+# Phase 5: real CPU MoE inference against explicitly indexed expert bytes.
+# Default: read selected expert slabs from the original GGUF (one model file).
+# Optional KILN_STREAM_SOURCE_MODE=sidecar creates a verified packed copy.
 # Explicit GGUF tensor/expert-axis selections are required; never auto-guess.
 set -euo pipefail
 
@@ -15,6 +17,7 @@ KILN_BIN="${KILN_BIN:-target/debug/kiln}"
 KILN_BENCH_BIN="${KILN_BENCH_BIN:-target/debug/kiln-bench}"
 THREADS="${KILN_CPU_THREADS:-4}"
 TOKENS="${KILN_STREAM_TEST_TOKENS:-32}"
+SOURCE_MODE="${KILN_STREAM_SOURCE_MODE:-gguf}"
 
 [[ -f "$MODEL" && -s "$MODEL" && -s "$SELECTIONS" ]] || {
   echo "model and explicit tensor selections must be readable nonempty files" >&2; exit 2;
@@ -34,23 +37,35 @@ for required in expert.bin expert.index.json expert.integrity.json expert.compon
   }
 done
 
-"$KILN_BENCH_BIN" expert-pack-fused \
-  --source-gguf "$MODEL" --selections-file "$SELECTIONS" \
-  --blob-file "$OUT/expert.bin" \
-  --index-file "$OUT/expert.index.json" \
-  --integrity-file "$OUT/expert.integrity.json" \
-  --components-file "$OUT/expert.components.json" \
-  --json > "$OUT/packed.json"
-"$KILN_BENCH_BIN" expert-export-stream-index \
-  --blob-file "$OUT/expert.bin" --index-file "$OUT/expert.index.json" \
-  --integrity-file "$OUT/expert.integrity.json" \
-  --components-file "$OUT/expert.components.json" \
-  --output-file "$OUT/expert.stream.tsv" --json > "$OUT/exported.json"
+if [[ "$SOURCE_MODE" == gguf ]]; then
+  # The model remains the sole weight file, preserving KILN's one-file rule.
+  STREAM_BLOB="$MODEL"
+  "$KILN_BENCH_BIN" expert-export-gguf-stream-index \
+    --source-gguf "$MODEL" --selections-file "$SELECTIONS" \
+    --output-file "$OUT/expert.stream.tsv" --json > "$OUT/exported.json"
+elif [[ "$SOURCE_MODE" == sidecar ]]; then
+  "$KILN_BENCH_BIN" expert-pack-fused \
+    --source-gguf "$MODEL" --selections-file "$SELECTIONS" \
+    --blob-file "$OUT/expert.bin" \
+    --index-file "$OUT/expert.index.json" \
+    --integrity-file "$OUT/expert.integrity.json" \
+    --components-file "$OUT/expert.components.json" \
+    --json > "$OUT/packed.json"
+  "$KILN_BENCH_BIN" expert-export-stream-index \
+    --blob-file "$OUT/expert.bin" --index-file "$OUT/expert.index.json" \
+    --integrity-file "$OUT/expert.integrity.json" \
+    --components-file "$OUT/expert.components.json" \
+    --output-file "$OUT/expert.stream.tsv" --json > "$OUT/exported.json"
+  STREAM_BLOB="$OUT/expert.bin"
+else
+  echo "KILN_STREAM_SOURCE_MODE must be gguf or sidecar" >&2
+  exit 2
+fi
 
 "$KILN_BIN" bench "$MODEL" --native-greedy --tokens "$TOKENS" \
   --warmup 0 --runs 1 --threads "$THREADS" --batch 128 --ubatch 64 --json \
   > "$OUT/baseline.json"
-KILN_MOE_STREAM_BLOB="$OUT/expert.bin" \
+KILN_MOE_STREAM_BLOB="$STREAM_BLOB" \
 KILN_MOE_STREAM_INDEX="$OUT/expert.stream.tsv" \
 KILN_MOE_STREAM_AUDIT="$OUT/external.audit.tsv" \
   "$KILN_BIN" bench "$MODEL" --native-greedy --tokens "$TOKENS" \
@@ -92,7 +107,8 @@ with model_file.open("rb") as source:
     for chunk in iter(lambda: source.read(1024 * 1024), b""):
         digest.update(chunk)
 proof = {
-    "phase": "experimental_actual_cpu_moe_sidecar_matmul",
+    "phase": "experimental_actual_cpu_moe_source_matmul",
+    "source_mode": "original_gguf" if (out / "exported.json").exists() and not (out / "packed.json").exists() else "verified_sidecar",
     "model_path": str(model_file),
     "model_sha256": digest.hexdigest(),
     "baseline_external_tokens_identical": token_equal,
@@ -102,6 +118,7 @@ proof = {
     "external_bytes_read": sum(row["bytes"] for row in audit),
     "external_matmul_ops": sum(row["loaded"] > 0 for row in audit),
     "resident_model_still_mapped": True,
+    "duplicate_weight_blob_required": (out / "packed.json").exists(),
     "tier0_deployment_accepted": False,
 }
 (out / "proof.json").write_text(json.dumps(proof, indent=2) + "\n")
