@@ -80,6 +80,31 @@ fn physical_memory_available() -> Option<u64> {
     }
 }
 
+/// The cgroup CPU quota bounds recommended compute concurrency even when the
+/// host advertises more cores. A fractional core is rounded up because the
+/// planner still needs at least one runnable worker.
+fn cpu_quota_threads(contents: &str) -> Option<u32> {
+    let parts: Vec<_> = contents.split_whitespace().collect();
+    if parts.len() != 2 || parts[0] == "max" { return None; }
+    let quota = parts[0].parse::<u64>().ok()?;
+    let period = parts[1].parse::<u64>().ok()?;
+    if quota == 0 || period == 0 { return None; }
+    let threads = quota / period + u64::from(quota % period != 0);
+    Some(threads.clamp(1, u32::MAX as u64) as u32)
+}
+
+#[cfg(target_os = "linux")]
+fn effective_cpu_quota() -> Option<u32> {
+    if let Ok(contents) = std::fs::read_to_string("/sys/fs/cgroup/cpu.max") {
+        if let Some(n) = cpu_quota_threads(&contents) { return Some(n); }
+    }
+    let quota = read_cgroup_number("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")?;
+    let period = read_cgroup_number("/sys/fs/cgroup/cpu/cpu.cfs_period_us")?;
+    cpu_quota_threads(&format!("{quota} {period}"))
+}
+#[cfg(not(target_os = "linux"))]
+fn effective_cpu_quota() -> Option<u32> { None }
+
 fn feasibility(
     model_bytes: u64,
     available_ram_bytes: Option<u64>,
@@ -156,7 +181,10 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
         .unwrap_or_else(|_| path.to_path_buf()).display().to_string());
     report["gguf_tensor_count"] = json!(model_data.tensor_count());
     report["architecture"] = json!(model_data.metadata_str("general.architecture"));
-    report["cpu_threads_suggested"] = json!(profile.n_threads);
+    let recommended_threads = effective_cpu_quota()
+        .map_or(profile.n_threads, |cap| profile.n_threads.min(cap)).max(1);
+    report["cpu_threads_suggested"] = json!(recommended_threads);
+    report["cpu"]["cgroup_cpu_quota_threads"] = json!(effective_cpu_quota());
     report["profile_tier"] = json!(format!("{:?}", profile.tier));
     report["recommendations"]["cpu_moe_selected_expert_external_compute_experimental"] =
         json!(experimental_cpu_external_streaming);
@@ -183,7 +211,7 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
         println!("  logical CPUs:         {}", profile.cpu_cores);
         println!("  available RAM:        {}", available.map(|n| format!("{n} bytes")).unwrap_or_else(|| "unavailable".into()));
         println!("  file/memory finding:  {}", report["memory"]["status"].as_str().unwrap_or("unknown"));
-        println!("  proposed CPU threads: {}", profile.n_threads);
+        println!("  proposed CPU threads: {}", recommended_threads);
         println!("  lazy MoE option:      {}", if has_routed_experts { "opt-in experimental only" } else { "not indicated" });
         println!("  external MoE compute:  {}", if experimental_cpu_external_streaming {
             "EXPERIMENTAL native graph-selected expert reads supported by this GGUF layout"
@@ -206,6 +234,18 @@ mod tests {
         assert_eq!(mem_available_bytes("MemAvailable: invalid kB\n"), None);
         assert_eq!(mem_available_bytes("MemAvailable: 2 MiB\n"), None);
         assert_eq!(mem_available_bytes("MemAvailable: 18446744073709551615 kB\n"), None);
+    }
+
+    #[test]
+    fn cpu_quota_caps_threads_without_guessing_on_malformed_data() {
+        assert_eq!(cpu_quota_threads("200000 100000"), Some(2));
+        assert_eq!(cpu_quota_threads("120000 100000"), Some(2));
+        assert_eq!(cpu_quota_threads("50000 100000"), Some(1));
+        assert_eq!(cpu_quota_threads("max 100000"), None);
+        assert_eq!(cpu_quota_threads("-1 100000"), None);
+        assert_eq!(cpu_quota_threads("0 100000"), None);
+        assert_eq!(cpu_quota_threads("100000 0"), None);
+        assert_eq!(cpu_quota_threads("100000 100000 extra"), None);
     }
 
     #[test]
