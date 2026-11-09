@@ -23,6 +23,18 @@ def positive(value: str) -> float:
     return result
 
 
+def nonnegative_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def positive_int(value: object) -> bool:
+    return nonnegative_int(value) and value > 0
+
+
+def nonnegative_finite(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
+
+
 def summarize(paths: list[Path]) -> list[dict]:
     rows = []
     capture_identity = None
@@ -52,6 +64,9 @@ def summarize(paths: list[Path]) -> list[dict]:
             capture_identity = identity
         elif identity != capture_identity:
             raise ValueError(f"{path}: model/index identity differs across block-size captures")
+        block_bytes = data.get("block_bytes")
+        if not positive_int(block_bytes):
+            raise ValueError(f"{path}: invalid block_bytes")
         patterns = data.get("patterns")
         if not isinstance(patterns, list) or not patterns:
             raise ValueError(f"{path}: no access-pattern data")
@@ -63,15 +78,15 @@ def summarize(paths: list[Path]) -> list[dict]:
                 raise ValueError(f"{path}: unsupported access pattern")
             requested = item.get("total_bytes_read")
             rate = item.get("throughput_mib_s")
-            if not isinstance(requested, int) or requested < 0:
+            if not nonnegative_int(requested):
                 raise ValueError(f"{path}: invalid requested-byte count")
-            if not isinstance(rate, (int, float)) or not math.isfinite(rate) or rate < 0:
+            if not nonnegative_finite(rate):
                 raise ValueError(f"{path}: invalid throughput")
             expert_keys = item.get("expert_keys")
             if (not isinstance(expert_keys, list) or not expert_keys
                     or any(not isinstance(key, dict)
-                           or not isinstance(key.get("layer"), int)
-                           or not isinstance(key.get("expert_id"), int)
+                           or not nonnegative_int(key.get("layer"))
+                           or not nonnegative_int(key.get("expert_id"))
                            for key in expert_keys)):
                 raise ValueError(f"{path}: pattern does not identify sampled expert ranges")
             if len(expert_keys) != requests_per_run:
@@ -81,11 +96,17 @@ def summarize(paths: list[Path]) -> list[dict]:
                 raise ValueError(f"{path}: measured request count does not match request/repetition counts")
             min_request = item.get("min_request_bytes")
             max_request = item.get("max_request_bytes")
-            if (not isinstance(min_request, int) or min_request <= 0
-                    or not isinstance(max_request, int) or max_request < min_request):
+            if (not positive_int(min_request) or not positive_int(max_request)
+                    or max_request < min_request or max_request > block_bytes):
                 raise ValueError(f"{path}: invalid actual expert-range request sizes")
+            if not measured_requests * min_request <= requested <= measured_requests * max_request:
+                raise ValueError(f"{path}: total bytes outside sampled request-size bounds")
+            p50 = item.get("request_latency_p50_us")
+            p95 = item.get("request_latency_p95_us")
+            if not nonnegative_finite(p50) or not nonnegative_finite(p95) or p95 < p50:
+                raise ValueError(f"{path}: invalid request latency percentiles")
             attributed = item.get("linux_process_storage_read_bytes")
-            if attributed is not None and (not isinstance(attributed, int) or attributed < 0):
+            if attributed is not None and not nonnegative_int(attributed):
                 raise ValueError(f"{path}: invalid process I/O counter")
             rows.append({
                 "artifact": str(path),
@@ -93,7 +114,7 @@ def summarize(paths: list[Path]) -> list[dict]:
                 "model_size_bytes": model_size,
                 "index_file": index_file,
                 "indexed_expert_ranges": range_count,
-                "block_bytes": data["block_bytes"],
+                "block_bytes": block_bytes,
                 "pattern": item["access_pattern"],
                 "sampled_expert_keys": expert_keys,
                 "requested_bytes": requested,

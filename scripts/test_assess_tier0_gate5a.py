@@ -35,7 +35,7 @@ class Gate5aTests(unittest.TestCase):
                 "patterns": [{
                     "access_pattern": "random",
                     "requests": 1,
-                    "total_bytes_read": 8192,
+                    "total_bytes_read": 4096,
                     "throughput_mib_s": 2000.0,
                     "expert_keys": [{"layer": 0, "expert_id": 1}],
                     "min_request_bytes": 4096,
@@ -45,7 +45,7 @@ class Gate5aTests(unittest.TestCase):
                 }, {
                     "access_pattern": "sequential",
                     "requests": 1,
-                    "total_bytes_read": 8192,
+                    "total_bytes_read": 4096,
                     "throughput_mib_s": 1800.0,
                     "expert_keys": [{"layer": 0, "expert_id": 0}],
                     "min_request_bytes": 4096,
@@ -73,6 +73,62 @@ class Gate5aTests(unittest.TestCase):
                 "patterns": [],
             }))
             with self.assertRaisesRegex(ValueError, "requires an indexed expert-range"):
+                assessor.summarize([artifact])
+
+    def test_rejects_malformed_measurements(self):
+        with tempfile.TemporaryDirectory() as temp:
+            artifact = Path(temp) / "probe.json"
+            baseline = {
+                "phase_gate": "5A-expert-block-io-feasibility",
+                "file": "/tmp/expert-blob.bin",
+                "file_size_bytes": 65536,
+                "index_file": "/tmp/experts.index.json",
+                "indexed_expert_ranges": 4,
+                "requests_per_run": 1,
+                "repetitions": 1,
+                "block_bytes": 4096,
+                "patterns": [
+                    {
+                        "access_pattern": pattern,
+                        "requests": 1,
+                        "total_bytes_read": 4096,
+                        "throughput_mib_s": 100,
+                        "expert_keys": [{"layer": 0, "expert_id": 0}],
+                        "min_request_bytes": 4096,
+                        "max_request_bytes": 4096,
+                        "request_latency_p50_us": 10,
+                        "request_latency_p95_us": 20,
+                    }
+                    for pattern in ("random", "sequential")
+                ],
+            }
+            artifact.write_text(json.dumps(baseline))
+            self.assertEqual(len(assessor.summarize([artifact])), 2)
+            cases = [
+                ("block_bytes", 0),
+                ("block_bytes", True),
+                ("total_bytes_read", 8192),
+                ("total_bytes_read", True),
+                ("throughput_mib_s", float("nan")),
+                ("throughput_mib_s", True),
+                ("request_latency_p50_us", float("inf")),
+                ("request_latency_p95_us", 9),
+                ("max_request_bytes", 8192),
+                ("linux_process_storage_read_bytes", True),
+            ]
+            for field, bad in cases:
+                invalid = json.loads(json.dumps(baseline))
+                if field == "block_bytes":
+                    invalid[field] = bad
+                else:
+                    invalid["patterns"][0][field] = bad
+                artifact.write_text(json.dumps(invalid))
+                with self.subTest(field=field, bad=bad), self.assertRaises(ValueError):
+                    assessor.summarize([artifact])
+            invalid = json.loads(json.dumps(baseline))
+            invalid["patterns"][0]["expert_keys"][0]["layer"] = -1
+            artifact.write_text(json.dumps(invalid))
+            with self.assertRaises(ValueError):
                 assessor.summarize([artifact])
 
 
