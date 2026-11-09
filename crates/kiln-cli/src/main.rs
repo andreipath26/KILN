@@ -19,6 +19,7 @@ mod model_library;
 mod phase35_kv_bench;
 mod phase35_spec_bench;
 mod model_plan;
+mod experimental_stream;
 
 /// Linux process RSS snapshot in KiB. VmHWM is the process high-water mark
 /// since launch, so it includes the entire model load/benchmark lifetime.
@@ -115,6 +116,26 @@ enum Commands {
         /// Opt into on-demand mmap reads for routed expert tensors in supported MoE models.
         #[arg(long)]
         lazy_moe_experts: bool,
+    },
+    /// Opt-in experimental one-model-file CPU MoE streaming chat. Produces
+    /// a temporary verified index for compatible fused GGUF models and uses
+    /// the same KILN binary in a separate isolated inference process.
+    Stream {
+        /// Existing model path, unambiguous installed GGUF/Ollama tag or 'auto'.
+        model: String,
+        #[arg(long, default_value_t = 128)]
+        max_tokens: usize,
+        #[arg(long)]
+        keep_context: bool,
+        /// Also enable experimental lazy GGUF mapped expert advice.
+        #[arg(long)]
+        lazy_moe_experts: bool,
+        /// Bounded local cached expert slabs in MiB (0..=512).
+        #[arg(long, default_value_t = 64)]
+        cache_mib: u32,
+        /// Split actual selected-expert reads over CPU worker threads.
+        #[arg(long)]
+        parallel_reads: bool,
     },
     /// Controlled Phase 3.5 second-turn prompt-cache A/B experiment.
     BenchKv {
@@ -831,6 +852,17 @@ async fn main() {
             ) {
                 eprintln!("run: {}", error);
                 std::process::exit(1);
+            }
+        },
+        Commands::Stream {
+            model, max_tokens, keep_context, lazy_moe_experts, cache_mib, parallel_reads
+        } => {
+            if let Err(error) = experimental_stream::run(
+                &model, max_tokens, keep_context, lazy_moe_experts,
+                cache_mib, parallel_reads,
+            ) {
+                eprintln!("experimental MoE stream: {error}");
+                std::process::exit(2);
             }
         },
         Commands::BenchSpec { model, prompt, tokens, runs, warmup,
