@@ -1,6 +1,6 @@
 //! Phase 5.3: asynchronous speculation + exact-router Commit Guard.
 use std::sync::Arc;
-use kiln_mem::{ExpertCommitGuard, ExpertKey, CommitStats, StageResult};
+use kiln_mem::{ExpertCommitGuard, ExpertKey, CommitStats, StageResult, ExpertPrefetcher, PrefetchStats};
 use crate::{CachedExpertBlobReader, AsyncExpertPrefetch, AsyncExpertStats, SubmitResult, ExpertWarmupReport};
 use crate::{ExpertBlobError, RoutedExpertLoad};
 
@@ -10,6 +10,7 @@ pub struct AsyncGuardedExpertCoordinator {
     reader: Arc<CachedExpertBlobReader>,
     prefetch: AsyncExpertPrefetch,
     guard: ExpertCommitGuard,
+    predictor: ExpertPrefetcher,
 }
 
 impl AsyncGuardedExpertCoordinator {
@@ -28,6 +29,7 @@ impl AsyncGuardedExpertCoordinator {
             guard: ExpertCommitGuard::new(
                 speculative_guard_bytes, speculative_guard_entries,
             ),
+            predictor: ExpertPrefetcher::new(pending_requests, pending_bytes),
         }
     }
 
@@ -60,6 +62,7 @@ impl AsyncGuardedExpertCoordinator {
             reader:buffered,
             prefetch,
             guard:ExpertCommitGuard::new(guard_bytes,guard_entries),
+            predictor: ExpertPrefetcher::new(pending_requests,pending_bytes),
         })
     }
 
@@ -88,10 +91,56 @@ impl AsyncGuardedExpertCoordinator {
         self.reader.prewarm_ranked(ranked, max_bytes)
     }
 
+    /// Infer probable next expert weights from previously observed exact
+    /// router choices, validating all proposed sizes against the source index.
+    /// Only explicitly requested, bounded speculation is started; a predicted
+    /// expert never replaces a different expert chosen by the true router.
+    pub fn predict_from_router_trace(
+        &mut self,
+        epoch: u64,
+        current: ExpertKey,
+        candidates: &[ExpertKey],
+        top_k: usize,
+    ) -> Result<(usize, usize), ExpertBlobError> {
+        if self.guard.epoch() != epoch || epoch == 0 {
+            return Err(ExpertBlobError::InvalidRoute("prediction epoch mismatch".into()));
+        }
+        if candidates.len() > 4096 || top_k > 16 {
+            return Err(ExpertBlobError::InvalidRoute(
+                "unbounded expert prediction request".into(),
+            ));
+        }
+        let mut seen = std::collections::HashSet::new();
+        let mut sizes = Vec::with_capacity(candidates.len());
+        for &key in candidates {
+            if seen.insert(key) {
+                // Fail closed on an unindexed expert: do not let unverified
+                // candidate sizes influence speculative I/O admission.
+                let bytes = self.reader.expert_byte_length(key.layer, key.expert_id)?;
+                sizes.push((key, bytes));
+            }
+        }
+        let plans = self.predictor.predict(current, &sizes, top_k);
+        let mut submitted = 0;
+        let mut rejected = 0;
+        for plan in plans {
+            if self.prefetch.submit(epoch, plan.key) == SubmitResult::Submitted {
+                submitted += 1;
+            } else {
+                self.predictor.cancel(plan.key);
+                rejected += 1;
+            }
+        }
+        Ok((submitted, rejected))
+    }
+
+    pub fn predictor_stats(&self) -> PrefetchStats { self.predictor.stats() }
+
     pub fn begin_epoch(&mut self, epoch: u64) -> Result<(), &'static str> {
         // Both layers reject non-increasing epochs. No completion from a
         // previously executed token can become an authorized expert.
         self.guard.begin_token(epoch)?;
+        self.predictor.clear_pending();
         self.prefetch.begin_epoch(epoch)
     }
 
@@ -108,7 +157,10 @@ impl AsyncGuardedExpertCoordinator {
         for done in self.prefetch.poll_ready() {
             if let Ok(bytes) = done.result {
                 if self.guard.stage(done.epoch, done.key, bytes) == StageResult::Staged {
+                    self.predictor.mark_ready(done.key);
                     accepted += 1;
+                } else {
+                    self.predictor.cancel(done.key);
                 }
             }
         }
@@ -150,6 +202,9 @@ impl AsyncGuardedExpertCoordinator {
                 )
             })?;
             experts.push((key, Arc::clone(bytes)));
+        }
+        for &key in actual {
+            self.predictor.observe(key);
         }
         Ok(RoutedExpertLoad {
             experts, predicted_hits, authoritative_reads,
@@ -331,6 +386,62 @@ mod tests {
         assert_eq!(coordinator.guard_stats().bytes,0);
         drop(coordinator);
         std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn live_router_history_predicts_only_verified_candidates_and_preserves_commit_guard() {
+        let root=std::env::temp_dir().join(format!(
+            "kiln-live-router-predict-{}-{:?}",
+            std::process::id(), std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source=root.join("experts.bin");
+        let original:Vec<u8>=(0..64u8).collect();
+        std::fs::write(&source,&original).unwrap();
+        let table=ExpertTable {blob_version:1,blob_size:64,ranges:vec![
+            ExpertRange{layer:0,expert_id:0,byte_offset:0,byte_length:16},
+            ExpertRange{layer:0,expert_id:1,byte_offset:16,byte_length:16},
+            ExpertRange{layer:0,expert_id:2,byte_offset:32,byte_length:16},
+        ]};
+        let reader=Arc::new(CachedExpertBlobReader::open(
+            &source,table,48,ExpertCachePolicy::Lru,
+        ).unwrap());
+        let mut coordinator=AsyncGuardedExpertCoordinator::new(
+            reader,2,32,32,2
+        );
+        let key=|id| ExpertKey {layer:0,expert_id:id};
+        for epoch in 1..=3u64 {
+            coordinator.begin_epoch(epoch).unwrap();
+            let real=coordinator.load_actual(epoch,&[key(0),key(1)]).unwrap();
+            assert_eq!(real.experts[1].1.as_ref(),&original[16..32]);
+        }
+        coordinator.begin_epoch(4).unwrap();
+        assert!(coordinator.predict_from_router_trace(
+            4,key(0),&[key(1),key(99)],1).is_err());
+        assert_eq!(coordinator.predictor_stats().scheduled,0);
+        let (submitted,rejected)=coordinator.predict_from_router_trace(
+            4,key(0),&[key(1),key(2)],1
+        ).unwrap();
+        assert_eq!((submitted,rejected),(1,0));
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
+        while coordinator.prefetch_stats().completed<1 {
+            coordinator.poll_and_stage();
+            assert!(std::time::Instant::now()<deadline,
+                "live router prefetch did not complete");
+            std::thread::yield_now();
+        }
+        let result=coordinator.load_actual(4,&[key(2),key(1)]).unwrap();
+        assert_eq!(result.predicted_hits,1);
+        assert_eq!(result.authoritative_reads,1);
+        assert_eq!(result.experts[0].0,key(2));
+        assert_eq!(result.experts[0].1.as_ref(),&original[32..48]);
+        assert_eq!(result.experts[1].0,key(1));
+        assert_eq!(result.experts[1].1.as_ref(),&original[16..32]);
+        assert_eq!(coordinator.predictor_stats().useful,1);
+        drop(result);
+        drop(coordinator);
+        std::fs::remove_file(source).unwrap();
         std::fs::remove_dir(root).unwrap();
     }
 

@@ -39,6 +39,7 @@ impl RuntimeBackend for MoEStreamBackend {
                 | RuntimeOp::MoEWarmupHistory { .. }
                 | RuntimeOp::MoEBeginToken { .. }
                 | RuntimeOp::MoEPrefetch { .. }
+                | RuntimeOp::MoETracePredict { .. }
                 | RuntimeOp::MoEPoll
                 | RuntimeOp::MoECommit { .. }
         )
@@ -64,6 +65,12 @@ impl RuntimeBackend for MoEStreamBackend {
                 self.loader.begin_epoch(*epoch)
                     .map_err(|e| RuntimeError::ExpertStream(e.into()))?;
                 Ok(RuntimeResult::Unit)
+            }
+            RuntimeOp::MoETracePredict { epoch, current, candidates, top_k } => {
+                let (submitted, rejected) = self.loader
+                    .predict_from_router_trace(*epoch, *current, candidates, *top_k)
+                    .map_err(|e| RuntimeError::ExpertStream(e.to_string()))?;
+                Ok(RuntimeResult::MoEPrefetchSubmitted { submitted, rejected })
             }
             RuntimeOp::MoEPrefetch { epoch, experts } => {
                 let mut submitted = 0usize;

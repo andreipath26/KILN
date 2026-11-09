@@ -24,6 +24,10 @@ pub enum RuntimeOp {
     MoEBeginToken { epoch: u64 },
     /// Schedule optional predicted expert reads; these are not authoritative.
     MoEPrefetch { epoch: u64, experts: Vec<ExpertKey> },
+    /// Speculation trained from exact observed expert routes; no router override.
+    MoETracePredict {
+        epoch: u64, current: ExpertKey, candidates: Vec<ExpertKey>, top_k: usize,
+    },
     /// Poll completed speculative I/O without blocking the decode thread.
     MoEPoll,
     /// Only the actual router keys can authorize bytes for compute.
