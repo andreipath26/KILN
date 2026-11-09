@@ -190,6 +190,21 @@ jobs:
           assert rec["cpu_moe_streamed_end_to_end_ready"] is False
           print("Model preflight accurately identifies opt-in actual expert graph mode, not deployment readiness")
           PY
+          printf 'Hello from the KILN smoke test.\n/exit\n' | \
+            KILN_MOE_STREAM_AUDIT="$RUNNER_TEMP/moe-cli-stream-audit.tsv" \
+            timeout 120 target/debug/kiln stream "$MODEL" --max-tokens 6 \
+              --cache-mib 8 --parallel-reads > "$RUNNER_TEMP/moe-cli-stream.txt"
+          python3 - "$RUNNER_TEMP/moe-cli-stream.txt" "$RUNNER_TEMP/moe-cli-stream-audit.tsv" <<'PY'
+          import pathlib
+          import sys
+          output = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+          rows = [row.split("\t") for row in pathlib.Path(sys.argv[2]).read_text().splitlines()]
+          assert "KILN interactive session" in output and "kiln>" in output
+          assert rows and all(len(row) == 6 and int(row[2]) == int(row[1])
+                              for row in rows if int(row[1]) > 0)
+          assert any(int(row[3]) > 0 for row in rows)
+          print("One-binary kiln stream interactive runner actually computed with original GGUF experts")
+          PY
           KILN_MOE_ROUTER_TRACE="$RUNNER_TEMP/real-moe-router.tsv" \
             target/debug/kiln bench "$MODEL" --native-greedy \
               --tokens 8 --warmup 0 --runs 1 --threads 2 --batch 128 \
@@ -467,6 +482,8 @@ jobs:
             ${{ runner.temp }}/real-moe-stream-script-proof/*.tsv
             ${{ runner.temp }}/kiln-model-plan.json
             ${{ runner.temp }}/moe-plan.json
+            ${{ runner.temp }}/moe-cli-stream-audit.tsv
+            ${{ runner.temp }}/moe-cli-stream.txt
 
       - name: Smoke-test Phase 3.5 real-model benchmark commands
         env:

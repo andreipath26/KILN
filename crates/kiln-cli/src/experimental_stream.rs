@@ -3,7 +3,7 @@
 //! ordinary API sessions, other models and the parent environment stay intact.
 use std::collections::HashSet;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use kiln_models::{
@@ -182,6 +182,6 @@ mod tests {
             assert_eq!(std::fs::read(&file.path).unwrap(), b"KILN-MOE-STREAM-1\n");
             file.path.clone()
         };
-        assert!(!Path::new(&filename).exists());
+        assert!(!std::path::Path::new(&filename).exists());
     }
 }
