@@ -14,11 +14,66 @@ fn mem_available_bytes(contents: &str) -> Option<u64> {
     fields[1].parse::<u64>().ok()?.checked_mul(1024)
 }
 
+/// Parse a kernel cgroup byte counter. The v2 "max" and v1 huge sentinel
+/// mean no configured limit, not an available-memory estimate.
+fn cgroup_bytes(value: &str) -> Option<u64> {
+    let raw = value.trim();
+    if raw == "max" || raw.is_empty() || raw.len() > 20 ||
+        !raw.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let bytes = raw.parse::<u64>().ok()?;
+    if bytes >= (1u64 << 60) { None } else { Some(bytes) }
+}
+
+fn cgroup_headroom(limit: &str, current: &str) -> Option<u64> {
+    cgroup_bytes(limit)?.checked_sub(cgroup_bytes(current)?)
+}
+
+#[cfg(target_os = "linux")]
+fn read_cgroup_number(path: &str) -> Option<String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut buffer = [0u8; 64];
+    let count = file.read(&mut buffer).ok()?;
+    if count == buffer.len() { return None; }
+    String::from_utf8(buffer[..count].to_vec()).ok()
+}
+
+/// Cgroup v2's memory.max and memory.current represent the container's
+/// actual budget and usage. A v1 runtime may instead expose memory.limit_in_bytes.
+/// When controls are absent, fall back to the kernel's MemAvailable estimate.
+/// The minimum is conservative: page cache may still be reclaimable.
+#[cfg(target_os = "linux")]
+fn container_memory_headroom() -> Option<u64> {
+    for (limit_path, usage_path) in [
+        ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current"),
+        ("/sys/fs/cgroup/memory/memory.limit_in_bytes",
+         "/sys/fs/cgroup/memory/memory.usage_in_bytes"),
+    ] {
+        if let (Some(limit), Some(used)) = (
+            read_cgroup_number(limit_path), read_cgroup_number(usage_path),
+        ) {
+            if let Some(available) = cgroup_headroom(&limit, &used) {
+                return Some(available);
+            }
+        }
+    }
+    None
+}
+
 fn physical_memory_available() -> Option<u64> {
     #[cfg(target_os = "linux")]
     {
-        std::fs::read_to_string("/proc/meminfo").ok()
-            .and_then(|contents| mem_available_bytes(&contents))
+        let host = std::fs::read_to_string("/proc/meminfo").ok()
+            .and_then(|contents| mem_available_bytes(&contents));
+        let cgroup = container_memory_headroom();
+        match (host, cgroup) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        }
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -51,7 +106,7 @@ fn feasibility(
             "model_file_to_available_ram_ratio": ratio,
             "system_ram_gb_rounded_from_profile": system_ram_gb,
             "status": status,
-            "limitations": "File size is not resident working set, live memory requirement, KV cache, GPU memory or physical SSD traffic. An oversized GGUF may fail to load or be too slow."
+            "limitations": "Memory availability is conservatively capped by a detected cgroup limit where possible. File size is not resident working set, KV cache, GPU memory or physical SSD traffic. An oversized GGUF may fail to load or be too slow."
         },
         "cpu": {"logical_cpus_detected": cpu_cores},
         "model": {"routed_expert_tensors_detected": has_routed_expert_tensors},
@@ -148,6 +203,17 @@ mod tests {
         assert_eq!(mem_available_bytes("MemAvailable: invalid kB\n"), None);
         assert_eq!(mem_available_bytes("MemAvailable: 2 MiB\n"), None);
         assert_eq!(mem_available_bytes("MemAvailable: 18446744073709551615 kB\n"), None);
+    }
+
+    #[test]
+    fn cgroup_budget_is_strict_and_never_wraps() {
+        assert_eq!(cgroup_headroom("1073741824\\n", "268435456\\n"), Some(805306368));
+        assert_eq!(cgroup_headroom("268435456", "1073741824"), None);
+        assert_eq!(cgroup_headroom("max", "10"), None);
+        assert_eq!(cgroup_headroom("9223372036854771712", "10"), None);
+        assert_eq!(cgroup_headroom("123bad", "0"), None);
+        assert_eq!(cgroup_headroom("100", "not-a-number"), None);
+        assert_eq!(cgroup_bytes("18446744073709551616"), None);
     }
 
     #[test]
