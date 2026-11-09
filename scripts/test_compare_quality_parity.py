@@ -35,3 +35,42 @@ class QualityParityTests(unittest.TestCase):
         for bad in (float("nan"),0,-1,float("inf")):
             with self.assertRaises(ValueError):
                 assess(ref,self.sample(bad),0.01)
+
+    def test_missing_required_evidence_never_passes_even_when_both_omit_it(self):
+        for missing in ("protocol", "token_fingerprint_fnv1a64",
+                        "token_ids_sha256_le_i32", "evaluated_token_count",
+                        "scored_target_tokens", "window_tokens"):
+            ref = self.sample(10)
+            candidate = self.sample(10)
+            del ref[missing]
+            del candidate[missing]
+            with self.subTest(missing=missing), self.assertRaises(ValueError):
+                assess(ref, candidate, 0.01)
+
+    def test_forged_or_inconsistent_scoring_metadata_is_rejected(self):
+        corruptions = (
+            ("token_ids_sha256_le_i32", "a" * 63),
+            ("token_ids_sha256_le_i32", "z" * 64),
+            ("token_fingerprint_fnv1a64", "x" * 16),
+            ("evaluated_token_count", True),
+            ("evaluated_token_count", 1),
+            ("scored_target_tokens", 998),
+            ("scored_target_tokens", True),
+            ("window_tokens", 1),
+            ("window_tokens", 8193),
+            ("window_tokens", 512.0),
+            ("perplexity", 0.5),
+            ("perplexity", True),
+        )
+        for key, invalid in corruptions:
+            with self.subTest(key=key, invalid=invalid):
+                ref = self.sample(10)
+                ref[key] = invalid
+                with self.assertRaises(ValueError):
+                    assess(ref, self.sample(10), 0.01)
+
+    def test_reference_is_validated_as_strictly_as_candidate(self):
+        candidate = self.sample(10)
+        for invalid in (None, [], {"protocol": candidate["protocol"]}):
+            with self.assertRaises(ValueError):
+                assess(invalid, candidate, 0.01)
