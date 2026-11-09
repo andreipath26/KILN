@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+# New commits on one integration PR supersede older full CI runs. Avoid
+# serialized stale 5-minute native builds while preserving push-to-main checks.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
