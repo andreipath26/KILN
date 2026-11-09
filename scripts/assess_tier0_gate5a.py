@@ -105,6 +105,9 @@ def summarize(paths: list[Path]) -> list[dict]:
             p95 = item.get("request_latency_p95_us")
             if not nonnegative_finite(p50) or not nonnegative_finite(p95) or p95 < p50:
                 raise ValueError(f"{path}: invalid request latency percentiles")
+            advised = item.get("page_cache_eviction_advised", False)
+            if not isinstance(advised, bool):
+                raise ValueError(f"{path}: invalid cache eviction advisory flag")
             attributed = item.get("linux_process_storage_read_bytes")
             if attributed is not None and not nonnegative_int(attributed):
                 raise ValueError(f"{path}: invalid process I/O counter")
@@ -117,6 +120,7 @@ def summarize(paths: list[Path]) -> list[dict]:
                 "block_bytes": block_bytes,
                 "pattern": item["access_pattern"],
                 "trace_driven": item["access_pattern"] == "router-trace",
+                "page_cache_eviction_advised_not_verified_cold": advised,
                 "sampled_expert_keys": expert_keys,
                 "requested_bytes": requested,
                 "min_request_bytes": min_request,
