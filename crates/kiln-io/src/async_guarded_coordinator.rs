@@ -35,6 +35,28 @@ impl AsyncGuardedExpertCoordinator {
         }
     }
 
+    /// Opt-in portable multi-worker prefetch for validated expert blobs.
+    /// Each reader uses positional I/O while actual router commit remains
+    /// authoritative; all workers share one bounded pending byte budget.
+    pub fn new_parallel_buffered(
+        reader: Arc<CachedExpertBlobReader>,
+        workers: usize,
+        pending_requests: usize,
+        pending_bytes: u64,
+        guard_bytes: u64,
+        guard_entries: usize,
+    ) -> Result<Self, String> {
+        let prefetch = AsyncExpertPrefetch::new_parallel(
+            Arc::clone(&reader), workers, pending_requests, pending_bytes
+        )?;
+        Ok(Self {
+            reader, prefetch,
+            guard: ExpertCommitGuard::new(guard_bytes, guard_entries),
+            predictor: ExpertPrefetcher::new(pending_requests, pending_bytes),
+            closed_epoch: None,
+        })
+    }
+
     /// Build both the verification/fallback reader and the native uring
     /// worker from the same validated expert file and index. The loader
     /// retains the exact-router Commit Guard for all completions.
@@ -254,6 +276,48 @@ mod tests {
     use super::*;
     use kiln_mem::ExpertCachePolicy;
     use kiln_models::{ExpertTable, ExpertRange};
+
+    #[test]
+    fn multiworker_prefetch_stages_only_real_selected_experts() {
+        let root=std::env::temp_dir().join(format!(
+            "kiln-coordinator-parallel-{}-{:?}",
+            std::process::id(), std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source=root.join("experts.bin");
+        let data:Vec<u8>=(0..64u8).collect();
+        std::fs::write(&source,&data).unwrap();
+        let table=ExpertTable{blob_version:1,blob_size:64,ranges:(0..4).map(|id| {
+            ExpertRange{layer:0,expert_id:id,byte_offset:id as u64*16,byte_length:16}
+        }).collect()};
+        let reader=Arc::new(CachedExpertBlobReader::open(
+            &source,table,32,ExpertCachePolicy::Lru
+        ).unwrap());
+        let mut worker=AsyncGuardedExpertCoordinator::new_parallel_buffered(
+            reader,3,4,64,64,4
+        ).unwrap();
+        worker.begin_epoch(1).unwrap();
+        let key=|id|ExpertKey{layer:0,expert_id:id};
+        for id in 0..3 {
+            assert_eq!(worker.schedule_prediction(1,key(id)),SubmitResult::Submitted);
+        }
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
+        while worker.prefetch_stats().completed < 3 {
+            worker.poll_and_stage();
+            assert!(std::time::Instant::now()<deadline,"worker pool stalled");
+            std::thread::yield_now();
+        }
+        let result=worker.load_actual(1,&[key(3),key(1),key(3)]).unwrap();
+        assert_eq!(result.predicted_hits,1);
+        assert_eq!(result.authoritative_reads,1);
+        assert_eq!(result.experts[0].1.as_ref(),&data[48..64]);
+        assert_eq!(result.experts[1].1.as_ref(),&data[16..32]);
+        assert!(Arc::ptr_eq(&result.experts[0].1,&result.experts[2].1));
+        drop(result);
+        drop(worker);
+        std::fs::remove_file(source).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
 
     #[test]
     fn advisory_warmup_reuses_verified_source_without_overriding_actual_router() {

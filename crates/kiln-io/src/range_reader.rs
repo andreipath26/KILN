@@ -16,6 +16,12 @@ impl From<io::Error> for RangeReadError { fn from(e: io::Error) -> Self { Self::
 pub struct FileRangeReader { file: File, path: PathBuf, file_size: u64 }
 impl FileRangeReader {
  pub fn open(path: impl AsRef<Path>) -> Result<Self, RangeReadError> { let path = path.as_ref().to_path_buf(); let file = File::open(&path)?; let file_size = file.metadata()?.len(); Ok(Self { file, path, file_size }) }
+ /// Duplicate the existing open file descriptor without reopening a path.
+ /// On Unix all reads use positional I/O, so shared descriptor offsets
+ /// cannot corrupt simultaneous expert reads.
+ pub fn try_clone(&self) -> io::Result<Self> {
+  Ok(Self { file: self.file.try_clone()?, path: self.path.clone(), file_size: self.file_size })
+ }
  pub fn path(&self) -> &Path { &self.path }
  pub fn file_size(&self) -> u64 { self.file_size }
  /// Best-effort Linux page-cache eviction hint for read-only benchmark work.
@@ -42,7 +48,26 @@ impl FileRangeReader {
   let length = u64::try_from(buffer.len()).map_err(|_| RangeReadError::LengthTooLarge { length: u64::MAX })?;
   let end = offset.checked_add(length).ok_or(RangeReadError::OutOfBounds { offset, length, file_size: self.file_size })?;
   if end > self.file_size { return Err(RangeReadError::OutOfBounds { offset, length, file_size: self.file_size }); }
-  self.file.seek(SeekFrom::Start(offset))?; self.file.read_exact(buffer)?; Ok(())
+  #[cfg(unix)]
+  {
+   use std::os::unix::fs::FileExt;
+   let mut done = 0usize;
+   while done < buffer.len() {
+    match self.file.read_at(&mut buffer[done..], offset + done as u64) {
+     Ok(0) => return Err(RangeReadError::Io(io::Error::from(io::ErrorKind::UnexpectedEof))),
+     Ok(count) => done += count,
+     Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+     Err(error) => return Err(RangeReadError::Io(error)),
+    }
+   }
+   Ok(())
+  }
+  #[cfg(not(unix))]
+  {
+   self.file.seek(SeekFrom::Start(offset))?;
+   self.file.read_exact(buffer)?;
+   Ok(())
+  }
  }
  pub fn read_range(&mut self, offset: u64, length: u64) -> Result<Vec<u8>, RangeReadError> {
   // Validate against the file before allocating. Otherwise an invalid request
@@ -75,6 +100,22 @@ mod tests {
   #[cfg(not(target_os = "linux"))]
   assert_eq!(reader.advise_drop_cache().unwrap_err().kind(), io::ErrorKind::Unsupported);
   assert_eq!(reader.read_range(0, 512).unwrap(), expected[..512]);
+  std::fs::remove_file(path).unwrap();
+ }
+ #[test] fn independent_positional_file_clones_do_not_share_seek_cursor() {
+  let (path, data) = temp_file();
+  let original = FileRangeReader::open(&path).unwrap();
+  let mut threads = Vec::new();
+  for id in 0..8usize {
+   let mut fork = original.try_clone().unwrap();
+   let expected = data[id * 1024..(id + 1) * 1024].to_vec();
+   threads.push(std::thread::spawn(move || {
+    for _ in 0..50 {
+     assert_eq!(fork.read_range(id as u64 * 1024, 1024).unwrap(), expected);
+    }
+   }));
+  }
+  for thread in threads { thread.join().unwrap(); }
   std::fs::remove_file(path).unwrap();
  }
  #[test] fn allows_empty_range_at_eof() { let (path, expected) = temp_file(); let mut reader = FileRangeReader::open(&path).unwrap(); assert!(reader.read_range(expected.len() as u64, 0).unwrap().is_empty()); std::fs::remove_file(path).unwrap(); }

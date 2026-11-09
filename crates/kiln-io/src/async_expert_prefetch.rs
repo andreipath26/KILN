@@ -39,6 +39,10 @@ pub struct ExpertReadCompletion {
 struct ReadRequest { epoch: u64, key: ExpertKey }
 enum WorkerReadBackend {
     Cached(Arc<CachedExpertBlobReader>),
+    Forked {
+        cache: Arc<CachedExpertBlobReader>,
+        source: crate::ExpertBlobReader,
+    },
     #[cfg(target_os = "linux")]
     Uring(LinuxUringExpertReader),
 }
@@ -47,6 +51,8 @@ impl WorkerReadBackend {
         match self {
             Self::Cached(reader) => reader.read_expert_shared(key.layer,key.expert_id)
                 .map_err(|e|e.to_string()),
+            Self::Forked { cache, source } => cache.read_with_fork(source, key)
+                .map_err(|e| e.to_string()),
             #[cfg(target_os = "linux")]
             Self::Uring(reader) => reader.read_expert(key.layer,key.expert_id)
                 .map(Arc::from).map_err(|e|e.to_string()),
@@ -66,7 +72,7 @@ struct WorkerState {
 pub struct AsyncExpertPrefetch {
     sender: Option<mpsc::SyncSender<ReadRequest>>,
     done: mpsc::Receiver<ExpertReadCompletion>,
-    worker: Option<JoinHandle<()>>,
+    workers: Vec<JoinHandle<()>>,
     reader: Arc<CachedExpertBlobReader>,
     epoch: Arc<AtomicU64>,
     // Include the epoch in identity. A stale completion must not release
@@ -87,6 +93,67 @@ impl AsyncExpertPrefetch {
             Arc::clone(&reader), WorkerReadBackend::Cached(reader),
             max_requests, max_bytes,
         )
+    }
+
+    /// Launch a bounded portable worker pool with independently forked file
+    /// descriptors. All workers share the same verified source index and one
+    /// admission/cache budget, but can execute positional reads concurrently.
+    /// Unlike a single mutex-backed cached reader, this can overlap SSD I/O.
+    /// Measured throughput still depends on the hardware and page cache.
+    pub fn new_parallel(
+        reader: Arc<CachedExpertBlobReader>,
+        worker_count: usize,
+        max_requests: usize,
+        max_bytes: u64,
+    ) -> Result<Self, String> {
+        if !(1..=8).contains(&worker_count) || max_requests == 0 || max_requests > 4096 {
+            return Err("invalid bounded prefetch worker/request count".into());
+        }
+        // Prepare ALL independent file handles before starting any workers.
+        let mut readers = Vec::with_capacity(worker_count);
+        for _ in 0..worker_count {
+            readers.push(reader.fork_source_reader().map_err(|e| e.to_string())?);
+        }
+        let (sender, recv) = mpsc::sync_channel(max_requests);
+        let recv = Arc::new(std::sync::Mutex::new(recv));
+        let (completed, done) = mpsc::channel();
+        let epoch = Arc::new(AtomicU64::new(0));
+        let mut workers = Vec::with_capacity(worker_count);
+        for source in readers {
+            let recv = Arc::clone(&recv);
+            let sender_done = completed.clone();
+            let current_epoch = Arc::clone(&epoch);
+            let mut backend = WorkerReadBackend::Forked {
+                cache: Arc::clone(&reader), source,
+            };
+            workers.push(thread::spawn(move || {
+                loop {
+                    let next = recv.lock().unwrap_or_else(|p| p.into_inner()).recv();
+                    let Ok(request) = next else { break };
+                    if current_epoch.load(Ordering::Acquire) != request.epoch {
+                        let _ = sender_done.send(ExpertReadCompletion {
+                            epoch: request.epoch, key: request.key,
+                            result: Err("stale epoch; read skipped".into()),
+                            worker_service_nanos: 0,
+                        });
+                        continue;
+                    }
+                    let started = std::time::Instant::now();
+                    let result = backend.read(request.key);
+                    let nanos = started.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+                    let _ = sender_done.send(ExpertReadCompletion {
+                        epoch: request.epoch, key: request.key,
+                        result, worker_service_nanos: nanos,
+                    });
+                }
+            }));
+        }
+        drop(completed);
+        Ok(Self {
+            sender: Some(sender), done, workers, reader, epoch,
+            pending: HashMap::new(), max_requests, max_bytes,
+            stats: AsyncExpertStats::default(),
+        })
     }
 
     /// Used only when the async and authoritative readers were both opened
@@ -135,7 +202,7 @@ impl AsyncExpertPrefetch {
             }
         });
         Self {
-            sender:Some(sender),done,worker:Some(worker),reader,epoch,
+            sender:Some(sender),done,workers:vec![worker],reader,epoch,
             pending:HashMap::new(),max_requests,max_bytes,
             stats:AsyncExpertStats::default(),
         }
@@ -218,7 +285,7 @@ impl Drop for AsyncExpertPrefetch {
         // Disconnect sender. Worker drains already queued tasks then exits;
         // a running file read is not preempted.
         self.sender.take();
-        if let Some(worker)=self.worker.take() { let _=worker.join(); }
+        for worker in self.workers.drain(..) { let _=worker.join(); }
     }
 }
 
@@ -228,6 +295,53 @@ mod tests {
     use kiln_mem::ExpertCachePolicy;
     use kiln_models::{ExpertTable, ExpertRange};
     fn key(id:u32)->ExpertKey{ExpertKey{layer:0,expert_id:id}}
+
+    #[test]
+    fn parallel_pool_reads_four_distinct_experts_without_losing_budget() {
+        let root=std::env::temp_dir().join(format!(
+            "kiln-parallel-worker-{}-{:?}",std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path=root.join("experts.bin");
+        let data:Vec<u8>=(0..64u8).collect();
+        std::fs::write(&path, &data).unwrap();
+        let table=ExpertTable{blob_version:1,blob_size:64,ranges:(0..4).map(|id| {
+            ExpertRange{layer:0,expert_id:id,byte_offset:id as u64*16,byte_length:16}
+        }).collect()};
+        let reader=Arc::new(CachedExpertBlobReader::open(
+            &path,table,32,ExpertCachePolicy::Adaptive
+        ).unwrap());
+        assert!(AsyncExpertPrefetch::new_parallel(Arc::clone(&reader), 9, 4, 64).is_err());
+        let mut io=AsyncExpertPrefetch::new_parallel(
+            Arc::clone(&reader), 4, 4, 64
+        ).unwrap();
+        io.begin_epoch(1).unwrap();
+        for id in 0..4 {
+            assert_eq!(io.submit(1,key(id)),SubmitResult::Submitted);
+        }
+        assert_eq!(io.submit(1,key(0)),SubmitResult::AlreadyPending);
+        assert_eq!(io.stats().pending_bytes,64);
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
+        let mut done=Vec::new();
+        while done.len()<4 {
+            done.extend(io.poll_ready());
+            assert!(std::time::Instant::now()<deadline,"parallel reads timed out");
+            std::thread::yield_now();
+        }
+        done.sort_by_key(|x| x.key.expert_id);
+        for (id,item) in done.into_iter().enumerate() {
+            assert_eq!(item.key,key(id as u32));
+            assert_eq!(item.result.unwrap().as_ref(),&data[id*16..id*16+16]);
+        }
+        assert_eq!(io.stats().pending_requests,0);
+        assert_eq!(io.stats().pending_bytes,0);
+        assert_eq!(io.stats().completed_operand_bytes,64);
+        assert!(reader.cache_stats().used_bytes<=32);
+        drop(io);
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
 
     #[test]
     fn asynchronously_reads_exact_experts_without_exceeding_admission_caps() {

@@ -159,6 +159,36 @@ impl CachedExpertBlobReader {
         Ok(self.read_expert_shared(layer, expert_id)?.as_ref().to_vec())
     }
 
+    /// Fork the already validated source handle for independently-positioned
+    /// worker reads. This avoids reopening the pathname and preserves index
+    /// validation, while allowing actual parallel bounded prefetch.
+    pub fn fork_source_reader(&self) -> Result<ExpertBlobReader, ExpertBlobError> {
+        self.lock_reader().try_clone()
+    }
+
+    /// Read from a separately forked validated source and share cache
+    /// residency. Distinct workers can issue positional reads concurrently;
+    /// cache admission remains serialized and lease-safe.
+    ///
+    /// Concurrent cold requests for the same key can race and produce two
+    /// transient allocations. The async coordinator bounds these using its
+    /// global pending byte cap, and never changes actual router choices.
+    pub fn read_with_fork(
+        &self,
+        source: &mut ExpertBlobReader,
+        key: ExpertKey,
+    ) -> Result<Arc<[u8]>, ExpertBlobError> {
+        if let Some(bytes) = self.cache.get_shared_if_present(key) {
+            self.record_access(key);
+            return Ok(bytes);
+        }
+        self.cache.record_miss();
+        let bytes: Arc<[u8]> = Arc::from(source.read_expert(key.layer, key.expert_id)?);
+        let _ = self.cache.insert_shared(key, Arc::clone(&bytes));
+        self.record_access(key);
+        Ok(bytes)
+    }
+
     /// Return a reference-counted expert allocation. Hits do not duplicate
     /// the underlying block and concurrent cold requests are coalesced.
     /// Active Arc leases prevent eviction of the retained entry. A cold
@@ -335,6 +365,31 @@ mod tests {
             ],
         };
         (path, bytes, table)
+    }
+
+    #[test]
+    fn parallel_fork_reads_preserve_source_bytes_and_cache_bounds() {
+        let (path, data, table) = fixture();
+        let reader = Arc::new(CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Adaptive
+        ).unwrap());
+        let mut tasks = Vec::new();
+        for id in 0..4u32 {
+            let cloned = Arc::clone(&reader);
+            let mut source = reader.fork_source_reader().unwrap();
+            tasks.push(std::thread::spawn(move || {
+                cloned.read_with_fork(&mut source, ExpertKey {
+                    layer: id / 2, expert_id: id % 2
+                }).unwrap()
+            }));
+        }
+        for (i, task) in tasks.into_iter().enumerate() {
+            let bytes = task.join().unwrap();
+            assert_eq!(bytes.as_ref(), &data[i*8..i*8+8]);
+        }
+        assert!(reader.cache_stats().used_bytes <= 16);
+        assert_eq!(reader.cache_stats().misses, 4);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

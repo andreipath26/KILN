@@ -91,6 +91,15 @@ impl ExpertBlobReader {
         Self::open(path, table)
     }
 
+    /// Fork a validated source reader using a duplicate descriptor.
+    /// Avoids reopening a mutable pathname during parallel expert prefetch.
+    pub fn try_clone(&self) -> Result<Self, ExpertBlobError> {
+        Ok(Self {
+            reader: self.reader.try_clone().map_err(RangeReadError::Io)?,
+            table: self.table.clone(),
+        })
+    }
+
     pub fn file_size(&self) -> u64 {
         self.reader.file_size()
     }
