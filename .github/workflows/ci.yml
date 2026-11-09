@@ -231,6 +231,22 @@ jobs:
           print("Actual router-selected expert byte ranges replayed from packed GGUF slabs")
           PY
 
+      - name: Smoke-test read-only model feasibility preflight
+        env:
+          KILN_TEST_MODEL_PATH: ${{ runner.temp }}/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf
+        run: |
+          target/debug/kiln plan "$KILN_TEST_MODEL_PATH" --json > "$RUNNER_TEMP/kiln-model-plan.json"
+          python3 - "$RUNNER_TEMP/kiln-model-plan.json" <<'PY'
+          import json
+          import sys
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert data["status"] == "diagnostic_only_not_load_or_speed_acceptance"
+          assert data["model_file_bytes"] > 0
+          assert data["recommendations"]["cpu_moe_streamed_end_to_end_ready"] is False
+          assert data["gguf_tensor_count"] > 0
+          print("Read-only real-GGUF hardware preflight smoke passed")
+          PY
+
       - name: Smoke-test Phase 3.5 real-model benchmark commands
         env:
           KILN_TEST_MODEL_PATH: ${{ runner.temp }}/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf

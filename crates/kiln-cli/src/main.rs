@@ -18,6 +18,7 @@ mod llama_forward;
 mod model_library;
 mod phase35_kv_bench;
 mod phase35_spec_bench;
+mod model_plan;
 
 /// Linux process RSS snapshot in KiB. VmHWM is the process high-water mark
 /// since launch, so it includes the entire model load/benchmark lifetime.
@@ -221,8 +222,13 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// Print the execution plan for a model without running it. Not yet implemented.
-    Plan { model: String },
+    /// Read-only GGUF and system feasibility preflight (not acceptance or graph optimization).
+    Plan {
+        model: String,
+        /// Print machine-readable preflight JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Print the hardware profile.
     Info,
     /// Load every weight tensor from a GGUF file and report sizes.
@@ -1072,7 +1078,12 @@ async fn main() {
                 }
             }
         },
-        Commands::Plan { model } => not_implemented("plan", &model),
+        Commands::Plan { model, json } => {
+            if let Err(error) = model_plan::run(&model, json) {
+                eprintln!("kiln plan: {error}");
+                std::process::exit(2);
+            }
+        },
     }
 }
 
