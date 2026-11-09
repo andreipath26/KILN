@@ -4,7 +4,7 @@ set -euo pipefail
 [[ "$(uname -s)" == Linux ]] || { echo "Linux only" >&2; exit 2; }
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-for cmd in cmake cargo git tar sha256sum strings python3; do
+for cmd in cmake cargo git tar sha256sum strings realpath install python3; do
   command -v "$cmd" >/dev/null || { echo "Missing: $cmd" >&2; exit 2; }
 done
 [[ -f vendor/llama.cpp/CMakeLists.txt ]] || {
