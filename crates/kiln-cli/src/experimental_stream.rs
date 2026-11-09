@@ -127,7 +127,9 @@ fn verify_stream_audit(contents: &str, expected_names: &HashSet<String>) -> Resu
             cached > loaded || pread == 0 && cached == 0 {
             return Err(format!("native expert {name} was not fully served externally"));
         }
-        observed.insert(name.to_owned());
+        if !observed.insert(name.to_owned()) {
+            return Err(format!("duplicate native expert audit row for {name:?}"));
+        }
         bytes = bytes.checked_add(delivered).ok_or("expert delivered-byte counter overflow")?;
         pread_bytes = pread_bytes.checked_add(pread).ok_or("expert pread-byte counter overflow")?;
         hits = hits.checked_add(cached).ok_or("expert hot-cache hit counter overflow")?;
@@ -308,6 +310,8 @@ mod tests {
         let rows = "blk.0.ffn_up_exps.weight\t2\t2\t1024\t1024\t0\nblk.0.ffn_down_exps.weight\t2\t2\t1024\t0\t2\nblk.0.ffn_gate_exps.weight\t2\t2\t1024\t0\t2\n";
         assert_eq!(verify_stream_audit(rows, &expected).unwrap(), (3072,1024,4));
         assert!(verify_stream_audit("", &expected).is_err());
+        // Duplicate rows must never inflate external-read evidence.
+        assert!(verify_stream_audit(&format!("{rows}{}\n", rows.lines().next().unwrap()), &expected).is_err());
         assert!(verify_stream_audit(&rows.lines().take(2).collect::<Vec<_>>().join("\n"), &expected).is_err());
         assert!(verify_stream_audit(&rows.replace("\t2\t2\t1024\t1024\t0", "\t2\t1\t1024\t1024\t0"), &expected).is_err());
         assert!(verify_stream_audit(&rows.replace("\t0\t2", "\t0\t0"), &expected).is_err());
