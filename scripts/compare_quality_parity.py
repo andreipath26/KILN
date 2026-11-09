@@ -16,10 +16,38 @@ REQUIRED_EQUAL = (
     "scored_target_tokens", "window_tokens",
 )
 
+def validate_evidence(report: dict, label: str) -> None:
+    if not isinstance(report, dict):
+        raise ValueError(f"{label} evidence must be a JSON object")
+    if report.get("protocol") != "kiln-reset-window-next-token-nll-v1":
+        raise ValueError(f"{label} evidence has an unknown or missing scoring protocol")
+    for key, width in (("token_fingerprint_fnv1a64", 16),
+                       ("token_ids_sha256_le_i32", 64)):
+        value = report.get(key)
+        if (not isinstance(value, str) or len(value) != width
+                or any(char not in "0123456789abcdef" for char in value)):
+            raise ValueError(f"{label} evidence has an invalid {key}")
+    token_count = report.get("evaluated_token_count")
+    scored = report.get("scored_target_tokens")
+    window = report.get("window_tokens")
+    if type(token_count) is not int or not 2 <= token_count <= 65536:
+        raise ValueError(f"{label} evidence has an invalid token count")
+    if type(scored) is not int or scored != token_count - 1:
+        raise ValueError(f"{label} evidence skipped or duplicated target tokens")
+    if type(window) is not int or not 2 <= window <= 8192:
+        raise ValueError(f"{label} evidence has an invalid scoring window")
+    perplexity = report.get("perplexity")
+    if (type(perplexity) not in (int, float)
+            or not math.isfinite(perplexity) or perplexity < 1):
+        raise ValueError(f"{label} evidence has invalid perplexity")
+
+
 def assess(reference: dict, candidate: dict, max_relative_ppl_loss: float) -> dict:
     if not (math.isfinite(max_relative_ppl_loss)
             and 0 <= max_relative_ppl_loss <= 1):
         raise ValueError("relative perplexity loss must be finite and within 0..1")
+    validate_evidence(reference, "reference")
+    validate_evidence(candidate, "candidate")
     for key in REQUIRED_EQUAL:
         if reference.get(key) != candidate.get(key):
             raise ValueError(f"mismatched scoring/corpus tokenization: {key}")
