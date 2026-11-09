@@ -86,6 +86,77 @@ impl Drop for TemporaryStreamIndex {
     }
 }
 
+/// Demand that every declared fused projection executed with selected
+/// external expert operands. A successfully exited child is not sufficient:
+/// unsupported layouts and failed pread must not be silently mistaken for
+/// streamed inference. Missing, truncated or malformed audit => fail closed.
+fn verify_stream_audit(contents: &str, expected_names: &HashSet<String>) -> Result<(u64, u64, u64), String> {
+    if contents.len() > 16 * 1024 * 1024 {
+        return Err("native stream audit exceeded the 16 MiB safety cap".into());
+    }
+    if contents.is_empty() || expected_names.is_empty() {
+        return Err("native graph did not report selected external expert computation".into());
+    }
+    let mut observed = HashSet::new();
+    let (mut bytes, mut pread_bytes, mut hits) = (0u64, 0u64, 0u64);
+    for line in contents.lines() {
+        let fields: Vec<_> = line.split('\t').collect();
+        if fields.len() != 6 {
+            return Err("malformed native expert streaming audit".into());
+        }
+        let name = fields[0];
+        if !expected_names.contains(name) {
+            return Err(format!("unexpected native expert tensor {name:?}"));
+        }
+        let parse = |index: usize| -> Result<u64, String> {
+            fields[index].parse::<u64>().map_err(|_| "native audit counter is invalid".into())
+        };
+        let requested = parse(1)?;
+        let loaded = parse(2)?;
+        let delivered = parse(3)?;
+        let pread = parse(4)?;
+        let cached = parse(5)?;
+        if requested == 0 || loaded != requested || delivered == 0 || pread > delivered ||
+            cached > loaded || pread == 0 && cached == 0 {
+            return Err(format!("native expert {name} was not fully served externally"));
+        }
+        observed.insert(name.to_owned());
+        bytes = bytes.checked_add(delivered).ok_or("expert delivered-byte counter overflow")?;
+        pread_bytes = pread_bytes.checked_add(pread).ok_or("expert pread-byte counter overflow")?;
+        hits = hits.checked_add(cached).ok_or("expert hot-cache hit counter overflow")?;
+    }
+    if observed != *expected_names {
+        return Err(format!("external CPU expert graph executed {}/{} verified projections",
+            observed.len(), expected_names.len()));
+    }
+    Ok((bytes, pread_bytes, hits))
+}
+
+struct TemporaryAudit {
+    path: PathBuf,
+}
+impl TemporaryAudit {
+    fn create() -> Result<Self, String> {
+        let seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?.as_nanos();
+        for attempt in 0..8 {
+            let path = std::env::temp_dir().join(format!(
+                "kiln-moe-audit-{}-{seed}-{attempt}.tsv", std::process::id()
+            ));
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(file) => { drop(file); return Ok(Self { path }); }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(format!("native audit setup failed: {error}")),
+            }
+        }
+        Err("unable to allocate a unique temporary native audit".into())
+    }
+}
+impl Drop for TemporaryAudit {
+    fn drop(&mut self) { let _ = std::fs::remove_file(&self.path); }
+}
+
 /// User-visible experimental launcher: the same single KILN executable is
 /// re-executed with a session-scoped source-GGUF expert index. No external
 /// program, model copy, permanent manifest or daemon is required.
@@ -121,6 +192,9 @@ pub fn run(
     let bytes = external_index_contents(&source_map.components)?;
     drop(model_data);
     let temp = TemporaryStreamIndex::create(&bytes)?;
+    let audit = TemporaryAudit::create()?;
+    let expected_names: HashSet<String> = choices.iter()
+        .map(|selection| selection.tensor_name.clone()).collect();
     let binary = std::env::current_exe()
         .map_err(|e| format!("unable to locate current KILN binary: {e}"))?;
 
@@ -134,6 +208,7 @@ pub fn run(
         .arg("--max-tokens").arg(max_tokens.to_string())
         .env("KILN_MOE_STREAM_BLOB", &path)
         .env("KILN_MOE_STREAM_INDEX", &temp.path)
+        .env("KILN_MOE_STREAM_AUDIT", &audit.path)
         .env("KILN_MOE_STREAM_CACHE_MIB", cache_mib.to_string())
         .env("KILN_MOE_STREAM_PARALLEL", if parallel_reads { "1" } else { "0" });
     if keep_context {
@@ -150,6 +225,18 @@ pub fn run(
             exit.code().map_or_else(|| "signal".into(), |code| code.to_string())
         ));
     }
+    let audit_bytes = std::fs::metadata(&audit.path)
+        .map_err(|e| format!("native MoE streaming audit unreadable: {e}"))?.len();
+    if audit_bytes > 16 * 1024 * 1024 {
+        return Err("native stream audit exceeded the 16 MiB safety cap".into());
+    }
+    let recorded = std::fs::read_to_string(&audit.path)
+        .map_err(|e| format!("could not verify native MoE graph read audit: {e}"))?;
+    let (served, pread, hits) = verify_stream_audit(&recorded, &expected_names)?;
+    eprintln!(
+        "KILN external expert graph verified: {} tensors, {served} operand bytes, {pread} pread bytes (may be OS-cached), {hits} hot expert cache hits",
+        expected_names.len()
+    );
     Ok(())
 }
 
@@ -173,6 +260,18 @@ mod tests {
             source_byte_offset: u64::MAX, byte_length: 10, ..component.clone()
         }]).is_err());
         assert!(external_index_contents(&[]).is_err());
+    }
+
+    #[test]
+    fn native_cpu_audit_requires_all_projections_and_no_fallbacks() {
+        let expected = ["blk.0.ffn_up_exps.weight", "blk.0.ffn_down_exps.weight",
+            "blk.0.ffn_gate_exps.weight"].into_iter().map(str::to_owned).collect();
+        let rows = "blk.0.ffn_up_exps.weight\t2\t2\t1024\t1024\t0\nblk.0.ffn_down_exps.weight\t2\t2\t1024\t0\t2\nblk.0.ffn_gate_exps.weight\t2\t2\t1024\t0\t2\n";
+        assert_eq!(verify_stream_audit(rows, &expected).unwrap(), (3072,1024,4));
+        assert!(verify_stream_audit("", &expected).is_err());
+        assert!(verify_stream_audit(&rows.lines().take(2).collect::<Vec<_>>().join("\n"), &expected).is_err());
+        assert!(verify_stream_audit(&rows.replace("\t2\t2\t1024\t1024\t0", "\t2\t1\t1024\t1024\t0"), &expected).is_err());
+        assert!(verify_stream_audit(&rows.replace("\t0\t2", "\t0\t0"), &expected).is_err());
     }
 
     #[test]
