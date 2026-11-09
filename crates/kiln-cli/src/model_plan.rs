@@ -210,7 +210,7 @@ mod tests {
 
     #[test]
     fn cgroup_budget_is_strict_and_never_wraps() {
-        assert_eq!(cgroup_headroom("1073741824\\n", "268435456\\n"), Some(805306368));
+        assert_eq!(cgroup_headroom("1073741824\n", "268435456\n"), Some(805306368));
         assert_eq!(cgroup_headroom("268435456", "1073741824"), Some(0));
         assert_eq!(cgroup_headroom("max", "10"), None);
         assert_eq!(cgroup_headroom("9223372036854771712", "10"), None);
