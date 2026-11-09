@@ -28,7 +28,7 @@ TOKENS="${KILN_STREAM_TEST_TOKENS:-32}"
 mkdir -p "$OUT"
 OUT="$(realpath "$OUT")"
 for required in expert.bin expert.index.json expert.integrity.json expert.components.json \
-                expert.stream.tsv baseline.json external.json external.audit.tsv proof.json; do
+                expert.stream.tsv baseline.json external.json external.audit.tsv proof.json packed.json exported.json; do
   [[ ! -e "$OUT/$required" ]] || {
     echo "output artifact already exists (refusing overwrite): $OUT/$required" >&2; exit 2;
   }
@@ -87,10 +87,14 @@ all_reads_correct = all(
     row["loaded"] == row["requested"]
     for row in audit if row["tensor_name"] in selected_names and row["requested"] > 0
 )
+digest = hashlib.sha256()
+with model_file.open("rb") as source:
+    for chunk in iter(lambda: source.read(1024 * 1024), b""):
+        digest.update(chunk)
 proof = {
     "phase": "experimental_actual_cpu_moe_sidecar_matmul",
     "model_path": str(model_file),
-    "model_sha256": hashlib.sha256(model_file.read_bytes()).hexdigest(),
+    "model_sha256": digest.hexdigest(),
     "baseline_external_tokens_identical": token_equal,
     "explicit_tensors": len(selected_names),
     "sidecar_matmul_tensors_covered": len(covered),
