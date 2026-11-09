@@ -219,6 +219,37 @@ jobs:
           assert result["experts"] > 0 and result["components"] > 0
           print("Fused quantized GGUF expert slabs packed with byte-exact source parity")
           PY
+          target/debug/kiln-bench expert-export-stream-index \
+            --blob-file "$RUNNER_TEMP/real-moe-fused.bin" \
+            --index-file "$RUNNER_TEMP/real-moe-fused.index.json" \
+            --integrity-file "$RUNNER_TEMP/real-moe-fused.integrity.json" \
+            --components-file "$RUNNER_TEMP/real-moe-fused.components.json" \
+            --output-file "$RUNNER_TEMP/real-moe-stream-index.tsv" \
+            --json > "$RUNNER_TEMP/real-moe-stream-index-result.json"
+          KILN_MOE_STREAM_BLOB="$RUNNER_TEMP/real-moe-fused.bin" \
+          KILN_MOE_STREAM_INDEX="$RUNNER_TEMP/real-moe-stream-index.tsv" \
+          KILN_MOE_STREAM_AUDIT="$RUNNER_TEMP/real-moe-stream-audit.tsv" \
+            target/debug/kiln bench "$MODEL" --native-greedy \
+              --tokens 8 --warmup 0 --runs 1 --threads 2 --batch 128 \
+              --ubatch 64 --json > "$RUNNER_TEMP/real-moe-external-compute.json"
+          python3 - "$RUNNER_TEMP" <<'PY'
+          import json
+          import pathlib
+          import sys
+          root = pathlib.Path(sys.argv[1])
+          baseline = json.loads((root / "real-moe-inference.json").read_text())
+          streamed = json.loads((root / "real-moe-external-compute.json").read_text())
+          assert baseline["runs"][0]["generated_tokens"] == streamed["runs"][0]["generated_tokens"]
+          assert baseline["runs"][0]["token_fingerprint_fnv1a64"] == streamed["runs"][0]["token_fingerprint_fnv1a64"]
+          audit = (root / "real-moe-stream-audit.tsv").read_text().splitlines()
+          layer0 = [line.split("\t") for line in audit if line.startswith("blk.0.")]
+          assert layer0 and len(layer0) >= 3, "the graph never reached the external expert kernel"
+          assert all(int(row[1]) > 0 and int(row[2]) == int(row[1]) and
+                     int(row[3]) > 0 for row in layer0), (
+              "all selected layer-0 expert slabs must really be loaded from sidecar"
+          )
+          print("Real CPU MoE matmul used actual pread sidecar weights with exact token parity")
+          PY
           target/debug/kiln-bench expert-io \
             --file "$RUNNER_TEMP/real-moe-fused.bin" \
             --index-file "$RUNNER_TEMP/real-moe-fused.index.json" \
@@ -270,6 +301,10 @@ jobs:
             ${{ runner.temp }}/real-moe-fused.components.json
             ${{ runner.temp }}/real-moe-pack-result.json
             ${{ runner.temp }}/real-moe-fused-replay.json
+            ${{ runner.temp }}/real-moe-stream-index.tsv
+            ${{ runner.temp }}/real-moe-stream-index-result.json
+            ${{ runner.temp }}/real-moe-stream-audit.tsv
+            ${{ runner.temp }}/real-moe-external-compute.json
             ${{ runner.temp }}/kiln-model-plan.json
 
       - name: Smoke-test Phase 3.5 real-model benchmark commands
