@@ -643,6 +643,7 @@ jobs:
       - name: Start the local API with the real model
         run: |
           KILN_MODELS_DIR="$RUNNER_TEMP/kiln-models" \
+          OLLAMA_MODELS="$RUNNER_TEMP/kiln-ollama-manifest-smoke" \
           KILN_MODEL_PATH="$RUNNER_TEMP/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf" \
           target/debug/kiln serve --host 127.0.0.1 --port 11435 > "$RUNNER_TEMP/kiln-api.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/kiln-api.pid"
@@ -652,6 +653,23 @@ jobs:
           done
           cat "$RUNNER_TEMP/kiln-api.log"
           exit 1
+
+      - name: Verify UI model inventory exposes every Ollama manifest alias without importing weights
+        run: |
+          curl --fail --silent http://127.0.0.1:11435/api/ui/models \
+            > "$RUNNER_TEMP/ui-ollama-model-aliases.json"
+          python3 - "$RUNNER_TEMP/ui-ollama-model-aliases.json" <<'PY'
+          import json
+          import sys
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          ollama = [item for item in data["models"] if item["source"] == "Ollama manifest"]
+          assert len(ollama) == 1
+          assert set(ollama[0]["aliases"]) == {
+              "integration-fixture:latest", "integration-fixture:stable"
+          }
+          assert "/blobs/sha256-" in ollama[0]["path"]
+          print("Local model UI exposes installed Ollama tags and zero-copy blob activation path")
+          PY
 
       - name: Smoke-test real model chat in Chromium
         env:
