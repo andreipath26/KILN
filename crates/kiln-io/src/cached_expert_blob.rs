@@ -28,6 +28,8 @@ pub struct ExpertWarmupReport {
     pub duplicate_keys: usize,
     pub skipped_budget: usize,
     pub rejected_pinned: usize,
+    /// Prefetch capacity was unavailable without displacing resident experts.
+    pub rejected_capacity: usize,
     pub selected_bytes: u64,
     pub admitted_bytes: u64,
 }
@@ -344,13 +346,15 @@ impl CachedExpertBlobReader {
                 pinned.push(handle);
                 continue;
             }
-            let expert = self.read_expert_shared(key.layer, key.expert_id)?;
-            if self.cache.peek_shared(key).is_some() {
+            // Speculative warmup must not register synthetic demand-cache
+            // hits or trigger adaptive ghost admission / eviction.
+            let expert = self.read_speculative_expert_shared(key)?;
+            if self.cache.admit_warm(key, Arc::clone(&expert)) {
                 result.admitted += 1;
                 result.admitted_bytes += bytes;
                 pinned.push(expert);
             } else {
-                result.rejected_pinned += 1;
+                result.rejected_capacity += 1;
             }
         }
         Ok(result)
@@ -722,7 +726,7 @@ mod tests {
         let held = reader.read_expert_shared(0, 0).unwrap();
         let other = ExpertKey { layer: 0, expert_id: 1 };
         let refused = reader.prewarm_ranked(&[other], 8).unwrap();
-        assert_eq!(refused.rejected_pinned, 1);
+        assert_eq!(refused.rejected_capacity, 1);
         assert_eq!(reader.cache_stats().used_bytes, 8);
         assert_eq!(reader.cache_stats().entries, 1);
         drop(held);
@@ -750,6 +754,29 @@ mod tests {
         assert_eq!(reader.read_expert_shared(0,0).unwrap().as_ref(), &data[..8]);
         reader.promote_authoritative_expert(wrong, predicted).unwrap();
         assert!(reader.cache_stats().used_bytes <= 8);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn warming_from_history_preserves_hot_demand_expert_and_counters() {
+        let (path, _, table) = fixture();
+        let reader=CachedExpertBlobReader::open(
+            &path,table,8,ExpertCachePolicy::Adaptive
+        ).unwrap();
+        for _ in 0..6 {
+            assert_eq!(reader.read_expert(0,0).unwrap().len(),8);
+        }
+        let stats = reader.cache_stats();
+        let warm=reader.prewarm_ranked(&[
+            ExpertKey{layer:0,expert_id:1}
+        ],8).unwrap();
+        assert_eq!(warm.rejected_capacity,1);
+        assert_eq!(warm.admitted,0);
+        let after=reader.cache_stats();
+        assert_eq!(after.hits,stats.hits);
+        assert_eq!(after.misses,stats.misses);
+        assert_eq!(after.cold_rejections,stats.cold_rejections);
+        assert_eq!(reader.read_expert(0,0).unwrap().len(),8);
         std::fs::remove_file(path).unwrap();
     }
 

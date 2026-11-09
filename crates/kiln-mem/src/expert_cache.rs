@@ -176,6 +176,27 @@ impl ExpertCache {
         inner.misses = inner.misses.saturating_add(1);
     }
 
+    /// Warm a verified expert only into *unused* cache space. Speculation
+    /// cannot evict a hot resident allocation, count as a demand access, or
+    /// train adaptive ghost heat. This is distinct from authoritative insert.
+    pub fn admit_warm(&self, key: ExpertKey, bytes: Arc<[u8]>) -> bool {
+        let mut inner = self.lock();
+        if inner.entries.contains_key(&key) {
+            return true;
+        }
+        let cost = bytes.len() as u64;
+        if cost == 0 || cost > inner.capacity_bytes.saturating_sub(inner.used_bytes) {
+            return false;
+        }
+        // Prefetched-only entries start as cold; no heat or clock tick.
+        let stamp = inner.clock;
+        inner.used_bytes += cost;
+        inner.entries.insert(key, Entry {
+            bytes, last_access: stamp, frequency: 1,
+        });
+        true
+    }
+
     /// Insert a block while enforcing the retained-cache byte budget.
     ///
     /// Oversized entries are rejected without evicting anything. Re-inserting
@@ -501,6 +522,25 @@ mod tests {
         drop(second);
         assert!(cache.get_shared(key(1)).is_some());
         assert_eq!(cache.stats().hits, 1);
+    }
+
+    #[test]
+    fn warm_admission_never_evicted_a_hot_entry_or_recorded_demand_heat() {
+        let cache = ExpertCache::new(8, ExpertCachePolicy::Adaptive);
+        cache.insert(key(1), vec![1; 8]);
+        assert!(cache.get_shared(key(1)).is_some());
+        let before = cache.stats();
+        assert!(!cache.admit_warm(key(2), Arc::from(vec![2u8;8])));
+        assert_eq!(cache.stats().used_bytes, 8);
+        assert_eq!(cache.stats().hits, before.hits);
+        assert_eq!(cache.stats().misses, before.misses);
+        assert_eq!(cache.stats().cold_rejections, before.cold_rejections);
+        assert_eq!(cache.get(key(1)), Some(vec![1;8]));
+        assert!(!cache.admit_warm(key(3), Arc::from(Vec::<u8>::new())));
+        assert!(cache.invalidate(key(1)));
+        assert!(cache.admit_warm(key(2), Arc::from(vec![2u8;8])));
+        assert_eq!(cache.stats().used_bytes, 8);
+        assert_eq!(cache.stats().entries, 1);
     }
 
     #[test]
