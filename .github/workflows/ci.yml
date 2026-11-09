@@ -10,11 +10,12 @@ on:
 permissions:
   contents: read
 
-# New commits on one integration PR supersede older full CI runs. Avoid
-# serialized stale 5-minute native builds while preserving push-to-main checks.
+# Do not cancel an in-progress full native build on every integration commit:
+# finish one meaningful validation while coalescing superseded pending PR runs.
+# Main-branch verification uses its own group and is never interrupted.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 jobs:
   test:
