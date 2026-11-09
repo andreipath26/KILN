@@ -179,6 +179,17 @@ jobs:
             --file tiny-random-granite-moe.Q4_K_M.gguf
           MODEL="$KILN_MODELS_DIR/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
           test -s "$MODEL"
+          target/debug/kiln plan "$MODEL" --json > "$RUNNER_TEMP/moe-plan.json"
+          python3 - "$RUNNER_TEMP/moe-plan.json" <<'PY'
+          import json
+          import sys
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          rec = report["recommendations"]
+          assert rec["cpu_moe_selected_expert_external_compute_experimental"] is True
+          assert rec["verified_fused_expert_tensor_count"] > 0
+          assert rec["cpu_moe_streamed_end_to_end_ready"] is False
+          print("Model preflight accurately identifies opt-in actual expert graph mode, not deployment readiness")
+          PY
           KILN_MOE_ROUTER_TRACE="$RUNNER_TEMP/real-moe-router.tsv" \
             target/debug/kiln bench "$MODEL" --native-greedy \
               --tokens 8 --warmup 0 --runs 1 --threads 2 --batch 128 \
@@ -415,6 +426,7 @@ jobs:
           assert data["status"] == "diagnostic_only_not_load_or_speed_acceptance"
           assert data["model_file_bytes"] > 0
           assert data["recommendations"]["cpu_moe_streamed_end_to_end_ready"] is False
+          assert data["recommendations"]["cpu_moe_selected_expert_external_compute_experimental"] is False
           assert data["gguf_tensor_count"] > 0
           print("Read-only real-GGUF hardware preflight smoke passed")
           PY
@@ -453,6 +465,7 @@ jobs:
             ${{ runner.temp }}/real-moe-stream-script-proof/*.json
             ${{ runner.temp }}/real-moe-stream-script-proof/*.tsv
             ${{ runner.temp }}/kiln-model-plan.json
+            ${{ runner.temp }}/moe-plan.json
 
       - name: Smoke-test Phase 3.5 real-model benchmark commands
         env:
