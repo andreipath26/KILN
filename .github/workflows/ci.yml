@@ -145,6 +145,17 @@ jobs:
                                 type(x["expert_id"]) is int for x in events)
           print(f"Actual MoE graph expert IDs captured: {len(events)} operator selections")
           PY
+          KILN_MOE_WILLNEED=1 target/debug/kiln bench "$MODEL" \
+            --native-greedy --tokens 8 --warmup 0 --runs 1 --threads 2 \
+            --batch 128 --ubatch 64 --json > "$RUNNER_TEMP/real-moe-page-advice.json"
+          python3 - "$RUNNER_TEMP/real-moe-inference.json" "$RUNNER_TEMP/real-moe-page-advice.json" <<'PY'
+          import json
+          import sys
+          baseline, advised = (json.load(open(p, encoding="utf-8")) for p in sys.argv[1:])
+          assert baseline["runs"][0]["token_fingerprint_fnv1a64"] == advised["runs"][0]["token_fingerprint_fnv1a64"]
+          assert baseline["runs"][0]["generated_tokens"] == advised["runs"][0]["generated_tokens"]
+          print("CPU MoE graph-selected page advice preserved exact generated token sequence")
+          PY
           python3 scripts/compare_lazy_moe.py "$MODEL" \
             --kiln-bin target/debug/kiln --out "$RUNNER_TEMP/real-moe-lazy-ab.json" \
             --tokens 8 --threads 2 --batch 128 --ubatch 64 --warmup 0 \
