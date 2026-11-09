@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 use std::path::PathBuf;
 
-use kiln_io::{write_expert_sidecar, verify_expert_sidecar, write_component_expert_sidecar, verify_component_expert_sidecar, CachedExpertBlobReader, FileRangeReader};
+use kiln_io::{write_expert_sidecar, verify_expert_sidecar, write_component_expert_sidecar, verify_component_expert_sidecar, verify_component_sidecar_against_source, CachedExpertBlobReader, FileRangeReader};
 use kiln_mem::{evaluate_grouped_router_holdout, RouterEvent, evaluate_predictor_holdout, ExpertCachePolicy, ExpertKey, ExpertPrefetcher, PrefetchStats};
 use kiln_models::{ExpertRange, ExpertTable, NamedExpertTensor, FusedExpertTensorSelection, resolve_expert_tensors_in_gguf, resolve_fused_expert_tensors_in_gguf};
 
@@ -1797,11 +1797,17 @@ async fn main() {
                 )?;
                 let map = resolve_fused_expert_tensors_in_gguf(&source_gguf, &choices)?;
                 let (integrity, _components) = write_component_expert_sidecar(
-                    &source_gguf, map, &blob_file, &index_file, &integrity_file, &components_file
+                    &source_gguf, map.clone(), &blob_file, &index_file, &integrity_file, &components_file
                 )?;
                 let (table, verified) = verify_component_expert_sidecar(
                     &blob_file, &index_file, &integrity_file, &components_file
                 )?;
+                let matched = verify_component_sidecar_against_source(
+                    &source_gguf, &map, &blob_file, &index_file, &integrity_file, &components_file
+                )?;
+                if matched != verified.components.len() {
+                    return Err("fused expert source-byte parity component count mismatch".into());
+                }
                 Ok((table, integrity, verified))
             })();
             match result {
@@ -1812,7 +1818,8 @@ async fn main() {
                         "components":verified.components.len(),
                         "source_bytes":integrity.source_size_bytes,
                         "sidecar_bytes":table.blob_size,
-                        "note":"Explicit third-axis expert slabs; source GGUF intact; storage packing only, not graph streaming"
+                        "exact_source_bytes_verified":true,
+                        "note":"Explicit third-axis expert slabs; original byte parity verified, source GGUF intact; storage packing only, not graph streaming"
                     }));
                 }
                 Ok((table, _integrity, verified)) => {
