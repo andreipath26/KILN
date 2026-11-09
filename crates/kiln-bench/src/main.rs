@@ -225,9 +225,14 @@ enum Commands {
     ExpertExportGgufStreamIndex {
         #[arg(long)]
         source_gguf: PathBuf,
-        /// JSON [{layer,tensor_name,expert_count}] with verified axis-2 experts.
-        #[arg(long)]
-        selections_file: PathBuf,
+        /// Explicit JSON [{layer,tensor_name,expert_count}], unless --auto-verified.
+        #[arg(long, required_unless_present = "auto_verified")]
+        selections_file: Option<PathBuf>,
+        /// Discover only uniform 3-projection MoE layouts whose GGUF
+        /// architecture metadata proves expert_count and block_count.
+        /// Any unfamiliar/partial MoE format is rejected instead of guessed.
+        #[arg(long, conflicts_with = "selections_file")]
+        auto_verified: bool,
         /// Create-new validated offset TSV. The untouched GGUF is the data file.
         #[arg(long)]
         output_file: PathBuf,
@@ -1984,15 +1989,22 @@ async fn main() {
             }
         }
         Commands::ExpertExportGgufStreamIndex {
-            source_gguf, selections_file, output_file, json
+            source_gguf, selections_file, auto_verified, output_file, json
         } => {
             let result = (|| -> Result<_, Box<dyn std::error::Error>> {
-                let choices: Vec<FusedExpertTensorSelection> = serde_json::from_slice(
-                    &read_bounded_input(
-                        &selections_file, MAX_EXPERT_INDEX_BYTES, "explicit fused expert selections"
-                    )?
+                let model = kiln_models::GgufFile::open(&source_gguf)?;
+                let choices: Vec<FusedExpertTensorSelection> = if auto_verified {
+                    kiln_models::discover_complete_fused_moe_selections(&model)?
+                } else {
+                    let file = selections_file.as_deref()
+                        .ok_or("supply --selections-file or --auto-verified")?;
+                    serde_json::from_slice(&read_bounded_input(
+                        file, MAX_EXPERT_INDEX_BYTES, "explicit fused expert selections"
+                    )?)?
+                };
+                let map = kiln_models::resolve_fused_expert_tensor_components(
+                    &model.tensors, model.data_offset, model.file_size(), &choices
                 )?;
-                let map = resolve_fused_expert_tensors_in_gguf(&source_gguf, &choices)?;
                 write_external_expert_lookup(&output_file, map.components.into_iter().map(|item| (
                     item.tensor_name,item.expert_id,item.source_byte_offset,item.byte_length
                 )))
@@ -2003,7 +2015,8 @@ async fn main() {
                     "entries":entries,"output":output_file,
                     "unchanged_model_file":source_gguf,
                     "requires_duplicate_sidecar":false,
-                    "note":"Explicit GGUF fused axis and byte ranges validated; actual graph compute parity is a separate gate"
+                    "layout_selection":if auto_verified { "metadata_verified_complete" } else { "explicit" },
+                    "note":"GGUF third-axis fused layout and byte ranges validated; actual graph compute parity is a separate gate"
                 })),
                 Ok(entries) => println!(
                     "Exported {entries} expert slab offsets in untouched GGUF {} to {}",
