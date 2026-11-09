@@ -59,7 +59,7 @@ pub fn list_models(extra_roots: &[PathBuf], json: bool) -> Result<(), String> {
             let alternative_tags: Vec<_> = model.aliases.iter()
                 .filter(|tag| *tag != &model.name).collect();
             if !alternative_tags.is_empty() {
-                println!("  alternate Ollama tags: {}", alternative_tags.into_iter()
+                println!("  alternate installed names: {}", alternative_tags.into_iter()
                     .map(String::as_str).collect::<Vec<_>>().join(", "));
             }
         }

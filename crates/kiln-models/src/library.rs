@@ -628,6 +628,36 @@ mod tests {
     use super::{sha256_from_metadata, valid_repo_file, valid_repo_id};
     use serde_json::json;
 
+    #[cfg(unix)]
+    #[test]
+    fn snapshot_symlink_discovers_alias_without_a_duplicate_weight_file() {
+        use super::collect_files;
+        use std::collections::{HashMap, HashSet};
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!(
+            "kiln-hf-zero-copy-{}-{:?}",std::process::id(),std::thread::current().id()
+        ));
+        let snapshot = root.join("models--vendor--generic/snapshots/abc123");
+        let blobs = root.join("models--vendor--generic/blobs");
+        std::fs::create_dir_all(&snapshot).unwrap();
+        std::fs::create_dir_all(&blobs).unwrap();
+        let blob = blobs.join("weight");
+        std::fs::write(&blob,b"GGUF fixture").unwrap();
+        symlink("../../blobs/weight",snapshot.join("model.gguf")).unwrap();
+        let mut visited=0;
+        let mut seen=HashSet::new();
+        let mut aliases=HashMap::new();
+        let mut files=Vec::new();
+        collect_files(&root,0,&mut visited,&mut seen,&mut aliases,&mut files);
+        let canonical=std::fs::canonicalize(blob).unwrap();
+        assert_eq!(files.len(),1);
+        assert_eq!(files[0],canonical);
+        assert_eq!(aliases.get(&canonical).unwrap(),&vec![
+            "vendor/generic/model.gguf".to_string()
+        ]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
     #[test]
     fn cache_snapshot_names_preserve_human_repo_and_file_identity_without_weight_copy() {
         use super::huggingface_snapshot_name;
