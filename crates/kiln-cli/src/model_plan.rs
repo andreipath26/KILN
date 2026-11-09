@@ -81,6 +81,13 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
     }) || model_data.metadata.iter().any(|(key, value)| {
         key.ends_with(".expert_count") && value.as_u32().is_some_and(|count| count > 1)
     });
+    // Actual selected-expert CPU MAT_ID graph streaming exists only for
+    // GGUFs whose complete fused third-axis layout is verified. Detection
+    // must never imply that a large model has passed throughput/quality gates.
+    let eligible_fused = kiln_models::discover_complete_fused_moe_selections(&model_data)
+        .ok().filter(|items| !items.is_empty());
+    let experimental_cpu_external_streaming =
+        cfg!(target_os = "linux") && eligible_fused.is_some();
     let profile = SystemProfile::probe();
     let available = physical_memory_available();
     let mut report = feasibility(
@@ -93,6 +100,19 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
     report["architecture"] = json!(model_data.metadata_str("general.architecture"));
     report["cpu_threads_suggested"] = json!(profile.n_threads);
     report["profile_tier"] = json!(format!("{:?}", profile.tier));
+    report["recommendations"]["cpu_moe_selected_expert_external_compute_experimental"] =
+        json!(experimental_cpu_external_streaming);
+    report["recommendations"]["verified_fused_expert_tensor_count"] =
+        json!(eligible_fused.as_ref().map(|items| items.len()).unwrap_or(0));
+    report["recommendations"]["experimental_source_gguf_index_command"] =
+        json!(if experimental_cpu_external_streaming {
+            "kiln-bench expert-export-gguf-stream-index --source-gguf <model.gguf> --auto-verified --output-file <new-index.tsv>"
+        } else {
+            "not supported for this GGUF layout/platform without explicit expert selection"
+        });
+    report["recommendations"]["experimental_selected_expert_compute_note"] = json!(
+        "Native graph-selected expert pread computation is opt-in via KILN_MOE_STREAM_BLOB + KILN_MOE_STREAM_INDEX; it remains experimental, requires real parity/throughput/memory evidence and does not prove Tier 0 deployment"
+    );
 
     if as_json {
         println!("{}", serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?);
@@ -107,7 +127,12 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
         println!("  file/memory finding:  {}", report["memory"]["status"].as_str().unwrap_or("unknown"));
         println!("  proposed CPU threads: {}", profile.n_threads);
         println!("  lazy MoE option:      {}", if has_routed_experts { "opt-in experimental only" } else { "not indicated" });
-        println!("  streamed MoE backend: NOT wired to actual model graph");
+        println!("  external MoE compute:  {}", if experimental_cpu_external_streaming {
+            "EXPERIMENTAL native graph-selected expert reads supported by this GGUF layout"
+        } else {
+            "not automatically supported for this model/platform"
+        });
+        println!("  external MoE safety:   not deployed; requires opt-in, exact parity, RSS, SSD and throughput gate");
         println!("  accelerator placement: NOT validated by this preflight");
         println!("  IMPORTANT: file size does not predict actual working memory, throughput or accuracy.");
     }
