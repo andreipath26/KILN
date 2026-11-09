@@ -458,9 +458,13 @@ jobs:
           target/debug/kiln eval-ppl "$MODEL" --text-file "$RUNNER_TEMP/quality-fixture.txt" \
             --max-tokens 16 --window-tokens 128 --threads 2 --json \
             > "$RUNNER_TEMP/quality-reference.json"
-          target/debug/kiln eval-ppl "$MODEL" --text-file "$RUNNER_TEMP/quality-fixture.txt" \
-            --max-tokens 16 --window-tokens 128 --threads 2 --json \
-            > "$RUNNER_TEMP/quality-candidate.json"
+          KILN_MOE_STREAM_BLOB="$MODEL" \
+          KILN_MOE_STREAM_INDEX="$RUNNER_TEMP/real-moe-auto-stream-index.tsv" \
+          KILN_MOE_STREAM_AUDIT="$RUNNER_TEMP/quality-external-audit.tsv" \
+            target/debug/kiln eval-ppl "$MODEL" \
+              --text-file "$RUNNER_TEMP/quality-fixture.txt" \
+              --max-tokens 16 --window-tokens 128 --threads 2 --json \
+              > "$RUNNER_TEMP/quality-candidate.json"
           python3 scripts/compare_quality_parity.py \
             --reference "$RUNNER_TEMP/quality-reference.json" \
             --candidate "$RUNNER_TEMP/quality-candidate.json" \
@@ -471,9 +475,17 @@ jobs:
           import sys
           proof = json.load(open(sys.argv[1], encoding="utf-8"))
           assert proof["status"] == "pass"
-          assert proof["relative_perplexity_loss"] == 0
+          assert abs(proof["relative_perplexity_loss"]) <= 1e-4, (
+              "actual externally sourced MoE expert weights changed next-token likelihood"
+          )
           assert proof["tier0_deployment_accepted"] is False
-          print("Actual native MoE logits scored deterministically with exact self-parity")
+          from pathlib import Path
+          audit = Path(sys.argv[1]).with_name("quality-external-audit.tsv")
+          rows = [line.split("\t") for line in audit.read_text().splitlines()]
+          assert rows and all(int(row[1]) == int(row[2]) and int(row[1]) > 0 for row in rows), (
+              "actual next-token likelihood was scored without all selected expert slab I/O"
+          )
+          print("Original-GGUF externally sourced MoE expert logits preserve baseline perplexity")
           PY
 
       - name: Smoke-test read-only model feasibility preflight
@@ -543,6 +555,7 @@ jobs:
             ${{ runner.temp }}/quality-reference.json
             ${{ runner.temp }}/quality-candidate.json
             ${{ runner.temp }}/quality-self-parity.json
+            ${{ runner.temp }}/quality-external-audit.tsv
             ${{ runner.temp }}/moe-plan-by-name.json
             ${{ runner.temp }}/moe-cli-stream-audit.tsv
             ${{ runner.temp }}/moe-cli-stream.txt
