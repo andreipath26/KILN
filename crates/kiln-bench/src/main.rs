@@ -203,6 +203,23 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Export a verified, size-limited read-only external expert slab map
+    /// consumed by the experimental CPU graph's selected-expert streaming path.
+    ExpertExportStreamIndex {
+        #[arg(long)]
+        blob_file: PathBuf,
+        #[arg(long)]
+        index_file: PathBuf,
+        #[arg(long)]
+        integrity_file: PathBuf,
+        #[arg(long)]
+        components_file: PathBuf,
+        /// Create-new TSV index; never overwrite.
+        #[arg(long)]
+        output_file: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     /// Validate full sidecar index and all expert payload CRC32 values.
     ExpertPackVerify {
         #[arg(long)]
@@ -1874,6 +1891,62 @@ async fn main() {
                 }
                 Err(error) => {
                     eprintln!("fused GGUF expert pack failed: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::ExpertExportStreamIndex {
+            blob_file, index_file, integrity_file, components_file, output_file, json
+        } => {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let (_table, manifest) = verify_component_expert_sidecar(
+                    &blob_file, &index_file, &integrity_file, &components_file
+                )?;
+                let mut lines = String::from("KILN-MOE-STREAM-1\\n");
+                let mut keys = std::collections::HashSet::new();
+                for item in manifest.components {
+                    let suffix = format!("#expert:{}", item.expert_id);
+                    let name = item.tensor_name.strip_suffix(&suffix)
+                        .ok_or("packed component is not an explicit fused expert slab")?;
+                    if name.is_empty() || name.len() >= 64 ||
+                        !name.bytes().all(|c| c.is_ascii_alphanumeric() ||
+                            matches!(c, b'.' | b'_' | b'-')) {
+                        return Err("fused tensor name is not a safe GGML tensor identity".into());
+                    }
+                    if !keys.insert((name.to_owned(), item.expert_id)) {
+                        return Err("duplicate named expert slab".into());
+                    }
+                    let line = format!("{name}\\t{}\\t{}\\t{}\\n",
+                        item.expert_id,item.byte_offset,item.byte_length);
+                    if lines.len().checked_add(line.len()).is_none_or(|len| len > 64*1024*1024) {
+                        return Err("stream index exceeds 64 MiB".into());
+                    }
+                    lines.push_str(&line);
+                }
+                if keys.is_empty() { return Err("no fused expert slabs".into()); }
+                let mut output=std::fs::OpenOptions::new().create_new(true).write(true)
+                    .open(&output_file)?;
+                use std::io::Write as _;
+                if let Err(err)=output.write_all(lines.as_bytes()).and_then(|_| output.sync_all()) {
+                    drop(output);
+                    let _=std::fs::remove_file(&output_file);
+                    return Err(Box::new(err));
+                }
+                Ok(keys.len())
+            })();
+            match result {
+                Ok(entries) if json => println!("{}", serde_json::json!({
+                    "status":"validated_external_expert_stream_index_written",
+                    "entries":entries,
+                    "output":output_file,
+                    "note":"Sidecar CRC32 and component coverage verified; this index does not itself prove inference streamed"
+                })),
+                Ok(entries) => println!(
+                    "Exported {entries} CRC-verified fused expert slab locations to {}",
+                    output_file.display()
+                ),
+                Err(error) => {
+                    eprintln!("fused expert stream index failed: {error}");
                     std::process::exit(2);
                 }
             }
