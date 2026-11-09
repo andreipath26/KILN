@@ -206,6 +206,10 @@ enum Commands {
         /// Seed for reproducible random access offsets.
         #[arg(long, default_value_t = 42)]
         seed: u64,
+        /// Advise Linux to evict this file's cached pages before each access pattern.
+        /// This is best effort, never a guaranteed cold-device measurement.
+        #[arg(long)]
+        advise_drop_cache: bool,
         /// Emit JSON only.
         #[arg(long)]
         json: bool,
@@ -252,6 +256,8 @@ struct ExpertIoPattern {
     /// Linux /proc/self/io read_bytes delta for this pattern, when accessible.
     /// Includes read-ahead and cannot be equated with device-only bytes.
     linux_process_storage_read_bytes: Option<u64>,
+    /// Linux file-scoped eviction hint, not verified physical cache residency.
+    page_cache_eviction_advised: bool,
     elapsed_ms: f64,
     throughput_mib_s: f64,
     request_latency_p50_us: f64,
@@ -399,8 +405,23 @@ fn run_expert_io_pattern(
     repetitions: usize,
     access_pattern: &str,
 ) -> Result<ExpertIoPattern, Box<dyn std::error::Error>> {
+    run_expert_io_pattern_with_advice(reader, requests, block_bytes, repetitions, access_pattern, false)
+}
+
+fn run_expert_io_pattern_with_advice(
+    reader: &mut FileRangeReader,
+    requests: &[ExpertIoRequest],
+    block_bytes: usize,
+    repetitions: usize,
+    access_pattern: &str,
+    advise_drop_cache: bool,
+) -> Result<ExpertIoPattern, Box<dyn std::error::Error>> {
     if requests.is_empty() || requests.iter().any(|request| request.length == 0 || request.length > block_bytes) {
         return Err("I/O request list must be non-empty and every request length must be within 1..=block-bytes".into());
+    }
+    if advise_drop_cache {
+        // Do not claim successful cold-cache control on unsupported systems.
+        reader.advise_drop_cache()?;
     }
     let mut buffer = vec![0u8; block_bytes];
     let measured_requests = requests.len().saturating_mul(repetitions);
@@ -451,6 +472,7 @@ fn run_expert_io_pattern(
         total_bytes_read,
         expert_keys,
         linux_process_storage_read_bytes,
+        page_cache_eviction_advised: advise_drop_cache,
         elapsed_ms: elapsed.as_secs_f64() * 1000.0,
         throughput_mib_s: total_bytes_read as f64 / (1024.0 * 1024.0) / elapsed_secs,
         request_latency_p50_us: percentile(&latencies, 0.50),
@@ -560,6 +582,18 @@ fn run_expert_io_indexed(
     runs: usize,
     seed: u64,
 ) -> Result<ExpertIoReport, Box<dyn std::error::Error>> {
+    run_expert_io_indexed_with_advice(file, index_file, block_bytes, requests, runs, seed, false)
+}
+
+fn run_expert_io_indexed_with_advice(
+    file: &std::path::Path,
+    index_file: &std::path::Path,
+    block_bytes: usize,
+    requests: usize,
+    runs: usize,
+    seed: u64,
+    advise_drop_cache: bool,
+) -> Result<ExpertIoReport, Box<dyn std::error::Error>> {
     validate_expert_io_args(block_bytes, requests, runs)?;
     let mut reader = FileRangeReader::open(file)?;
     let index_bytes = read_bounded_input(index_file, MAX_EXPERT_INDEX_BYTES, "expert range index")?;
@@ -599,8 +633,8 @@ fn run_expert_io_indexed(
         });
     }
 
-    let sequential_pattern = run_expert_io_pattern(&mut reader, &sequential, block_bytes, runs, "sequential")?;
-    let random_pattern = run_expert_io_pattern(&mut reader, &random, block_bytes, runs, "random")?;
+    let sequential_pattern = run_expert_io_pattern_with_advice(&mut reader, &sequential, block_bytes, runs, "sequential", advise_drop_cache)?;
+    let random_pattern = run_expert_io_pattern_with_advice(&mut reader, &random, block_bytes, runs, "random", advise_drop_cache)?;
     Ok(expert_io_report(
         file,
         reader.file_size(),
@@ -624,6 +658,17 @@ fn run_expert_io_trace(
     trace_file: &std::path::Path,
     block_bytes: usize,
     runs: usize,
+) -> Result<ExpertIoReport, Box<dyn std::error::Error>> {
+    run_expert_io_trace_with_advice(file, index_file, trace_file, block_bytes, runs, false)
+}
+
+fn run_expert_io_trace_with_advice(
+    file: &std::path::Path,
+    index_file: &std::path::Path,
+    trace_file: &std::path::Path,
+    block_bytes: usize,
+    runs: usize,
+    advise_drop_cache: bool,
 ) -> Result<ExpertIoReport, Box<dyn std::error::Error>> {
     validate_expert_io_args(block_bytes, 1, runs)?;
     let mut reader = FileRangeReader::open(file)?;
@@ -661,7 +706,7 @@ fn run_expert_io_trace(
             expert_key: Some(key),
         });
     }
-    let pattern = run_expert_io_pattern(&mut reader, &mapped, block_bytes, runs, "router-trace")?;
+    let pattern = run_expert_io_pattern_with_advice(&mut reader, &mapped, block_bytes, runs, "router-trace", advise_drop_cache)?;
     Ok(expert_io_report(
         file, reader.file_size(), Some(index_file), Some(table.ranges.len()),
         block_bytes, mapped.len(), runs, 0,
@@ -1092,7 +1137,7 @@ fn print_expert_io_human(report: &ExpertIoReport) {
     println!("  requests/run:   {}", report.requests_per_run);
     println!("  repetitions:    {}", report.repetitions);
     println!("  random seed:    {}", report.seed);
-    println!("  page cache:     uncontrolled");
+    println!("  page cache:     uncontrolled (eviction advice only; cannot verify cold reads)");
     for pattern in &report.patterns {
         println!("");
         println!("  {} access", pattern.access_pattern);
@@ -1100,6 +1145,7 @@ fn print_expert_io_human(report: &ExpertIoReport) {
         println!("    latency p50:  {:.2} us", pattern.request_latency_p50_us);
         println!("    latency p95:  {:.2} us", pattern.request_latency_p95_us);
         println!("    total read:   {} bytes", pattern.total_bytes_read);
+        println!("    cache hint:   {}", if pattern.page_cache_eviction_advised { "POSIX_FADV_DONTNEED issued before pattern" } else { "none" });
         println!("    request size: {}..{} bytes", pattern.min_request_bytes, pattern.max_request_bytes);
         if !pattern.expert_keys.is_empty() {
             println!("    mapped expert requests: {}", pattern.expert_keys.len());
@@ -1736,11 +1782,12 @@ async fn main() {
                 }
             }
         }
-        Commands::ExpertIo { file, index_file, trace_file, block_bytes, requests, runs, seed, json } => {
+        Commands::ExpertIo { file, index_file, trace_file, block_bytes, requests, runs, seed, advise_drop_cache, json } => {
             let result = match (index_file.as_deref(), trace_file.as_deref()) {
-                (Some(index), Some(trace)) => run_expert_io_trace(&file, index, trace, block_bytes, runs),
-                (Some(index), None) => run_expert_io_indexed(&file, index, block_bytes, requests, runs, seed),
+                (Some(index), Some(trace)) => run_expert_io_trace_with_advice(&file, index, trace, block_bytes, runs, advise_drop_cache),
+                (Some(index), None) => run_expert_io_indexed_with_advice(&file, index, block_bytes, requests, runs, seed, advise_drop_cache),
                 (None, Some(_)) => Err("--trace-file requires --index-file".into()),
+                (None, None) if advise_drop_cache => Err("--advise-drop-cache requires a validated --index-file".into()),
                 (None, None) => run_expert_io(&file, block_bytes, requests, runs, seed),
             };
             match result {
@@ -1883,6 +1930,23 @@ mod expert_io_tests {
         std::fs::write(&trace_path, "[]").unwrap();
         assert!(run_expert_io_trace(&path, &index_path, &trace_path, 1024, 1).is_err());
         std::fs::remove_file(trace_path).unwrap();
+        std::fs::remove_file(index_path).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn indexed_file_cache_advice_preserves_expert_bytes_and_measurements() {
+        let path = fixture();
+        let index_path = write_expert_index(&path, 64 * 1024);
+        #[cfg(target_os = "linux")]
+        {
+            let report = run_expert_io_indexed_with_advice(&path, &index_path, 4096, 4, 1, 42, true).unwrap();
+            assert!(report.patterns.iter().all(|pattern| pattern.page_cache_eviction_advised));
+            assert!(report.patterns.iter().all(|pattern| pattern.requests == 4));
+            assert!(!report.page_cache_controlled);
+        }
+        #[cfg(not(target_os = "linux"))]
+        assert!(run_expert_io_indexed_with_advice(&path, &index_path, 4096, 4, 1, 42, true).is_err());
         std::fs::remove_file(index_path).unwrap();
         std::fs::remove_file(path).unwrap();
     }

@@ -53,6 +53,7 @@ OUT="$(cd "$OUT" && pwd)"
  echo "cpuinfo=$(grep -m1 'model name' /proc/cpuinfo || true)"
  echo "meminfo=$(grep -E '^(MemTotal|MemAvailable|SwapTotal):' /proc/meminfo | tr '\n' ';')"
  echo "page_cache=uncontrolled; repeated reads may be warm"
+ echo "page_cache_eviction_advice=linux POSIX_FADV_DONTNEED best-effort; not proof of cold SSD reads"
 } > "$OUT/provenance.txt"
 cargo build --release -p kiln-bench > "$OUT/build.log" 2>&1
 for BLOCK in 65536 262144 1048576 4194304; do
@@ -62,6 +63,12 @@ for BLOCK in 65536 262144 1048576 4194304; do
     target/release/kiln-bench expert-io \
     --file "$MODEL" --index-file "$INDEX" --block-bytes "$BLOCK" --requests 256 \
     --runs 5 --seed 42 --json > "$OUT/expert-io-$BLOCK.json"
+  # Capture a second read-only probe with file-local eviction advice.
+  # OS may retain/repopulate pages, so this is NOT a guaranteed cold run.
+  /usr/bin/time -v -o "$OUT/rss-advised-$BLOCK.txt" \
+    target/release/kiln-bench expert-io \
+    --file "$MODEL" --index-file "$INDEX" --block-bytes "$BLOCK" --requests 256 \
+    --runs 1 --seed 42 --advise-drop-cache --json > "$OUT/expert-io-advised-$BLOCK.json"
 done
 if [[ -n "$TRACE" ]]; then
   # Real router-event order; repeated experts are not discarded or shuffled.
@@ -70,6 +77,10 @@ if [[ -n "$TRACE" ]]; then
     target/release/kiln-bench expert-io \
     --file "$MODEL" --index-file "$INDEX" --trace-file "$TRACE" \
     --block-bytes 4194304 --runs 1 --json > "$OUT/expert-io-router-trace.json"
+  /usr/bin/time -v -o "$OUT/rss-router-trace-advised.txt" \
+    target/release/kiln-bench expert-io \
+    --file "$MODEL" --index-file "$INDEX" --trace-file "$TRACE" \
+    --block-bytes 4194304 --runs 1 --advise-drop-cache --json > "$OUT/expert-io-router-trace-advised.json"
 fi
 # The report deliberately does not infer SSD throughput from page-cache-influenced reads.
 python3 scripts/assess_tier0_gate5a.py "$OUT"/expert-io-*.json > "$OUT/summary.json"

@@ -59,7 +59,7 @@ jobs:
         run: |
           python3 -m unittest scripts.test_summarize_phase35 -v
           python3 -m unittest scripts.test_capture_phase35_ollama -v
-          bash -n scripts/run_phase35_suite.sh scripts/run_tier0_dense_matrix.sh scripts/profile_phase35_hotpath.sh
+          bash -n scripts/run_phase35_suite.sh scripts/run_tier0_dense_matrix.sh scripts/profile_phase35_hotpath.sh scripts/run_tier0_gate5a.sh
 
       - name: Run workspace tests
         run: cargo test --workspace --all-targets
