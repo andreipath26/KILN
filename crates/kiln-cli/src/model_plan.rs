@@ -1,6 +1,5 @@
 //! Read-only model feasibility preflight for the *currently shipped* runtime.
 //! This deliberately separates a size estimate from actual hardware acceptance.
-use std::path::Path;
 use kiln_models::gguf::GgufFile;
 use kiln_runtime::SystemProfile;
 use serde_json::{json, Value};
@@ -127,7 +126,10 @@ fn feasibility(
 }
 
 pub fn run(model: &str, as_json: bool) -> Result<(), String> {
-    let path = Path::new(model);
+    // The planner must accept the same local GGUF paths and installed Ollama
+    // aliases as 'kiln run' and 'kiln stream'; no model weight copy is needed.
+    let resolved = crate::model_library::resolve_model_identifier(model)?;
+    let path = resolved.as_path();
     let model_data = GgufFile::open(path).map_err(|error| format!(
         "model preflight failed to parse GGUF {}: {error}", path.display()
     ))?;
