@@ -37,6 +37,13 @@ pub enum InsertOutcome {
     Disabled,
 }
 
+/// Result of changing the cache byte cap under live expert leases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResizeOutcome {
+    Resized { evicted_entries: usize, capacity_bytes: u64 },
+    RejectedPinned { requested_bytes: u64, pinned_bytes: u64 },
+}
+
 /// Snapshot of cache counters and byte accounting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExpertCacheStats {
@@ -318,6 +325,55 @@ impl ExpertCache {
         removable.len()
     }
 
+    /// Adjust cache budget as memory availability changes. The operation
+    /// never frees a block referenced by active CPU/GPU consumers. If the
+    /// target cannot be met, leave both capacity and contents unchanged.
+    pub fn resize(&self, new_capacity: u64) -> ResizeOutcome {
+        let mut inner = self.lock();
+        if new_capacity >= inner.used_bytes {
+            inner.capacity_bytes = new_capacity;
+            return ResizeOutcome::Resized {
+                evicted_entries: 0, capacity_bytes: new_capacity
+            };
+        }
+        let mut candidates: Vec<_> = inner.entries.iter()
+            .filter(|(_, entry)| Arc::strong_count(&entry.bytes) == 1)
+            .map(|(key, entry)| (*key, entry.frequency, entry.last_access,
+                                entry.bytes.len() as u64))
+            .collect();
+        match inner.policy {
+            ExpertCachePolicy::Lru => candidates.sort_by_key(|(_, _, last, _)| *last),
+            ExpertCachePolicy::Lfu | ExpertCachePolicy::Adaptive =>
+                candidates.sort_by_key(|(_, frequency, last, _)| (*frequency, *last)),
+        }
+        let mut victims = Vec::new();
+        let mut reclaim = 0u64;
+        for (key, _, _, bytes) in candidates {
+            if inner.used_bytes - reclaim <= new_capacity { break; }
+            victims.push(key);
+            reclaim = reclaim.saturating_add(bytes);
+        }
+        if inner.used_bytes - reclaim > new_capacity {
+            return ResizeOutcome::RejectedPinned {
+                requested_bytes: new_capacity,
+                pinned_bytes: inner.entries.values()
+                    .filter(|entry| Arc::strong_count(&entry.bytes) > 1)
+                    .map(|entry| entry.bytes.len() as u64)
+                    .sum(),
+            };
+        }
+        for key in &victims {
+            if let Some(entry) = inner.entries.remove(key) {
+                inner.used_bytes -= entry.bytes.len() as u64;
+                inner.evictions = inner.evictions.saturating_add(1);
+            }
+        }
+        inner.capacity_bytes = new_capacity;
+        ResizeOutcome::Resized {
+            evicted_entries: victims.len(), capacity_bytes: new_capacity
+        }
+    }
+
     pub fn stats(&self) -> ExpertCacheStats {
         let inner = self.lock();
         ExpertCacheStats {
@@ -550,6 +606,32 @@ mod tests {
         }
         assert!(cache.lock().ghost.len() <= 8192);
         assert!(cache.stats().used_bytes <= cache.stats().capacity_bytes);
+    }
+
+    #[test]
+    fn resizing_cache_is_atomic_and_respects_pinned_expert_leases() {
+        let cache = ExpertCache::new(16, ExpertCachePolicy::Lru);
+        cache.insert(key(1), vec![1; 8]);
+        cache.insert(key(2), vec![2; 8]);
+        let held = cache.get_shared(key(1)).unwrap();
+        assert_eq!(cache.resize(4), ResizeOutcome::RejectedPinned {
+            requested_bytes: 4, pinned_bytes: 8
+        });
+        assert_eq!(cache.stats().capacity_bytes, 16);
+        assert_eq!(cache.stats().used_bytes, 16);
+        assert_eq!(cache.stats().entries, 2);
+        assert_eq!(held.as_ref(), &[1; 8]);
+        drop(held);
+        assert_eq!(cache.resize(4), ResizeOutcome::Resized {
+            evicted_entries: 2, capacity_bytes: 4
+        });
+        assert_eq!(cache.stats().used_bytes, 0);
+        assert_eq!(cache.stats().capacity_bytes, 4);
+        assert_eq!(cache.resize(32), ResizeOutcome::Resized {
+            evicted_entries: 0, capacity_bytes: 32
+        });
+        assert_eq!(cache.insert(key(3), vec![3; 16]),
+                   InsertOutcome::Inserted { evicted_entries: 0 });
     }
 
     #[test]

@@ -35,7 +35,8 @@ impl RuntimeBackend for MoEStreamBackend {
     fn supports(&self, op: &RuntimeOp) -> bool {
         matches!(
             op,
-            RuntimeOp::MoEWarmup { .. }
+            RuntimeOp::MoECacheResize { .. }
+                | RuntimeOp::MoEWarmup { .. }
                 | RuntimeOp::MoEWarmupHistory { .. }
                 | RuntimeOp::MoEBeginToken { .. }
                 | RuntimeOp::MoEPrefetch { .. }
@@ -51,6 +52,11 @@ impl RuntimeBackend for MoEStreamBackend {
 
     fn execute(&mut self, op: &RuntimeOp) -> Result<RuntimeResult, RuntimeError> {
         match op {
+            RuntimeOp::MoECacheResize { capacity_bytes } => {
+                Ok(RuntimeResult::MoECacheResizeResult(
+                    self.loader.resize_cache(*capacity_bytes)
+                ))
+            }
             RuntimeOp::MoEWarmup { experts, max_bytes } => {
                 Ok(RuntimeResult::MoEWarmupReport(
                     self.prewarm_experts(experts, *max_bytes)?
@@ -128,6 +134,49 @@ mod tests {
     use kiln_io::CachedExpertBlobReader;
     use kiln_mem::{ExpertCachePolicy, ExpertKey};
     use kiln_models::{ExpertRange, ExpertTable};
+
+    #[test]
+    fn dispatcher_cache_shrink_rejects_pinned_experts_without_partial_eviction() {
+        let root = std::env::temp_dir().join(format!(
+            "kiln-stream-resize-{}-{:?}",std::process::id(),std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let file=root.join("weights.bin");
+        std::fs::write(&file,[7u8;32]).unwrap();
+        let table=ExpertTable{blob_version:1,blob_size:32,ranges:vec![
+            ExpertRange{layer:0,expert_id:0,byte_offset:0,byte_length:16},
+            ExpertRange{layer:0,expert_id:1,byte_offset:16,byte_length:16},
+        ]};
+        let cache=Arc::new(CachedExpertBlobReader::open(
+            &file,table,32,ExpertCachePolicy::Lru
+        ).unwrap());
+        let held=cache.read_expert_shared(0,0).unwrap();
+        cache.read_expert(0,1).unwrap();
+        let coordinator=AsyncGuardedExpertCoordinator::new(
+            Arc::clone(&cache),2,32,32,2
+        );
+        let mut d=RuntimeDispatcher::new();
+        d.register(Box::new(MoEStreamBackend::new(coordinator)));
+        match d.dispatch(RuntimeOp::MoECacheResize { capacity_bytes: 8 }).unwrap() {
+            RuntimeResult::MoECacheResizeResult(kiln_mem::ResizeOutcome::RejectedPinned {
+                requested_bytes:8, pinned_bytes:16
+            }) => {}
+            _ => panic!("partial cache shrink was permitted"),
+        }
+        assert_eq!(cache.cache_stats().used_bytes,32);
+        drop(held);
+        match d.dispatch(RuntimeOp::MoECacheResize { capacity_bytes: 8 }).unwrap() {
+            RuntimeResult::MoECacheResizeResult(kiln_mem::ResizeOutcome::Resized {
+                evicted_entries:2, capacity_bytes:8
+            }) => {}
+            _ => panic!("unleased cache did not shrink"),
+        }
+        assert_eq!(cache.cache_stats().used_bytes,0);
+        drop(d);
+        drop(cache);
+        std::fs::remove_file(file).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
 
     #[test]
     fn dispatcher_warmup_respects_budget_and_never_changes_router_decisions() {

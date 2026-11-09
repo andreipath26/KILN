@@ -267,6 +267,11 @@ impl AsyncGuardedExpertCoordinator {
         })
     }
 
+    /// Fail-safe dynamic RAM pressure response without changing routing.
+    pub fn resize_cache(&self, capacity_bytes: u64) -> kiln_mem::ResizeOutcome {
+        self.reader.resize_cache(capacity_bytes)
+    }
+
     pub fn guard_stats(&self) -> CommitStats { self.guard.stats() }
     pub fn prefetch_stats(&self) -> AsyncExpertStats { self.prefetch.stats() }
 }

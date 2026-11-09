@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 
-use kiln_mem::{ExpertCache, ExpertCachePolicy, ExpertCacheStats, ExpertKey};
+use kiln_mem::{ExpertCache, ExpertCachePolicy, ExpertCacheStats, ExpertKey, ResizeOutcome};
 use kiln_models::ExpertTable;
 
 use crate::{ExpertBlobError, ExpertBlobReader};
@@ -317,6 +317,10 @@ impl CachedExpertBlobReader {
 
     pub fn clear_cache(&self) -> usize {
         self.cache.clear()
+    }
+
+    pub fn resize_cache(&self, capacity_bytes: u64) -> ResizeOutcome {
+        self.cache.resize(capacity_bytes)
     }
 
     pub fn cache_stats(&self) -> ExpertCacheStats {

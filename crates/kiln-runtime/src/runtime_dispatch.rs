@@ -16,6 +16,9 @@ pub enum RuntimeOp {
     ForwardGreedy { tokens: Vec<i32> },
     /// Batched greedy draft verification, with rejected KV tail rolled back.
     VerifyGreedyDraft { tokens: Vec<i32> },
+    /// Adjust byte-bounded expert cache during memory pressure; leased
+    /// computations remain pinned until their readers release them.
+    MoECacheResize { capacity_bytes: u64 },
     /// Opt-in, exact-index-verified prewarm that never overrides router choices.
     MoEWarmup { experts: Vec<ExpertKey>, max_bytes: u64 },
     /// Explicit historical heat file, bound to the current model's true GGUF SHA256.
@@ -55,6 +58,7 @@ pub enum RuntimeResult {
     VerifiedGreedy { accepted: usize, next: i32 },
     MoEPrefetchSubmitted { submitted: usize, rejected: usize },
     MoEWarmupReport(kiln_io::ExpertWarmupReport),
+    MoECacheResizeResult(kiln_mem::ResizeOutcome),
     MoEStaged { count: usize },
     MoEExpertBytes {
         experts: Vec<(ExpertKey, Arc<[u8]>)>,

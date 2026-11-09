@@ -16,7 +16,7 @@ pub use tier::Tier;
 pub use manager::{MemoryManager, TensorId};
 pub use policy::{RebalancePolicy, RebalanceReport};
 pub use error::{LoadError, EvictError};
-pub use expert_cache::{ExpertCache, ExpertCachePolicy, ExpertCacheStats, ExpertKey, InsertOutcome};
+pub use expert_cache::{ExpertCache, ExpertCachePolicy, ExpertCacheStats, ExpertKey, InsertOutcome, ResizeOutcome};
 pub use expert_prefetch::{ExpertPrefetcher, PrefetchCandidate, PrefetchStats};
 
 pub mod predictor_eval;
