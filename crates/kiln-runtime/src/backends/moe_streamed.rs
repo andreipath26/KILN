@@ -58,10 +58,29 @@ impl RuntimeBackend for MoEStreamBackend {
                 Ok(RuntimeResult::MoEStaged { count })
             }
             RuntimeOp::MoECommit { epoch, actual } => {
-                let result = self.loader.load_actual(*epoch, actual)
+                // A batched real MoE router can select the same expert for
+                // multiple token rows. Commit Guard correctly accounts for
+                // distinct physical expert blobs only; reconstruct original
+                // row order using shared Arcs without duplicate disk reads.
+                let mut seen = std::collections::HashSet::new();
+                let mut unique = Vec::with_capacity(actual.len());
+                for &key in actual {
+                    if seen.insert(key) {
+                        unique.push(key);
+                    }
+                }
+                let result = self.loader.load_actual(*epoch, &unique)
                     .map_err(|e| RuntimeError::ExpertStream(e.to_string()))?;
+                let by_key: std::collections::HashMap<_, _> =
+                    result.experts.into_iter().collect();
+                let experts = actual.iter().map(|key| {
+                    let data = by_key.get(key).ok_or_else(|| RuntimeError::ExpertStream(
+                        "verified expert missing during actual-route reconstruction".into()
+                    ))?;
+                    Ok((*key, std::sync::Arc::clone(data)))
+                }).collect::<Result<Vec<_>, RuntimeError>>()?;
                 Ok(RuntimeResult::MoEExpertBytes {
-                    experts: result.experts,
+                    experts,
                     predicted_hits: result.predicted_hits,
                     authoritative_reads: result.authoritative_reads,
                 })
@@ -128,7 +147,7 @@ mod tests {
             std::thread::yield_now();
         }
         match dispatch.dispatch(RuntimeOp::MoECommit{
-            epoch:1,actual:vec![key(1),key(0)],
+            epoch:1,actual:vec![key(1),key(0),key(1),key(0)],
         }).unwrap() {
             RuntimeResult::MoEExpertBytes{
                 experts,predicted_hits,authoritative_reads,
@@ -139,6 +158,11 @@ mod tests {
                 assert_eq!(experts[0].1.as_ref(),&bytes[20..40]);
                 assert_eq!(experts[1].0,key(0));
                 assert_eq!(experts[1].1.as_ref(),&bytes[0..20]);
+                assert_eq!(experts.len(),4);
+                assert_eq!(experts[2].0,key(1));
+                assert_eq!(experts[3].0,key(0));
+                assert!(Arc::ptr_eq(&experts[0].1,&experts[2].1));
+                assert!(Arc::ptr_eq(&experts[1].1,&experts[3].1));
             }
             _ => panic!("wrong return type"),
         }
