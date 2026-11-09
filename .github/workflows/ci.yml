@@ -65,6 +65,7 @@ jobs:
           python3 -m unittest scripts.test_assess_tier0_gate5a -v
           python3 -m unittest scripts.test_compare_lazy_moe -v
           python3 -m unittest scripts.test_convert_moe_router_trace -v
+          python3 -m unittest scripts.test_route_usage_history -v
 
       - name: Test Phase 3.5 evidence summary and capture scripts
         run: |
