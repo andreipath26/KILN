@@ -92,6 +92,42 @@ class Gate5aTests(unittest.TestCase):
             self.assertEqual(rows[0]["requested_bytes"], 24576)
             self.assertEqual(rows[0]["sampled_expert_keys"][0], rows[0]["sampled_expert_keys"][2])
 
+    def test_cache_eviction_advice_is_recorded_but_not_treated_as_proof(self):
+        with tempfile.TemporaryDirectory() as temp:
+            artifact = Path(temp) / "probe.json"
+            payload = {
+                "phase_gate": "5A-expert-block-io-feasibility",
+                "file": "/tmp/expert-blob.bin",
+                "file_size_bytes": 8192,
+                "index_file": "/tmp/experts.index.json",
+                "indexed_expert_ranges": 1,
+                "block_bytes": 4096,
+                "requests_per_run": 1,
+                "repetitions": 1,
+                "patterns": [
+                    {
+                        "access_pattern": mode,
+                        "requests": 1,
+                        "total_bytes_read": 4096,
+                        "throughput_mib_s": 12,
+                        "page_cache_eviction_advised": True,
+                        "expert_keys": [{"layer": 0, "expert_id": 0}],
+                        "min_request_bytes": 4096,
+                        "max_request_bytes": 4096,
+                        "request_latency_p50_us": 200,
+                        "request_latency_p95_us": 250,
+                    }
+                    for mode in ("random", "sequential")
+                ],
+            }
+            artifact.write_text(json.dumps(payload))
+            rows = assessor.summarize([artifact])
+            self.assertTrue(all(row["page_cache_eviction_advised_not_verified_cold"] for row in rows))
+            payload["patterns"][0]["page_cache_eviction_advised"] = "yes"
+            artifact.write_text(json.dumps(payload))
+            with self.assertRaisesRegex(ValueError, "cache eviction advisory"):
+                assessor.summarize([artifact])
+
     def test_rejects_non_probe_and_bad_counters(self):
         with tempfile.TemporaryDirectory() as temp:
             artifact = Path(temp) / "invalid.json"
