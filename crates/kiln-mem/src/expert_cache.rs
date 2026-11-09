@@ -30,6 +30,8 @@ pub enum InsertOutcome {
     Inserted { evicted_entries: usize },
     Replaced { evicted_entries: usize },
     RejectedOversized { entry_bytes: u64, capacity_bytes: u64 },
+    /// Active shared expert leases prevent enough eviction for admission.
+    RejectedPinned { entry_bytes: u64, capacity_bytes: u64 },
     Disabled,
 }
 
@@ -168,27 +170,47 @@ impl ExpertCache {
             };
         }
 
-        let replaced = if let Some(old) = inner.entries.remove(&key) {
-            inner.used_bytes = inner.used_bytes.saturating_sub(old.bytes.len() as u64);
-            true
-        } else {
-            false
-        };
-
-        let mut evicted_entries = 0;
-        let target_used = inner.capacity_bytes - entry_bytes;
-        while inner.used_bytes > target_used {
-            let victim = match inner.policy {
-                ExpertCachePolicy::Lru => inner.entries.iter()
-                    .min_by_key(|(_, entry)| entry.last_access)
-                    .map(|(key, _)| *key),
-                ExpertCachePolicy::Lfu | ExpertCachePolicy::Adaptive => inner.entries.iter()
-                    .min_by_key(|(_, entry)| (entry.frequency, entry.last_access))
-                    .map(|(key, _)| *key),
+        // External Arc handles are active read leases. Evicting their cache
+        // membership would leave their physical memory allocated but uncharged.
+        // Preflight ALL victims first so a rejected insertion changes nothing.
+        if inner.entries.get(&key).is_some_and(|old| Arc::strong_count(&old.bytes) > 1) {
+            return InsertOutcome::RejectedPinned {
+                entry_bytes, capacity_bytes: inner.capacity_bytes,
             };
-            let Some(victim) = victim else { break };
+        }
+        let replaced_bytes = inner.entries.get(&key)
+            .map_or(0, |old| old.bytes.len() as u64);
+        let projected = inner.used_bytes - replaced_bytes;
+        let needed = projected.saturating_sub(inner.capacity_bytes - entry_bytes);
+        let mut candidates: Vec<_> = inner.entries.iter()
+            .filter(|(candidate, entry)| **candidate != key && Arc::strong_count(&entry.bytes) == 1)
+            .map(|(candidate, entry)| (*candidate, entry.frequency, entry.last_access, entry.bytes.len() as u64))
+            .collect();
+        match inner.policy {
+            ExpertCachePolicy::Lru => candidates.sort_by_key(|(_, _, last, _)| *last),
+            ExpertCachePolicy::Lfu | ExpertCachePolicy::Adaptive =>
+                candidates.sort_by_key(|(_, frequency, last, _)| (*frequency, *last)),
+        }
+        let mut victims = Vec::new();
+        let mut reclaimed = 0u64;
+        for (candidate, _, _, bytes) in candidates {
+            if reclaimed >= needed { break; }
+            victims.push(candidate);
+            reclaimed = reclaimed.saturating_add(bytes);
+        }
+        if reclaimed < needed {
+            return InsertOutcome::RejectedPinned {
+                entry_bytes, capacity_bytes: inner.capacity_bytes,
+            };
+        }
+        let replaced = if let Some(old) = inner.entries.remove(&key) {
+            inner.used_bytes -= old.bytes.len() as u64;
+            true
+        } else { false };
+        let mut evicted_entries = 0;
+        for victim in victims {
             if let Some(old) = inner.entries.remove(&victim) {
-                inner.used_bytes = inner.used_bytes.saturating_sub(old.bytes.len() as u64);
+                inner.used_bytes -= old.bytes.len() as u64;
                 inner.evictions = inner.evictions.saturating_add(1);
                 evicted_entries += 1;
             }
@@ -360,6 +382,40 @@ mod tests {
         assert!(cache.get_shared(key(1)).is_none());
         // Cache membership under cap does not include held external Arcs.
         assert_eq!(Arc::strong_count(&held), 1);
+    }
+
+    #[test]
+    fn live_expert_lease_prevents_physical_overcommit_and_partial_eviction() {
+        let cache = ExpertCache::new(8, ExpertCachePolicy::Lru);
+        cache.insert(key(1), vec![1; 4]);
+        cache.insert(key(2), vec![2; 4]);
+        let pin = cache.get_shared(key(1)).unwrap();
+        let result = cache.insert(key(3), vec![3; 8]);
+        assert_eq!(result, InsertOutcome::RejectedPinned {
+            entry_bytes: 8, capacity_bytes: 8,
+        });
+        assert_eq!(cache.stats().used_bytes, 8);
+        assert_eq!(cache.stats().entries, 2);
+        assert_eq!(cache.get(key(1)), Some(vec![1; 4]));
+        drop(pin);
+        assert_eq!(cache.insert(key(3), vec![3; 8]),
+                   InsertOutcome::Inserted { evicted_entries: 2 });
+        assert_eq!(cache.stats().used_bytes, 8);
+    }
+
+    #[test]
+    fn replacing_a_leased_expert_is_rejected_without_invalidating_reader() {
+        let cache = ExpertCache::new(16, ExpertCachePolicy::Adaptive);
+        cache.insert(key(1), vec![5; 8]);
+        let pin = cache.get_shared(key(1)).unwrap();
+        assert_eq!(cache.insert(key(1), vec![6; 8]), InsertOutcome::RejectedPinned {
+            entry_bytes: 8, capacity_bytes: 16
+        });
+        assert_eq!(pin.as_ref(), &[5; 8]);
+        assert_eq!(cache.stats().used_bytes, 8);
+        drop(pin);
+        assert_eq!(cache.insert(key(1), vec![6; 8]),
+                   InsertOutcome::Replaced { evicted_entries: 0 });
     }
 
     #[test]
