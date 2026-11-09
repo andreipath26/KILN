@@ -1902,7 +1902,7 @@ async fn main() {
                 let (_table, manifest) = verify_component_expert_sidecar(
                     &blob_file, &index_file, &integrity_file, &components_file
                 )?;
-                let mut lines = String::from("KILN-MOE-STREAM-1\\n");
+                let mut lines = String::from("KILN-MOE-STREAM-1\n");
                 let mut keys = std::collections::HashSet::new();
                 for item in manifest.components {
                     let suffix = format!("#expert:{}", item.expert_id);
@@ -1916,7 +1916,7 @@ async fn main() {
                     if !keys.insert((name.to_owned(), item.expert_id)) {
                         return Err("duplicate named expert slab".into());
                     }
-                    let line = format!("{name}\\t{}\\t{}\\t{}\\n",
+                    let line = format!("{name}\t{}\t{}\t{}\n",
                         item.expert_id,item.byte_offset,item.byte_length);
                     if lines.len().checked_add(line.len()).is_none_or(|len| len > 64*1024*1024) {
                         return Err("stream index exceeds 64 MiB".into());
