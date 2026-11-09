@@ -226,9 +226,14 @@ impl ExpertCache {
         }
     }
 
-    /// Remove a single cached expert. Returns whether it was present.
+    /// Invalidate an unleased entry. Active shared handles keep residency
+    /// charged until released; false also means that a key is pinned.
     pub fn invalidate(&self, key: ExpertKey) -> bool {
         let mut inner = self.lock();
+        if inner.entries.get(&key)
+            .is_some_and(|entry| Arc::strong_count(&entry.bytes) > 1) {
+            return false;
+        }
         if let Some(entry) = inner.entries.remove(&key) {
             inner.used_bytes = inner.used_bytes.saturating_sub(entry.bytes.len() as u64);
             true
@@ -237,13 +242,20 @@ impl ExpertCache {
         }
     }
 
-    /// Remove every entry while retaining cumulative hit/miss/eviction counters.
+    /// Clear unleased entries, retaining any still-in-use expert allocations.
+    /// Return the number actually removed, not the number initially present.
     pub fn clear(&self) -> usize {
         let mut inner = self.lock();
-        let removed = inner.entries.len();
-        inner.entries.clear();
-        inner.used_bytes = 0;
-        removed
+        let removable: Vec<_> = inner.entries.iter()
+            .filter(|(_, entry)| Arc::strong_count(&entry.bytes) == 1)
+            .map(|(key, _)| *key)
+            .collect();
+        for key in &removable {
+            if let Some(entry) = inner.entries.remove(key) {
+                inner.used_bytes -= entry.bytes.len() as u64;
+            }
+        }
+        removable.len()
     }
 
     pub fn stats(&self) -> ExpertCacheStats {
@@ -420,6 +432,21 @@ mod tests {
         drop(pin);
         assert_eq!(cache.insert(key(1), vec![6; 8]),
                    InsertOutcome::Replaced { evicted_entries: 0 });
+    }
+
+    #[test]
+    fn invalidate_and_clear_respect_live_leases() {
+        let cache = ExpertCache::new(16, ExpertCachePolicy::Lru);
+        cache.insert(key(1), vec![1; 8]);
+        cache.insert(key(2), vec![2; 8]);
+        let lease = cache.get_shared(key(1)).unwrap();
+        assert!(!cache.invalidate(key(1)));
+        assert_eq!(cache.clear(), 1);
+        assert_eq!(cache.stats().used_bytes, 8);
+        assert_eq!(cache.get(key(1)), Some(vec![1; 8]));
+        drop(lease);
+        assert_eq!(cache.clear(), 1);
+        assert_eq!(cache.stats().used_bytes, 0);
     }
 
     #[test]
