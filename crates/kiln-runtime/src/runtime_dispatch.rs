@@ -16,6 +16,8 @@ pub enum RuntimeOp {
     ForwardGreedy { tokens: Vec<i32> },
     /// Batched greedy draft verification, with rejected KV tail rolled back.
     VerifyGreedyDraft { tokens: Vec<i32> },
+    /// Opt-in, exact-index-verified prewarm that never overrides router choices.
+    MoEWarmup { experts: Vec<ExpertKey>, max_bytes: u64 },
     /// Advance the token-scoped expert Commit Guard.
     MoEBeginToken { epoch: u64 },
     /// Schedule optional predicted expert reads; these are not authoritative.
@@ -41,6 +43,7 @@ pub enum RuntimeResult {
     /// Accepted prefix length and the unevaluated corrected next token.
     VerifiedGreedy { accepted: usize, next: i32 },
     MoEPrefetchSubmitted { submitted: usize, rejected: usize },
+    MoEWarmupReport(kiln_io::ExpertWarmupReport),
     MoEStaged { count: usize },
     MoEExpertBytes {
         experts: Vec<(ExpertKey, Arc<[u8]>)>,

@@ -35,7 +35,8 @@ impl RuntimeBackend for MoEStreamBackend {
     fn supports(&self, op: &RuntimeOp) -> bool {
         matches!(
             op,
-            RuntimeOp::MoEBeginToken { .. }
+            RuntimeOp::MoEWarmup { .. }
+                | RuntimeOp::MoEBeginToken { .. }
                 | RuntimeOp::MoEPrefetch { .. }
                 | RuntimeOp::MoEPoll
                 | RuntimeOp::MoECommit { .. }
@@ -48,6 +49,11 @@ impl RuntimeBackend for MoEStreamBackend {
 
     fn execute(&mut self, op: &RuntimeOp) -> Result<RuntimeResult, RuntimeError> {
         match op {
+            RuntimeOp::MoEWarmup { experts, max_bytes } => {
+                Ok(RuntimeResult::MoEWarmupReport(
+                    self.prewarm_experts(experts, *max_bytes)?
+                ))
+            }
             RuntimeOp::MoEBeginToken { epoch } => {
                 self.loader.begin_epoch(*epoch)
                     .map_err(|e| RuntimeError::ExpertStream(e.into()))?;
@@ -109,6 +115,71 @@ mod tests {
     use kiln_io::CachedExpertBlobReader;
     use kiln_mem::{ExpertCachePolicy, ExpertKey};
     use kiln_models::{ExpertRange, ExpertTable};
+
+    #[test]
+    fn dispatcher_warmup_respects_budget_and_never_changes_router_decisions() {
+        let root = std::env::temp_dir().join(format!(
+            "kiln-dispatch-warmup-{}-{:?}", std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("experts.bin");
+        let bytes: Vec<u8> = (0..48u8).collect();
+        std::fs::write(&source, &bytes).unwrap();
+        let table = ExpertTable { blob_version: 1, blob_size: 48, ranges: vec![
+            ExpertRange { layer: 0, expert_id: 0, byte_offset: 0, byte_length: 16 },
+            ExpertRange { layer: 0, expert_id: 1, byte_offset: 16, byte_length: 16 },
+            ExpertRange { layer: 0, expert_id: 2, byte_offset: 32, byte_length: 16 },
+        ]};
+        let reader = Arc::new(CachedExpertBlobReader::open(
+            &source, table, 32, ExpertCachePolicy::Lru
+        ).unwrap());
+        let coordinator = AsyncGuardedExpertCoordinator::new(
+            Arc::clone(&reader), 2, 32, 32, 2,
+        );
+        let mut dispatch = RuntimeDispatcher::new();
+        dispatch.register(Box::new(LlamaCppBackend::new()));
+        dispatch.register(Box::new(MoEStreamBackend::new(coordinator)));
+        let key = |id| ExpertKey { layer: 0, expert_id: id };
+        let result = dispatch.dispatch(RuntimeOp::MoEWarmup {
+            experts: vec![key(0), key(0), key(2), key(1)],
+            max_bytes: 32,
+        }).unwrap();
+        match result {
+            RuntimeResult::MoEWarmupReport(report) => {
+                assert_eq!(report.requested, 4);
+                assert_eq!(report.duplicate_keys, 1);
+                assert_eq!(report.admitted, 2);
+                assert_eq!(report.skipped_budget, 1);
+                assert_eq!(report.admitted_bytes, 32);
+            }
+            _ => panic!("warmup operation was not handled by streaming backend"),
+        }
+        assert_eq!(reader.cache_stats().used_bytes, 32);
+        assert_eq!(reader.cache_stats().hits, 0);
+        dispatch.dispatch(RuntimeOp::MoEBeginToken { epoch: 1 }).unwrap();
+        let result = dispatch.dispatch(RuntimeOp::MoECommit {
+            epoch: 1, actual: vec![key(1), key(0), key(1)]
+        }).unwrap();
+        match result {
+            RuntimeResult::MoEExpertBytes {
+                experts, predicted_hits, authoritative_reads
+            } => {
+                assert_eq!(predicted_hits, 0);
+                assert_eq!(authoritative_reads, 2);
+                assert_eq!(experts[0].0, key(1));
+                assert_eq!(experts[0].1.as_ref(), &bytes[16..32]);
+                assert_eq!(experts[1].0, key(0));
+                assert_eq!(experts[1].1.as_ref(), &bytes[..16]);
+                assert!(Arc::ptr_eq(&experts[0].1, &experts[2].1));
+            }
+            _ => panic!("actual router result missing"),
+        }
+        drop(dispatch);
+        drop(reader);
+        std::fs::remove_file(source).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
 
     #[test]
     fn registry_preserves_real_router_order_and_rejects_bad_predictions() {
