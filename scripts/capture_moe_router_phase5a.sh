@@ -21,6 +21,7 @@ done
 cd "$ROOT"
 OUT="${4:-phase5a-real-router-$(date -u +%Y%m%dT%H%M%SZ)}"
 mkdir -p "$OUT"
+chmod 700 "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 if [[ -e "$OUT/actual-router.tsv" ]]; then
   echo "Refusing to reuse existing router trace: $OUT/actual-router.tsv" >&2

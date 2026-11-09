@@ -79,6 +79,36 @@ class RouteHistoryTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 build_history(trace, out, "a" * 64)
 
+    def test_admission_validation_precedes_history_output(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            trace, out = root / "trace.json", root / "history.json"
+            trace.write_text('[{"layer":0,"expert_id":1}]')
+            for sizes, budget in (({"0:1": -1}, 10),
+                                  ({"0:1": 12}, None),
+                                  (None, 10),
+                                  ({"65536:0": 8}, 10)):
+                with self.subTest(sizes=sizes, budget=budget):
+                    with self.assertRaises(ValueError):
+                        build_history(trace, out, "a" * 64,
+                                      verified_sizes=sizes, cache_budget_bytes=budget)
+                    self.assertFalse(out.exists())
+            report = build_history(trace, out, "a" * 64,
+                                   verified_sizes={"0:1": 8}, cache_budget_bytes=8)
+            self.assertEqual(report["admission"]["selected_bytes"], 8)
+            self.assertEqual(json.loads(out.read_text())["admission"], report["admission"])
+
+    def test_legacy_history_rejects_expert_ids_beyond_runtime_range(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            trace, old, new = root / "trace.json", root / "prior.json", root / "result.json"
+            trace.write_text('[{"layer":0,"expert_id":1}]')
+            old.write_text(json.dumps({"version": 1, "model_sha256": "a" * 64,
+                                       "operator_event_heat": {"65536:1": 10}}))
+            with self.assertRaises(ValueError):
+                build_history(trace, new, "a" * 64, old)
+            self.assertFalse(new.exists())
+
     def test_prior_schema_cannot_import_fake_heat(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

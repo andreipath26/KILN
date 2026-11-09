@@ -11,7 +11,6 @@ import argparse
 import json
 import os
 import re
-import stat
 from collections import Counter
 from pathlib import Path
 
@@ -32,6 +31,7 @@ def _validated_history(payload: object, model_sha256: str) -> dict[str, int]:
         raise ValueError("invalid routing-history score table")
     for key, score in counts.items():
         if (not isinstance(key, str) or not re.fullmatch(r"\d{1,5}:\d{1,5}", key)
+                or any(int(part) > 65535 for part in key.split(":"))
                 or type(score) is not int or score < 0 or score > MAX_EVENTS * 1000):
             raise ValueError("invalid routing-history entry")
     return counts
@@ -80,7 +80,9 @@ def admission_plan(scores: dict[str, int], sizes: dict[str, int],
 
 
 def build_history(trace: Path, output: Path, model_sha256: str,
-                  previous: Path | None = None) -> dict:
+                  previous: Path | None = None,
+                  verified_sizes: dict[str, int] | None = None,
+                  cache_budget_bytes: int | None = None) -> dict:
     if not SHA_RE.fullmatch(model_sha256):
         raise ValueError("model SHA256 must be 64 lowercase hexadecimal digits")
     if output.exists():
@@ -123,6 +125,14 @@ def build_history(trace: Path, output: Path, model_sha256: str,
                            for key, score in ranked],
         "runtime_cache_activated": False,
     }
+    # Validate the complete optional admission decision before creating any
+    # output: a malformed size map must not leave a valid-looking heat artifact.
+    if verified_sizes is not None:
+        if cache_budget_bytes is None:
+            raise ValueError("cache budget required with verified expert sizes")
+        report["admission"] = admission_plan(counts, verified_sizes, cache_budget_bytes)
+    elif cache_budget_bytes is not None:
+        raise ValueError("verified expert sizes required with cache budget")
     output.parent.mkdir(parents=True, exist_ok=True)
     # Routing history contains potentially sensitive workload information.
     # Open atomically with an owner-only mode, never follow an existing output.
@@ -151,19 +161,20 @@ def main() -> None:
                         help="bounded advisory cache budget for --verified-sizes")
     args = parser.parse_args()
     try:
-        report = build_history(args.trace, args.out, args.model_sha256, args.previous)
+        sizes = None
         if args.verified_sizes is not None:
             if args.cache_budget_bytes is None:
                 raise ValueError("--cache-budget-bytes is required with --verified-sizes")
             if not 0 < args.verified_sizes.stat().st_size <= MAX_PREVIOUS_BYTES:
                 raise ValueError("invalid expert size index")
-            admission = admission_plan(report["operator_event_heat"],
-                                       json.loads(args.verified_sizes.read_text(encoding="utf-8")),
-                                       args.cache_budget_bytes)
-            print(json.dumps(admission, sort_keys=True))
-            return
-        if args.cache_budget_bytes is not None:
+            sizes = json.loads(args.verified_sizes.read_text(encoding="utf-8"))
+        elif args.cache_budget_bytes is not None:
             raise ValueError("--verified-sizes is required with --cache-budget-bytes")
+        report = build_history(args.trace, args.out, args.model_sha256, args.previous,
+                               sizes, args.cache_budget_bytes)
+        if "admission" in report:
+            print(json.dumps(report["admission"], sort_keys=True))
+            return
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         parser.error(str(exc))
     print(json.dumps({"events": report["source_events"],
