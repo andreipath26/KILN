@@ -176,24 +176,6 @@ impl AsyncGuardedExpertCoordinator {
         Ok(())
     }
 
-    /// Storage-order prefetch deduplicates selected source regions, without
-    /// granting speculative weights permission to affect actual model routing.
-    pub fn schedule_predictions_batched(
-        &mut self, epoch: u64, keys: &[ExpertKey],
-    ) -> Result<(usize, usize), ExpertBlobError> {
-        if self.closed_epoch == Some(epoch) {
-            return Err(ExpertBlobError::InvalidRoute(
-                "token epoch already committed".into()
-            ));
-        }
-        if self.guard.epoch() != epoch || epoch == 0 {
-            return Err(ExpertBlobError::InvalidRoute(
-                "batch prefetch epoch mismatch".into()
-            ));
-        }
-        self.prefetch.submit_batch(epoch, keys)
-    }
-
     pub fn schedule_prediction(
         &mut self, epoch: u64, key: ExpertKey,
     ) -> SubmitResult {
@@ -263,6 +245,11 @@ impl AsyncGuardedExpertCoordinator {
         let authoritative_reads = committed.missing.len();
         let mut ready: std::collections::HashMap<ExpertKey, Arc<[u8]>> =
             committed.accepted.into_iter().collect();
+        // Promote only expert allocations that the actual router authorized.
+        // Incorrect speculative reads never train adaptive admission heat.
+        for (&key, data) in &ready {
+            self.reader.promote_authoritative_expert(key, Arc::clone(data))?;
+        }
         for key in committed.missing {
             ready.insert(key, self.reader.read_expert_shared(key.layer, key.expert_id)?);
         }
