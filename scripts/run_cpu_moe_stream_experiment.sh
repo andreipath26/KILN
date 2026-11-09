@@ -89,9 +89,15 @@ token_equal = (
 selected_names = {entry["tensor_name"] for entry in json.loads(selection_file.read_text())}
 audit = []
 for line in (out / "external.audit.tsv").read_text(encoding="utf-8").splitlines():
-    name, requested, loaded, payload = line.split("\t")
+    fields = line.split("\t")
+    if len(fields) not in (4, 6):
+        raise SystemExit("unexpected expert audit record shape")
+    name, requested, loaded, payload = fields[:4]
+    pread_bytes = int(fields[4]) if len(fields) == 6 else int(payload)
+    cache_hits = int(fields[5]) if len(fields) == 6 else 0
     audit.append({"tensor_name": name, "requested": int(requested),
-                  "loaded": int(loaded), "bytes": int(payload)})
+                  "loaded": int(loaded), "bytes": int(payload),
+                  "pread_bytes": pread_bytes, "cache_hits": cache_hits})
 covered = {
     name for name in selected_names
     if any(row["tensor_name"] == name and row["requested"] > 0
@@ -115,7 +121,9 @@ proof = {
     "explicit_tensors": len(selected_names),
     "sidecar_matmul_tensors_covered": len(covered),
     "selected_expert_io_fully_served": all_reads_correct,
-    "external_bytes_read": sum(row["bytes"] for row in audit),
+    "external_expert_bytes_served": sum(row["bytes"] for row in audit),
+    "external_bytes_read": sum(row["pread_bytes"] for row in audit),
+    "hot_expert_cache_hits": sum(row["cache_hits"] for row in audit),
     "external_matmul_ops": sum(row["loaded"] > 0 for row in audit),
     "resident_model_still_mapped": True,
     "duplicate_weight_blob_required": (out / "packed.json").exists(),
