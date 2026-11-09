@@ -18,6 +18,26 @@ impl FileRangeReader {
  pub fn open(path: impl AsRef<Path>) -> Result<Self, RangeReadError> { let path = path.as_ref().to_path_buf(); let file = File::open(&path)?; let file_size = file.metadata()?.len(); Ok(Self { file, path, file_size }) }
  pub fn path(&self) -> &Path { &self.path }
  pub fn file_size(&self) -> u64 { self.file_size }
+ /// Best-effort Linux page-cache eviction hint for read-only benchmark work.
+ /// This never drops global caches, never requires root and never promises a cold read:
+ /// other processes can keep or immediately repopulate the same pages.
+ /// Non-Linux platforms report Unsupported rather than silently claiming success.
+ pub fn advise_drop_cache(&self) -> io::Result<()> {
+  #[cfg(target_os = "linux")]
+  {
+   use std::os::fd::AsRawFd;
+   // POSIX_FADV_DONTNEED is 4 on Linux; 0 length applies to the entire file.
+   unsafe extern "C" {
+    fn posix_fadvise(fd: std::os::raw::c_int, offset: i64, len: i64, advice: std::os::raw::c_int) -> std::os::raw::c_int;
+   }
+   let errno = unsafe { posix_fadvise(self.file.as_raw_fd(), 0, 0, 4) };
+   if errno == 0 { Ok(()) } else { Err(io::Error::from_raw_os_error(errno)) }
+  }
+  #[cfg(not(target_os = "linux"))]
+  {
+   Err(io::Error::new(io::ErrorKind::Unsupported, "page-cache eviction hint is only supported on Linux"))
+  }
+ }
  pub fn read_exact_at(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), RangeReadError> {
   let length = u64::try_from(buffer.len()).map_err(|_| RangeReadError::LengthTooLarge { length: u64::MAX })?;
   let end = offset.checked_add(length).ok_or(RangeReadError::OutOfBounds { offset, length, file_size: self.file_size })?;
@@ -46,5 +66,16 @@ mod tests {
  fn temp_file() -> (PathBuf, Vec<u8>) { let path = std::env::temp_dir().join(format!("kiln-range-reader-{}-{}.bin", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos())); let bytes: Vec<u8> = (0..=255).cycle().take(8192).collect(); File::create(&path).unwrap().write_all(&bytes).unwrap(); (path, bytes) }
  #[test] fn reads_requested_range() { let (path, expected) = temp_file(); let mut reader = FileRangeReader::open(&path).unwrap(); assert_eq!(reader.read_range(1024, 512).unwrap(), expected[1024..1536]); std::fs::remove_file(path).unwrap(); }
  #[test] fn rejects_out_of_bounds_and_overflow() { let (path, _) = temp_file(); let mut reader = FileRangeReader::open(&path).unwrap(); assert!(matches!(reader.read_range(8191, 2), Err(RangeReadError::OutOfBounds { .. }))); assert!(matches!(reader.read_range(u64::MAX, 2), Err(RangeReadError::OutOfBounds { .. }))); assert!(matches!(reader.read_range(0, u64::MAX), Err(RangeReadError::OutOfBounds { .. }))); std::fs::remove_file(path).unwrap(); }
+ #[test] fn cache_advice_preserves_correct_read_semantics() {
+  let (path, expected) = temp_file();
+  let mut reader = FileRangeReader::open(&path).unwrap();
+  assert_eq!(reader.read_range(0, 512).unwrap(), expected[..512]);
+  #[cfg(target_os = "linux")]
+  reader.advise_drop_cache().unwrap();
+  #[cfg(not(target_os = "linux"))]
+  assert_eq!(reader.advise_drop_cache().unwrap_err().kind(), io::ErrorKind::Unsupported);
+  assert_eq!(reader.read_range(0, 512).unwrap(), expected[..512]);
+  std::fs::remove_file(path).unwrap();
+ }
  #[test] fn allows_empty_range_at_eof() { let (path, expected) = temp_file(); let mut reader = FileRangeReader::open(&path).unwrap(); assert!(reader.read_range(expected.len() as u64, 0).unwrap().is_empty()); std::fs::remove_file(path).unwrap(); }
 }
