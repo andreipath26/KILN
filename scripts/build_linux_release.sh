@@ -46,7 +46,7 @@ binary=target/release/kiln
 [[ -x "$binary" ]] || { echo "No release binary" >&2; exit 1; }
 "$binary" --help >/dev/null
 "$binary" stream --help >/dev/null
-strings "$binary" | grep -q "KILN_MOE_STREAM_BLOB" || {
+strings "$binary" | grep "KILN_MOE_STREAM_BLOB" >/dev/null || {
   echo "Compiled native expert kernel not found in release" >&2; exit 1;
 }
 stage="$(mktemp -d "$DEST/.kiln-stage-XXXXXX")"
