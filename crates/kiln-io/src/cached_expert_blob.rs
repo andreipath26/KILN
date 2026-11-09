@@ -327,6 +327,36 @@ impl CachedExpertBlobReader {
         self.cache.stats()
     }
 
+    /// Validate an entire optional speculative batch before touching data,
+    /// deduplicate expert keys, and order reads by on-disk source offset.
+    /// This changes only prefetch I/O order—not model router selection.
+    pub fn order_experts_by_source(
+        &self, requested: &[ExpertKey],
+    ) -> Result<Vec<ExpertKey>, ExpertBlobError> {
+        const MAX_BATCH: usize = 4096;
+        if requested.len() > MAX_BATCH {
+            return Err(ExpertBlobError::InvalidRoute(
+                "prefetch batch exceeds 4096 expert keys".into()
+            ));
+        }
+        let source = self.lock_reader();
+        let mut seen = std::collections::HashSet::new();
+        let mut ranges = Vec::with_capacity(requested.len());
+        for &key in requested {
+            if seen.insert(key) {
+                let (offset, size) = source.expert_byte_range(key.layer, key.expert_id)?;
+                if size == 0 {
+                    return Err(ExpertBlobError::InvalidRoute(
+                        "zero-byte expert is not a valid prefetch candidate".into()
+                    ));
+                }
+                ranges.push((offset, key));
+            }
+        }
+        ranges.sort_by_key(|(offset, key)| (*offset, key.layer, key.expert_id));
+        Ok(ranges.into_iter().map(|(_, key)| key).collect())
+    }
+
     /// Index-only expert size lookup; does not fetch expert payload.
     pub fn expert_byte_length(&self, layer: u32, expert_id: u32)
         -> Result<u64, ExpertBlobError> {
@@ -385,6 +415,28 @@ mod tests {
         assert_eq!(reader.read_with_fork(&mut fork,ExpertKey {
             layer:0,expert_id:1
         }).unwrap().as_ref(),&original[8..16]);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn source_order_prefetch_deduplicates_and_prevalidates_before_io() {
+        let (path, _, table) = fixture();
+        let reader = CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap();
+        let key = |layer, expert_id| ExpertKey { layer, expert_id };
+        let plan = reader.order_experts_by_source(&[
+            key(1,1),key(0,1),key(0,0),key(0,1),key(1,0)
+        ]).unwrap();
+        assert_eq!(plan, vec![key(0,0),key(0,1),key(1,0),key(1,1)]);
+        assert_eq!(reader.cache_stats().misses,0);
+        assert!(reader.order_experts_by_source(&[
+            key(0,0), key(100,100)
+        ]).is_err());
+        assert_eq!(reader.cache_stats().entries,0);
+        assert!(reader.order_experts_by_source(
+            &vec![key(0,0);4097]
+        ).is_err());
         std::fs::remove_file(path).unwrap();
     }
 

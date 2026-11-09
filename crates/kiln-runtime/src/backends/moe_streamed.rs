@@ -6,7 +6,7 @@
 use crate::runtime_dispatch::{
     RuntimeBackend, RuntimeError, RuntimeOp, RuntimeResult,
 };
-use kiln_io::{AsyncGuardedExpertCoordinator, SubmitResult};
+use kiln_io::AsyncGuardedExpertCoordinator;
 
 pub struct MoEStreamBackend {
     loader: AsyncGuardedExpertCoordinator,
@@ -79,14 +79,9 @@ impl RuntimeBackend for MoEStreamBackend {
                 Ok(RuntimeResult::MoEPrefetchSubmitted { submitted, rejected })
             }
             RuntimeOp::MoEPrefetch { epoch, experts } => {
-                let mut submitted = 0usize;
-                let mut rejected = 0usize;
-                for &key in experts {
-                    match self.loader.schedule_prediction(*epoch, key) {
-                        SubmitResult::Submitted => submitted += 1,
-                        _ => rejected += 1,
-                    }
-                }
+                let (submitted, rejected) = self.loader
+                    .schedule_predictions_batched(*epoch, experts)
+                    .map_err(|error| RuntimeError::ExpertStream(error.to_string()))?;
                 Ok(RuntimeResult::MoEPrefetchSubmitted { submitted, rejected })
             }
             RuntimeOp::MoEPoll => {

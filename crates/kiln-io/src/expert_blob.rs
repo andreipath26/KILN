@@ -108,13 +108,23 @@ impl ExpertBlobReader {
         &self.table
     }
 
-    /// Validate key and return the exact indexed payload length without I/O.
-    pub fn expert_byte_length(&self, layer: u32, expert_id: u32) -> Result<u64, ExpertBlobError> {
+    /// Return an exact validated expert source range without reading payload.
+    /// Source-order prefetch can use this to reduce seek churn; authoritative
+    /// runtime routing order remains unchanged.
+    pub fn expert_byte_range(
+        &self, layer: u32, expert_id: u32
+    ) -> Result<(u64, u64), ExpertBlobError> {
         let index = self.table.ranges.binary_search_by_key(
             &(layer, expert_id),
             |range| (range.layer, range.expert_id),
         ).map_err(|_| ExpertBlobError::MissingExpert { layer, expert_id })?;
-        Ok(self.table.ranges[index].byte_length)
+        let range = &self.table.ranges[index];
+        Ok((range.byte_offset, range.byte_length))
+    }
+
+    /// Validate key and return the exact indexed payload length without I/O.
+    pub fn expert_byte_length(&self, layer: u32, expert_id: u32) -> Result<u64, ExpertBlobError> {
+        Ok(self.expert_byte_range(layer, expert_id)?.1)
     }
 
     pub fn read_expert(
