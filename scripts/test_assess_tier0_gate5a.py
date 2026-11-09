@@ -58,6 +58,40 @@ class Gate5aTests(unittest.TestCase):
             self.assertIsNone(result["process_attributed_read_bytes"])
             self.assertEqual(result["rate_mib_s_page_cache_uncontrolled"], 2000.0)
 
+    def test_accepts_chronological_router_trace_capture(self):
+        with tempfile.TemporaryDirectory() as temp:
+            artifact = Path(temp) / "trace.json"
+            artifact.write_text(json.dumps({
+                "phase_gate": "5A-expert-block-io-feasibility",
+                "file": "/tmp/expert-blob.bin",
+                "file_size_bytes": 65536,
+                "index_file": "/tmp/experts.index.json",
+                "indexed_expert_ranges": 4,
+                "requests_per_run": 3,
+                "repetitions": 2,
+                "block_bytes": 4096,
+                "patterns": [{
+                    "access_pattern": "router-trace",
+                    "requests": 6,
+                    "total_bytes_read": 24576,
+                    "throughput_mib_s": 110,
+                    "expert_keys": [
+                        {"layer": 0, "expert_id": 1},
+                        {"layer": 1, "expert_id": 0},
+                        {"layer": 0, "expert_id": 1},
+                    ],
+                    "min_request_bytes": 4096,
+                    "max_request_bytes": 4096,
+                    "request_latency_p50_us": 10,
+                    "request_latency_p95_us": 12,
+                }],
+            }))
+            rows = assessor.summarize([artifact])
+            self.assertEqual(len(rows), 1)
+            self.assertTrue(rows[0]["trace_driven"])
+            self.assertEqual(rows[0]["requested_bytes"], 24576)
+            self.assertEqual(rows[0]["sampled_expert_keys"][0], rows[0]["sampled_expert_keys"][2])
+
     def test_rejects_non_probe_and_bad_counters(self):
         with tempfile.TemporaryDirectory() as temp:
             artifact = Path(temp) / "invalid.json"

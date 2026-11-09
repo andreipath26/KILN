@@ -71,10 +71,10 @@ def summarize(paths: list[Path]) -> list[dict]:
         if not isinstance(patterns, list) or not patterns:
             raise ValueError(f"{path}: no access-pattern data")
         names = [item.get("access_pattern") for item in patterns]
-        if sorted(names) != ["random", "sequential"]:
-            raise ValueError(f"{path}: expected exactly sequential and random access patterns")
+        if sorted(names) not in (["random", "sequential"], ["router-trace"]):
+            raise ValueError(f"{path}: expected sequential/random sampling or a single router-trace replay")
         for item in patterns:
-            if item.get("access_pattern") not in ("sequential", "random"):
+            if item.get("access_pattern") not in ("sequential", "random", "router-trace"):
                 raise ValueError(f"{path}: unsupported access pattern")
             requested = item.get("total_bytes_read")
             rate = item.get("throughput_mib_s")
@@ -116,6 +116,7 @@ def summarize(paths: list[Path]) -> list[dict]:
                 "indexed_expert_ranges": range_count,
                 "block_bytes": block_bytes,
                 "pattern": item["access_pattern"],
+                "trace_driven": item["access_pattern"] == "router-trace",
                 "sampled_expert_keys": expert_keys,
                 "requested_bytes": requested,
                 "min_request_bytes": min_request,

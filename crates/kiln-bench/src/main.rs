@@ -190,6 +190,10 @@ enum Commands {
         /// Validated ExpertTable mapping (layer, expert_id) to real file ranges.
         #[arg(long)]
         index_file: Option<PathBuf>,
+        /// Replay chronological real-router expert IDs using the validated index.
+        /// Accepts the same JSON formats as prefetch-replay; requires --index-file.
+        #[arg(long)]
+        trace_file: Option<PathBuf>,
         /// Bytes per expert-block read (default 1 MiB).
         #[arg(long, default_value_t = 1_048_576)]
         block_bytes: usize,
@@ -608,6 +612,61 @@ fn run_expert_io_indexed(
         seed,
         format!("Reads are sampled from validated ExpertTable ranges; sequential samples follow file-offset order and random samples choose offsets within real experts. {} indexed expert ranges were available.", table.ranges.len()),
         vec![sequential_pattern, random_pattern],
+    ))
+}
+
+/// Replay real router-selected experts in their original order through bounded
+/// buffered file reads. Unlike synthetic sampling, this preserves repeated hot
+/// experts and cross-layer transitions. It does not run model inference.
+fn run_expert_io_trace(
+    file: &std::path::Path,
+    index_file: &std::path::Path,
+    trace_file: &std::path::Path,
+    block_bytes: usize,
+    runs: usize,
+) -> Result<ExpertIoReport, Box<dyn std::error::Error>> {
+    validate_expert_io_args(block_bytes, 1, runs)?;
+    let mut reader = FileRangeReader::open(file)?;
+    let index_bytes = read_bounded_input(index_file, MAX_EXPERT_INDEX_BYTES, "expert range index")?;
+    let table: ExpertTable = serde_json::from_slice(&index_bytes)?;
+    table.validate(reader.file_size())?;
+    if table.ranges.is_empty() {
+        return Err("expert range index contains no entries".into());
+    }
+    let input: ExpertTraceInput = serde_json::from_slice(
+        &read_bounded_input(trace_file, MAX_EXPERT_TRACE_BYTES, "expert trace")?
+    )?;
+    let trace: Vec<ExpertKey> = match input {
+        ExpertTraceInput::FlatIds(ids) => ids.into_iter()
+            .map(|expert_id| ExpertKey { layer: 0, expert_id }).collect(),
+        ExpertTraceInput::ExpertKeys(keys) => keys,
+        ExpertTraceInput::Pairs(pairs) => pairs.into_iter()
+            .map(|(layer, expert_id)| ExpertKey { layer, expert_id }).collect(),
+    };
+    if trace.is_empty() || trace.len() > 100_000
+        || trace.len().checked_mul(runs).filter(|&n| n <= 1_000_000).is_none() {
+        return Err("trace replay requires 1..=100,000 expert events and at most 1,000,000 total reads".into());
+    }
+    let indexed: HashMap<ExpertKey, &ExpertRange> = table.ranges.iter()
+        .map(|range| (ExpertKey { layer: range.layer, expert_id: range.expert_id }, range))
+        .collect();
+    let mut mapped = Vec::with_capacity(trace.len());
+    for key in trace {
+        let range = indexed.get(&key).ok_or_else(|| format!(
+            "router trace references missing expert (layer {}, expert {})", key.layer, key.expert_id
+        ))?;
+        mapped.push(ExpertIoRequest {
+            offset: range.byte_offset,
+            length: usize::try_from(range.byte_length.min(block_bytes as u64))?,
+            expert_key: Some(key),
+        });
+    }
+    let pattern = run_expert_io_pattern(&mut reader, &mapped, block_bytes, runs, "router-trace")?;
+    Ok(expert_io_report(
+        file, reader.file_size(), Some(index_file), Some(table.ranges.len()),
+        block_bytes, mapped.len(), runs, 0,
+        format!("Chronological router trace replay from {}; exact mapped expert start offsets and up to {} bytes per selected expert. Does not reproduce model compute or include unselected fused-expert components.", trace_file.display(), block_bytes),
+        vec![pattern],
     ))
 }
 
@@ -1677,11 +1736,12 @@ async fn main() {
                 }
             }
         }
-        Commands::ExpertIo { file, index_file, block_bytes, requests, runs, seed, json } => {
-            let result = if let Some(index_file) = index_file.as_deref() {
-                run_expert_io_indexed(&file, index_file, block_bytes, requests, runs, seed)
-            } else {
-                run_expert_io(&file, block_bytes, requests, runs, seed)
+        Commands::ExpertIo { file, index_file, trace_file, block_bytes, requests, runs, seed, json } => {
+            let result = match (index_file.as_deref(), trace_file.as_deref()) {
+                (Some(index), Some(trace)) => run_expert_io_trace(&file, index, trace, block_bytes, runs),
+                (Some(index), None) => run_expert_io_indexed(&file, index, block_bytes, requests, runs, seed),
+                (None, Some(_)) => Err("--trace-file requires --index-file".into()),
+                (None, None) => run_expert_io(&file, block_bytes, requests, runs, seed),
             };
             match result {
                 Ok(report) if json => println!("{}", serde_json::to_string_pretty(&report).unwrap()),
@@ -1796,6 +1856,33 @@ mod expert_io_tests {
         assert!(random.total_bytes_read == 2 * 512 || random.total_bytes_read == 512 + 1024 || random.total_bytes_read == 2 * 1024);
         assert_eq!(random.expert_keys.len(), 2);
 
+        std::fs::remove_file(index_path).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn expert_io_trace_replays_real_order_and_rejects_missing_experts() {
+        let path = fixture();
+        let index_path = write_expert_index(&path, 64 * 1024);
+        let trace_path = path.with_extension("router-trace.json");
+        std::fs::write(&trace_path,
+            r#"[{"layer":0,"expert_id":1},{"layer":1,"expert_id":0},{"layer":0,"expert_id":1}]"#).unwrap();
+        let report = run_expert_io_trace(&path, &index_path, &trace_path, 4096, 2).unwrap();
+        assert_eq!(report.patterns.len(), 1);
+        let p = &report.patterns[0];
+        assert_eq!(p.access_pattern, "router-trace");
+        assert_eq!(p.requests, 6);
+        assert_eq!(p.total_bytes_read, 6 * 4096);
+        assert_eq!(p.expert_keys, vec![
+            ExpertKey { layer: 0, expert_id: 1 },
+            ExpertKey { layer: 1, expert_id: 0 },
+            ExpertKey { layer: 0, expert_id: 1 },
+        ]);
+        std::fs::write(&trace_path, r#"[[2,0]]"#).unwrap();
+        assert!(run_expert_io_trace(&path, &index_path, &trace_path, 1024, 1).is_err());
+        std::fs::write(&trace_path, "[]").unwrap();
+        assert!(run_expert_io_trace(&path, &index_path, &trace_path, 1024, 1).is_err());
+        std::fs::remove_file(trace_path).unwrap();
         std::fs::remove_file(index_path).unwrap();
         std::fs::remove_file(path).unwrap();
     }
