@@ -51,14 +51,20 @@ impl SystemProfile {
     /// Read the profile from disk, or probe and write if absent.
     pub fn load_or_probe() -> Self {
         let path = profile_path();
+        // Never retain CPU/thread/memory assumptions across machine changes
+        // (e.g. restored home directory, container or VM resource changes).
+        // Preserve user-tuned execution values only while the probed hardware
+        // envelope is unchanged and settings remain bounded.
+        let fresh = Self::probe();
         if let Ok(text) = fs::read_to_string(&path) {
-            if let Some(p) = parse(&text) {
-                return p;
+            if let Some(saved) = parse(&text) {
+                if saved.cpu_cores == fresh.cpu_cores && saved.ram_gb == fresh.ram_gb {
+                    return saved;
+                }
             }
         }
-        let p = Self::probe();
-        let _ = p.save();
-        p
+        let _ = fresh.save();
+        fresh
     }
 
     pub fn save(&self) -> std::io::Result<()> {
@@ -125,7 +131,7 @@ fn now_iso8601() -> String {
 fn parse(text: &str) -> Option<SystemProfile> {
     // Minimal parser. One value per line, "key": value,.
     let mut p = SystemProfile::probe();
-    let mut found = 0;
+    let mut found = std::collections::HashSet::new();
     for line in text.lines() {
         let line = line.trim().trim_end_matches(',');
         if !line.contains(':') { continue; }
@@ -133,16 +139,25 @@ fn parse(text: &str) -> Option<SystemProfile> {
         let k = parts.next()?.trim().trim_matches('"').trim_matches('{').trim_matches('}');
         let v = parts.next()?.trim().trim_matches('"').trim_matches('{').trim_matches('}');
         match k {
-            "n_ctx" => { p.n_ctx = v.parse().ok()?; found += 1; }
-            "n_batch" => { p.n_batch = v.parse().ok()?; found += 1; }
-            "n_threads" => { p.n_threads = v.parse().ok()?; found += 1; }
-            "cpu_cores" => { p.cpu_cores = v.parse().ok()?; found += 1; }
-            "ram_gb" => { p.ram_gb = v.parse().ok()?; found += 1; }
-            "probed_at" => { p.probed_at = v.to_string(); found += 1; }
+            "n_ctx" => { if !found.insert("n_ctx") { return None; } p.n_ctx = v.parse().ok()?; }
+            "n_batch" => { if !found.insert("n_batch") { return None; } p.n_batch = v.parse().ok()?; }
+            "n_threads" => { if !found.insert("n_threads") { return None; } p.n_threads = v.parse().ok()?; }
+            "cpu_cores" => { if !found.insert("cpu_cores") { return None; } p.cpu_cores = v.parse().ok()?; }
+            "ram_gb" => { if !found.insert("ram_gb") { return None; } p.ram_gb = v.parse().ok()?; }
+            "probed_at" => { if !found.insert("probed_at") { return None; } p.probed_at = v.to_string(); }
             _ => {}
         }
     }
-    if found >= 4 { Some(p) } else { None }
+    let required = ["n_ctx", "n_batch", "n_threads", "cpu_cores", "ram_gb"];
+    if !required.iter().all(|name| found.contains(name)) ||
+        p.n_ctx < 128 || p.n_ctx > 131_072 ||
+        p.n_batch == 0 || p.n_batch > 4096 || p.n_batch > p.n_ctx ||
+        p.n_threads == 0 || p.cpu_cores == 0 || p.n_threads > p.cpu_cores ||
+        p.ram_gb == 0 || p.probed_at.is_empty() ||
+        !p.probed_at.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some(p)
 }
 
 #[cfg(test)]
@@ -164,6 +179,21 @@ mod tests {
         assert_eq!(ctx, 4096);
         assert_eq!(batch, 512);
         assert_eq!(threads, 4);
+    }
+
+    #[test]
+    fn corrupted_profile_never_changes_runtime_resource_limits() {
+        let profile = SystemProfile::probe();
+        let good = format!(
+            "{{\n  \"n_ctx\": 4096,\n  \"n_batch\": 512,\n  \"n_threads\": 1,\n  \"cpu_cores\": {},\n  \"ram_gb\": {},\n  \"probed_at\": \"1234\"\n}}",
+            profile.cpu_cores, profile.ram_gb,
+        );
+        assert!(parse(&good).is_some());
+        assert!(parse(&good.replace("\"n_threads\": 1", "\"n_threads\": 0")).is_none());
+        assert!(parse(&good.replace("\"n_ctx\": 4096", "\"n_ctx\": 99999999")).is_none());
+        assert!(parse(&good.replace("\"n_batch\": 512", "\"n_batch\": 65536")).is_none());
+        assert!(parse(&good.replace("\"n_ctx\": 4096", "")).is_none());
+        assert!(parse(&good.replacen("\"cpu_cores\":", "\"cpu_cores\": 1,\n  \"cpu_cores\":", 1)).is_none());
     }
 
     #[test]
