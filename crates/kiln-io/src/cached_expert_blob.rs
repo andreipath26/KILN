@@ -136,6 +136,7 @@ impl CachedExpertBlobReader {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
+        let path = path.as_ref();
         let mut output = options.open(path)?;
         if let Err(error) = output.write_all(&bytes).and_then(|_| output.sync_all()) {
             // Do not leave a truncated routing trace that might be ingested
