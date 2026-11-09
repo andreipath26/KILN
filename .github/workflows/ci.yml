@@ -202,10 +202,16 @@ jobs:
           assert rec["cpu_moe_streamed_end_to_end_ready"] is False
           print("Model preflight accurately identifies opt-in actual expert graph mode, not deployment readiness")
           PY
+          mkdir -m 0700 "$RUNNER_TEMP/moe-stream-isolated-temp"
           printf 'Hello from the KILN smoke test.\n/exit\n' | \
+            TMPDIR="$RUNNER_TEMP/moe-stream-isolated-temp" \
             timeout 120 target/debug/kiln stream "$MODEL" --max-tokens 6 \
               --cache-mib 8 --parallel-reads > "$RUNNER_TEMP/moe-cli-stream.txt" \
               2> "$RUNNER_TEMP/moe-cli-stream-evidence.txt"
+          if find "$RUNNER_TEMP/moe-stream-isolated-temp" -mindepth 1 -print -quit | grep -q .; then
+            echo "Experimental MoE stream left private session index or audit files behind" >&2
+            exit 1
+          fi
           python3 - "$RUNNER_TEMP/moe-cli-stream.txt" "$RUNNER_TEMP/moe-cli-stream-evidence.txt" <<'PY'
           import pathlib
           import re
