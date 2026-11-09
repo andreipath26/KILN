@@ -145,6 +145,17 @@ jobs:
                                 type(x["expert_id"]) is int for x in events)
           print(f"Actual MoE graph expert IDs captured: {len(events)} operator selections")
           PY
+          python3 scripts/compare_lazy_moe.py "$MODEL" \
+            --kiln-bin target/debug/kiln --out "$RUNNER_TEMP/real-moe-lazy-ab.json" \
+            --tokens 8 --threads 2 --batch 128 --ubatch 64 --warmup 0 \
+            --runs 1 --pairs 1
+          python3 - "$RUNNER_TEMP/real-moe-lazy-ab.json" <<'PY'
+          import json
+          import sys
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert report["evaluation"]["token_parity_exact"]
+          print("Actual MoE model normal/lazy inference maintained exact greedy parity")
+          PY
 
       - name: Smoke-test Phase 3.5 real-model benchmark commands
         env:
