@@ -20,6 +20,11 @@ pub struct AsyncExpertStats {
     pub rejected_capacity: u64,
     pub pending_requests: usize,
     pub pending_bytes: u64,
+    /// Elapsed worker service time including cache lookup / read. This is
+    /// NOT physical NVMe latency and does not prove I/O/compute overlap.
+    pub worker_service_nanos: u64,
+    /// Bytes returned by completed successful predictions, including cached.
+    pub completed_operand_bytes: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +34,7 @@ pub struct ExpertReadCompletion {
     pub epoch: u64,
     pub key: ExpertKey,
     pub result: Result<Arc<[u8]>, String>,
+    pub worker_service_nanos: u64,
 }
 struct ReadRequest { epoch: u64, key: ExpertKey }
 enum WorkerReadBackend {
@@ -115,12 +121,16 @@ impl AsyncExpertPrefetch {
                     let _ = worker_state.sender.send(ExpertReadCompletion {
                         epoch:request.epoch,key:request.key,
                         result:Err("stale epoch; read skipped".to_owned()),
+                        worker_service_nanos: 0,
                     });
                     continue;
                 }
+                let started = std::time::Instant::now();
                 let result=worker_state.backend.read(request.key);
+                let worker_service_nanos = started.elapsed().as_nanos()
+                    .min(u64::MAX as u128) as u64;
                 let _ = worker_state.sender.send(ExpertReadCompletion {
-                    epoch:request.epoch,key:request.key,result,
+                    epoch:request.epoch,key:request.key,result,worker_service_nanos,
                 });
             }
         });
@@ -183,6 +193,12 @@ impl AsyncExpertPrefetch {
                 self.stats.pending_bytes=self.stats.pending_bytes.saturating_sub(size);
             }
             self.stats.completed+=1;
+            self.stats.worker_service_nanos = self.stats.worker_service_nanos
+                .saturating_add(item.worker_service_nanos);
+            if let Ok(ref bytes) = item.result {
+                self.stats.completed_operand_bytes = self.stats.completed_operand_bytes
+                    .saturating_add(bytes.len() as u64);
+            }
             if self.epoch.load(Ordering::Acquire) != item.epoch {
                 self.stats.skipped_stale+=1;
             } else {
@@ -245,6 +261,7 @@ mod tests {
         assert_eq!(completion.key,key(0));
         assert_eq!(completion.result.unwrap().as_ref(),&bytes[0..16]);
         assert_eq!(prefetch.stats().pending_bytes,0);
+        assert_eq!(prefetch.stats().completed_operand_bytes,16);
         assert_eq!(prefetch.submit(1,key(99)),SubmitResult::MissingKey);
         assert_eq!(prefetch.submit(2,key(1)),SubmitResult::StaleEpoch);
         drop(prefetch);

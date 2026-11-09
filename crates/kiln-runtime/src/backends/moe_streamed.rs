@@ -273,6 +273,51 @@ mod tests {
     }
 
     #[test]
+    fn trace_prediction_rejects_invalid_epochs_and_out_of_index_candidates() {
+        let root = std::env::temp_dir().join(format!(
+            "kiln-dispatch-trace-{}-{:?}",std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("experts.bin");
+        std::fs::write(&path, [3u8;32]).unwrap();
+        let table = ExpertTable {blob_version:1,blob_size:32,ranges:vec![
+            ExpertRange{layer:0,expert_id:0,byte_offset:0,byte_length:16},
+            ExpertRange{layer:0,expert_id:1,byte_offset:16,byte_length:16},
+        ]};
+        let source = Arc::new(CachedExpertBlobReader::open(
+            &path,table,32,ExpertCachePolicy::Lru
+        ).unwrap());
+        let coordinator = AsyncGuardedExpertCoordinator::new(
+            Arc::clone(&source),2,32,32,2
+        );
+        let mut d = RuntimeDispatcher::new();
+        d.register(Box::new(LlamaCppBackend::new()));
+        d.register(Box::new(MoEStreamBackend::new(coordinator)));
+        let key = |id| ExpertKey{layer:0,expert_id:id};
+        assert!(matches!(d.dispatch(RuntimeOp::MoETracePredict {
+            epoch:1,current:key(0),candidates:vec![key(1)],top_k:1,
+        }),Err(RuntimeError::ExpertStream(_))));
+        d.dispatch(RuntimeOp::MoEBeginToken{epoch:1}).unwrap();
+        assert!(matches!(d.dispatch(RuntimeOp::MoETracePredict {
+            epoch:1,current:key(0),candidates:vec![key(99)],top_k:1,
+        }),Err(RuntimeError::ExpertStream(_))));
+        match d.dispatch(RuntimeOp::MoETracePredict {
+            epoch:1,current:key(0),candidates:vec![key(1)],top_k:1,
+        }).unwrap() {
+            RuntimeResult::MoEPrefetchSubmitted{submitted,rejected} => {
+                assert_eq!((submitted,rejected),(0,0));
+            }
+            _=>panic!("unexpected prediction result"),
+        }
+        assert_eq!(source.cache_stats().misses,0);
+        drop(d);
+        drop(source);
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
     fn resident_llama_backend_never_claims_stream_ops() {
         let backend = LlamaCppBackend::new();
         assert!(!backend.supports(&RuntimeOp::MoEPoll));

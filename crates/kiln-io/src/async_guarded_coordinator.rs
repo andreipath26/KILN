@@ -139,9 +139,15 @@ impl AsyncGuardedExpertCoordinator {
     pub fn begin_epoch(&mut self, epoch: u64) -> Result<(), &'static str> {
         // Both layers reject non-increasing epochs. No completion from a
         // previously executed token can become an authorized expert.
+        // Fail before changing either scheduler when a stale/duplicate epoch
+        // is submitted. After this check both counters advance together.
+        if epoch == 0 || epoch <= self.guard.epoch() {
+            return Err("token epoch must strictly increase");
+        }
+        self.prefetch.begin_epoch(epoch)?;
         self.guard.begin_token(epoch)?;
         self.predictor.clear_pending();
-        self.prefetch.begin_epoch(epoch)
+        Ok(())
     }
 
     pub fn schedule_prediction(
@@ -155,11 +161,18 @@ impl AsyncGuardedExpertCoordinator {
     pub fn poll_and_stage(&mut self) -> usize {
         let mut accepted = 0usize;
         for done in self.prefetch.poll_ready() {
-            if let Ok(bytes) = done.result {
-                if self.guard.stage(done.epoch, done.key, bytes) == StageResult::Staged {
-                    self.predictor.mark_ready(done.key);
-                    accepted += 1;
-                } else {
+            match done.result {
+                Ok(bytes) => {
+                    if self.guard.stage(done.epoch, done.key, bytes) == StageResult::Staged {
+                        self.predictor.mark_ready(done.key);
+                        accepted += 1;
+                    } else {
+                        self.predictor.cancel(done.key);
+                    }
+                }
+                Err(_) => {
+                    // Release speculative admission even if a valid source
+                    // read fails. Authoritative commit will retry/fail closed.
                     self.predictor.cancel(done.key);
                 }
             }
@@ -439,6 +452,9 @@ mod tests {
         assert_eq!(result.experts[1].0,key(1));
         assert_eq!(result.experts[1].1.as_ref(),&original[16..32]);
         assert_eq!(coordinator.predictor_stats().useful,1);
+        assert_eq!(coordinator.prefetch_stats().completed_operand_bytes,16);
+        assert!(coordinator.begin_epoch(4).is_err());
+        assert_eq!(coordinator.predictor_stats().in_flight_requests,0);
         drop(result);
         drop(coordinator);
         std::fs::remove_file(source).unwrap();
