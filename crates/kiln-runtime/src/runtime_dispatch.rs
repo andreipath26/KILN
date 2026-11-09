@@ -18,6 +18,8 @@ pub enum RuntimeOp {
     VerifyGreedyDraft { tokens: Vec<i32> },
     /// Opt-in, exact-index-verified prewarm that never overrides router choices.
     MoEWarmup { experts: Vec<ExpertKey>, max_bytes: u64 },
+    /// Explicit historical heat file, bound to the current model's true GGUF SHA256.
+    MoEWarmupHistory { path: PathBuf, actual_model_sha256: String },
     /// Advance the token-scoped expert Commit Guard.
     MoEBeginToken { epoch: u64 },
     /// Schedule optional predicted expert reads; these are not authoritative.

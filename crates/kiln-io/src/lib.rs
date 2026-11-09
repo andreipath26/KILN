@@ -20,6 +20,8 @@ pub mod fallback;
 pub mod range_reader;
 pub mod expert_blob;
 pub mod cached_expert_blob;
+pub mod routing_history;
+pub use routing_history::prewarm_verified_history;
 
 pub use request::{IoRequest, IoResult, IoOp};
 pub use source::{IoSource, BlockSize};

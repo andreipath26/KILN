@@ -36,6 +36,7 @@ impl RuntimeBackend for MoEStreamBackend {
         matches!(
             op,
             RuntimeOp::MoEWarmup { .. }
+                | RuntimeOp::MoEWarmupHistory { .. }
                 | RuntimeOp::MoEBeginToken { .. }
                 | RuntimeOp::MoEPrefetch { .. }
                 | RuntimeOp::MoEPoll
@@ -53,6 +54,11 @@ impl RuntimeBackend for MoEStreamBackend {
                 Ok(RuntimeResult::MoEWarmupReport(
                     self.prewarm_experts(experts, *max_bytes)?
                 ))
+            }
+            RuntimeOp::MoEWarmupHistory { path, actual_model_sha256 } => {
+                let report = self.loader.prewarm_history(path, actual_model_sha256)
+                    .map_err(|error| RuntimeError::ExpertStream(error.to_string()))?;
+                Ok(RuntimeResult::MoEWarmupReport(report))
             }
             RuntimeOp::MoEBeginToken { epoch } => {
                 self.loader.begin_epoch(*epoch)

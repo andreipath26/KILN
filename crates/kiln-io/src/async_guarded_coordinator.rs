@@ -70,6 +70,16 @@ impl AsyncGuardedExpertCoordinator {
     /// This call runs before a token epoch; it is synchronous and must not
     /// be described as overlapped I/O. The asynchronous prediction path is
     /// separate and continues to enforce epoch/byte limits.
+    /// Bind an optional historical admission plan to the actual model's
+    /// digest, checking every requested expert against the verified index.
+    pub fn prewarm_history(
+        &self,
+        path: &std::path::Path,
+        actual_model_sha256: &str,
+    ) -> Result<ExpertWarmupReport, ExpertBlobError> {
+        crate::prewarm_verified_history(&self.reader, path, actual_model_sha256)
+    }
+
     pub fn prewarm_experts(
         &self,
         ranked: &[ExpertKey],
