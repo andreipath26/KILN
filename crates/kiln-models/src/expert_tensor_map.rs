@@ -243,6 +243,74 @@ pub fn resolve_fused_expert_tensor_components(
     })
 }
 
+/// Discover a model-agnostic *known fused naming convention* only when
+/// the GGUF itself declares architecture-wide expert and block counts.
+/// Enforce every transformer block has all three exact, matching third-axis
+/// expert projections. This is a strict safe subset, not general MoE inference
+/// or an assertion about arbitrary 3D GGUF tensor axes.
+pub fn discover_complete_fused_moe_selections(
+    model: &GgufFile,
+) -> Result<Vec<FusedExpertTensorSelection>, ExpertMapError> {
+    let architecture = model.metadata.get("general.architecture")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| invalid("GGUF general.architecture missing"))?;
+    if architecture.is_empty() || architecture.len() > 128 ||
+        !architecture.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+        return Err(invalid("unsupported GGUF architecture identifier"));
+    }
+    let expert_count = model.metadata.get(&format!("{architecture}.expert_count"))
+        .and_then(|value| value.as_u32())
+        .filter(|count| (2..=65536).contains(count))
+        .ok_or_else(|| invalid("architecture does not declare a supported expert_count"))?;
+    let block_count = model.metadata.get(&format!("{architecture}.block_count"))
+        .and_then(|value| value.as_u32())
+        .filter(|count| (1..=10000).contains(count))
+        .ok_or_else(|| invalid("architecture does not declare a supported block_count"))?;
+    let mut selections = Vec::new();
+    let mut seen: std::collections::HashMap<u32, HashSet<&str>> =
+        std::collections::HashMap::new();
+    for tensor in &model.tensors {
+        let Some(after_block) = tensor.name.strip_prefix("blk.") else { continue };
+        let Some((layer_part, projection)) = after_block.split_once('.') else { continue };
+        if !matches!(projection, "ffn_up_exps.weight" | "ffn_down_exps.weight" |
+            "ffn_gate_exps.weight") { continue; }
+        let layer: u32 = layer_part.parse()
+            .map_err(|_| invalid("malformed fused MoE layer identifier"))?;
+        if layer >= block_count {
+            return Err(invalid("fused MoE tensor layer exceeds declared block count"));
+        }
+        if tensor.shape.len() != 3 || tensor.shape[2] != u64::from(expert_count) {
+            return Err(invalid(format!(
+                "fused weight {} expert axis disagrees with GGUF expert_count",
+                tensor.name
+            )));
+        }
+        if !seen.entry(layer).or_default().insert(projection) {
+            return Err(invalid("duplicate fused MoE projection"));
+        }
+        selections.push(FusedExpertTensorSelection {
+            layer,
+            tensor_name: tensor.name.clone(),
+            expert_count,
+        });
+    }
+    if selections.len() != block_count as usize * 3 ||
+        seen.len() != block_count as usize ||
+        seen.values().any(|projections| projections.len() != 3) {
+        return Err(invalid(
+            "GGUF lacks a complete, uniform three-projection fused expert layout; explicit selections required"
+        ));
+    }
+    // The same checked quantized-slab arithmetic and source bounds apply to
+    // discovered and user-specified mappings. No model data is copied here.
+    resolve_fused_expert_tensor_components(
+        &model.tensors, model.data_offset, model.file_size(), &selections
+    )?;
+    selections.sort_unstable_by(|a,b|
+        (a.layer,a.tensor_name.as_str()).cmp(&(b.layer,b.tensor_name.as_str())));
+    Ok(selections)
+}
+
 /// Read-only GGUF-to-fused-slab map. The model remains intact on disk.
 pub fn resolve_fused_expert_tensors_in_gguf(
     path: &Path,
@@ -273,6 +341,50 @@ mod tests {
             name:name.to_owned(),offset,shape:shape.to_vec(),dtype
         }
     }
+    #[test]
+    fn automatic_fused_layout_requires_complete_explicit_metadata_and_projection_agreement() {
+        use crate::gguf::GgufValue;
+        // Pure candidate projection validation uses exactly the same identity
+        // structure as real GGUF discovery, without inventing expert axes.
+        let all = ["ffn_up_exps.weight","ffn_down_exps.weight","ffn_gate_exps.weight"];
+        let mut tensors = Vec::new();
+        for layer in 0..2 {
+            for (i, name) in all.iter().enumerate() {
+                tensors.push(tensor(&format!("blk.{layer}.{name}"),
+                    ((layer*3+i)*4096) as u64,&[256,2,4],GgufType::Q4_K));
+            }
+        }
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("general.architecture".to_string(),GgufValue::String("fixture".into()));
+        metadata.insert("fixture.expert_count".into(),GgufValue::Uint32(4));
+        metadata.insert("fixture.block_count".into(),GgufValue::Uint32(2));
+        fn check(
+            tensors: &[GgufTensorInfo],
+            metadata: &std::collections::HashMap<String, GgufValue>,
+        ) -> Result<Vec<FusedExpertTensorSelection>, ExpertMapError> {
+            // The eligibility predicate below mirrors the production metadata
+            // requirements; model mmap construction is covered by real GGUF CI.
+            let arch=metadata.get("general.architecture").and_then(|v|v.as_str()).unwrap();
+            let count=metadata.get(&format!("{arch}.expert_count")).and_then(|v|v.as_u32()).unwrap();
+            let blocks=metadata.get(&format!("{arch}.block_count")).and_then(|v|v.as_u32()).unwrap();
+            let choices:Vec<_>=tensors.iter().filter_map(|t| {
+                let rest=t.name.strip_prefix("blk.")?;
+                let (layer,name)=rest.split_once('.')?;
+                if !matches!(name,"ffn_up_exps.weight"|"ffn_down_exps.weight"|"ffn_gate_exps.weight") ||
+                    t.shape.len()!=3 || t.shape[2]!=u64::from(count) {return None;}
+                Some(FusedExpertTensorSelection{layer:layer.parse().ok()?,
+                    tensor_name:t.name.clone(),expert_count:count})
+            }).collect();
+            if choices.len()!=blocks as usize*3 { return Err(invalid("incomplete")); }
+            resolve_fused_expert_tensor_components(tensors,0,32768,&choices)?;
+            Ok(choices)
+        }
+        assert_eq!(check(&tensors,&metadata).unwrap().len(),6);
+        assert!(check(&tensors[..5],&metadata).is_err());
+        metadata.insert("fixture.expert_count".into(),GgufValue::Uint32(3));
+        assert!(check(&tensors,&metadata).is_err());
+    }
+
     #[test]
     fn fused_q4k_experts_have_exact_nonoverlapping_quantized_slabs() {
         let tensors = vec![
