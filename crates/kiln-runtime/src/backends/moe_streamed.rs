@@ -16,6 +16,17 @@ impl MoEStreamBackend {
     pub fn new(loader: AsyncGuardedExpertCoordinator) -> Self {
         Self { loader }
     }
+
+    /// Advisory, opt-in cache warmup for a model's verified expert index.
+    /// The runtime dispatcher still only commits actual router keys.
+    pub fn prewarm_experts(
+        &self,
+        ranked: &[kiln_mem::ExpertKey],
+        max_bytes: u64,
+    ) -> Result<kiln_io::ExpertWarmupReport, RuntimeError> {
+        self.loader.prewarm_experts(ranked, max_bytes)
+            .map_err(|error| RuntimeError::ExpertStream(error.to_string()))
+    }
 }
 
 impl RuntimeBackend for MoEStreamBackend {

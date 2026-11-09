@@ -1,7 +1,7 @@
 //! Phase 5.3: asynchronous speculation + exact-router Commit Guard.
 use std::sync::Arc;
 use kiln_mem::{ExpertCommitGuard, ExpertKey, CommitStats, StageResult};
-use crate::{CachedExpertBlobReader, AsyncExpertPrefetch, AsyncExpertStats, SubmitResult};
+use crate::{CachedExpertBlobReader, AsyncExpertPrefetch, AsyncExpertStats, SubmitResult, ExpertWarmupReport};
 use crate::{ExpertBlobError, RoutedExpertLoad};
 
 /// A model session owns this coordinator. All predicted expert bytes originate
@@ -61,6 +61,21 @@ impl AsyncGuardedExpertCoordinator {
             prefetch,
             guard:ExpertCommitGuard::new(guard_bytes,guard_entries),
         })
+    }
+
+    /// Explicitly prewarm verified expert weights according to a model-keyed
+    /// frequency ranking. This never authorizes an expert for computation:
+    /// commit still uses only the actual router's selected expert IDs.
+    ///
+    /// This call runs before a token epoch; it is synchronous and must not
+    /// be described as overlapped I/O. The asynchronous prediction path is
+    /// separate and continues to enforce epoch/byte limits.
+    pub fn prewarm_experts(
+        &self,
+        ranked: &[ExpertKey],
+        max_bytes: u64,
+    ) -> Result<ExpertWarmupReport, ExpertBlobError> {
+        self.reader.prewarm_ranked(ranked, max_bytes)
     }
 
     pub fn begin_epoch(&mut self, epoch: u64) -> Result<(), &'static str> {
@@ -140,6 +155,47 @@ mod tests {
     use super::*;
     use kiln_mem::ExpertCachePolicy;
     use kiln_models::{ExpertTable, ExpertRange};
+
+    #[test]
+    fn advisory_warmup_reuses_verified_source_without_overriding_actual_router() {
+        let root = std::env::temp_dir().join(format!(
+            "kiln-verified-warmup-{}-{:?}",
+            std::process::id(), std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("experts.bin");
+        let data: Vec<u8> = (0..64u8).collect();
+        std::fs::write(&source, &data).unwrap();
+        let table = ExpertTable { blob_version: 1, blob_size: 64, ranges: vec![
+            ExpertRange {layer: 0, expert_id: 0, byte_offset: 0, byte_length: 16},
+            ExpertRange {layer: 0, expert_id: 1, byte_offset: 16, byte_length: 16},
+            ExpertRange {layer: 0, expert_id: 2, byte_offset: 32, byte_length: 16},
+        ]};
+        let reader = Arc::new(CachedExpertBlobReader::open(
+            &source, table, 32, ExpertCachePolicy::Lru
+        ).unwrap());
+        let mut coordinator = AsyncGuardedExpertCoordinator::new(
+            Arc::clone(&reader), 2, 32, 32, 2
+        );
+        let key = |id| ExpertKey { layer: 0, expert_id: id };
+        let warmed = coordinator.prewarm_experts(&[key(0), key(0), key(2)], 32).unwrap();
+        assert_eq!(warmed.admitted, 2);
+        assert_eq!(warmed.duplicate_keys, 1);
+        assert_eq!(reader.cache_stats().hits, 0);
+        coordinator.begin_epoch(1).unwrap();
+        let routed = coordinator.load_actual(1, &[key(1), key(0)]).unwrap();
+        assert_eq!(routed.predicted_hits, 0);
+        assert_eq!(routed.authoritative_reads, 2);
+        assert_eq!(routed.experts[0].0, key(1));
+        assert_eq!(routed.experts[0].1.as_ref(), &data[16..32]);
+        assert_eq!(routed.experts[1].0, key(0));
+        assert_eq!(routed.experts[1].1.as_ref(), &data[0..16]);
+        drop(routed);
+        drop(coordinator);
+        drop(reader);
+        std::fs::remove_file(source).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
 
     #[test]
     fn actual_batched_router_duplicates_share_one_verified_expert_allocation() {
