@@ -20,6 +20,7 @@ mod phase35_kv_bench;
 mod phase35_spec_bench;
 mod model_plan;
 mod experimental_stream;
+mod quality_eval;
 
 /// Linux process RSS snapshot in KiB. VmHWM is the process high-water mark
 /// since launch, so it includes the entire model load/benchmark lifetime.
@@ -204,6 +205,25 @@ enum Commands {
         /// Split actual selected-expert reads over CPU worker threads.
         #[arg(long)]
         parallel_reads: bool,
+    },
+    /// Real native next-token cross-entropy scorer for candidate vs FP16
+    /// quality evidence. Uses bounded reset-windows; not a deployment claim.
+    EvalPpl {
+        /// Existing GGUF path or unambiguous installed model name.
+        model: String,
+        /// UTF-8 evaluation text file (same contents for both models).
+        #[arg(long)]
+        text_file: std::path::PathBuf,
+        #[arg(long, default_value_t = 256)]
+        max_tokens: usize,
+        #[arg(long, default_value_t = 256)]
+        window_tokens: usize,
+        #[arg(long)]
+        threads: Option<u32>,
+        #[arg(long)]
+        lazy_moe_experts: bool,
+        #[arg(long)]
+        json: bool,
     },
     /// Controlled Phase 3.5 second-turn prompt-cache A/B experiment.
     BenchKv {
@@ -934,6 +954,18 @@ async fn main() {
                 cache_mib, parallel_reads,
             ) {
                 eprintln!("experimental MoE stream: {error}");
+                std::process::exit(2);
+            }
+        },
+        Commands::EvalPpl {
+            model, text_file, max_tokens, window_tokens, threads,
+            lazy_moe_experts, json,
+        } => {
+            if let Err(error) = quality_eval::run(
+                &model, &text_file, max_tokens, window_tokens,
+                threads, lazy_moe_experts, json,
+            ) {
+                eprintln!("quality evaluator: {error}");
                 std::process::exit(2);
             }
         },

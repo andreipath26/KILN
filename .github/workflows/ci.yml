@@ -57,6 +57,9 @@ jobs:
       - name: Test synthetic MoE cache simulator
         run: python3 -m unittest scripts.test_synthetic_moe_cache_bench -v
 
+      - name: Unit-test controlled candidate-vs-FP16 quality parity assessor
+        run: python3 -m unittest scripts.test_compare_quality_parity -v
+
       - name: Test Tier 0 feasibility report assessor
         run: |
           python3 -m unittest scripts.test_assess_tier0_gate5a -v
@@ -462,6 +465,33 @@ jobs:
           print("Actual router-selected expert byte ranges replayed from packed GGUF slabs")
           PY
 
+      - name: Smoke-test actual model next-token quality evidence with exact self-parity
+        env:
+          KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
+        run: |
+          MODEL="$KILN_MODELS_DIR/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
+          printf 'This is a controlled real model corpus. Tokens are scored on the same text in a fixed context window.\n' > "$RUNNER_TEMP/quality-fixture.txt"
+          target/debug/kiln eval-ppl "$MODEL" --text-file "$RUNNER_TEMP/quality-fixture.txt" \
+            --max-tokens 16 --window-tokens 128 --threads 2 --json \
+            > "$RUNNER_TEMP/quality-reference.json"
+          target/debug/kiln eval-ppl "$MODEL" --text-file "$RUNNER_TEMP/quality-fixture.txt" \
+            --max-tokens 16 --window-tokens 128 --threads 2 --json \
+            > "$RUNNER_TEMP/quality-candidate.json"
+          python3 scripts/compare_quality_parity.py \
+            --reference "$RUNNER_TEMP/quality-reference.json" \
+            --candidate "$RUNNER_TEMP/quality-candidate.json" \
+            --max-relative-ppl-loss 0.01 \
+            --out "$RUNNER_TEMP/quality-self-parity.json"
+          python3 - "$RUNNER_TEMP/quality-self-parity.json" <<'PY'
+          import json
+          import sys
+          proof = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert proof["status"] == "pass"
+          assert proof["relative_perplexity_loss"] == 0
+          assert proof["tier0_deployment_accepted"] is False
+          print("Actual native MoE logits scored deterministically with exact self-parity")
+          PY
+
       - name: Smoke-test read-only model feasibility preflight
         env:
           KILN_TEST_MODEL_PATH: ${{ runner.temp }}/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf
@@ -526,6 +556,9 @@ jobs:
             ${{ runner.temp }}/real-moe-stream-script-proof/*.tsv
             ${{ runner.temp }}/kiln-model-plan.json
             ${{ runner.temp }}/moe-plan.json
+            ${{ runner.temp }}/quality-reference.json
+            ${{ runner.temp }}/quality-candidate.json
+            ${{ runner.temp }}/quality-self-parity.json
             ${{ runner.temp }}/moe-plan-by-name.json
             ${{ runner.temp }}/moe-cli-stream-audit.tsv
             ${{ runner.temp }}/moe-cli-stream.txt
