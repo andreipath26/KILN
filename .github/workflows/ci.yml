@@ -180,6 +180,15 @@ jobs:
           MODEL="$KILN_MODELS_DIR/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
           test -s "$MODEL"
           target/debug/kiln plan "$MODEL" --json > "$RUNNER_TEMP/moe-plan.json"
+          KILN_MODELS_DIR="$KILN_MODELS_DIR" \
+            target/debug/kiln plan "$(basename "$MODEL")" --json > "$RUNNER_TEMP/moe-plan-by-name.json"
+          python3 - "$RUNNER_TEMP/moe-plan-by-name.json" <<'PY'
+          import json
+          import sys
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert data["recommendations"]["verified_fused_expert_tensor_count"] > 0
+          print("Installed GGUF display name resolves to exact model for hardware preflight")
+          PY
           python3 - "$RUNNER_TEMP/moe-plan.json" <<'PY'
           import json
           import sys
@@ -495,6 +504,7 @@ jobs:
             ${{ runner.temp }}/real-moe-stream-script-proof/*.tsv
             ${{ runner.temp }}/kiln-model-plan.json
             ${{ runner.temp }}/moe-plan.json
+            ${{ runner.temp }}/moe-plan-by-name.json
             ${{ runner.temp }}/moe-cli-stream-audit.tsv
             ${{ runner.temp }}/moe-cli-stream.txt
 

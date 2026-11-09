@@ -822,6 +822,10 @@ async fn main() {
             }
         }
         Commands::Doctor { model } => {
+            let model = match model_library::resolve_model_identifier(&model) {
+                Ok(path) => path.display().to_string(),
+                Err(error) => { eprintln!("doctor: {error}"); std::process::exit(2); }
+            };
             use kiln_runtime::{RuntimeDispatcher, RuntimeOp, RuntimeResult, LlamaCppBackend};
             use kiln_runtime::run_canaries;
 
@@ -973,6 +977,10 @@ async fn main() {
             }
         }
         Commands::Bench { model, prompt, tokens, runs, warmup, threads, batch, ubatch, native_greedy, lazy_moe_experts, json } => {
+            let model = match model_library::resolve_model_identifier(&model) {
+                Ok(path) => path.display().to_string(),
+                Err(error) => { eprintln!("bench: {error}"); std::process::exit(2); }
+            };
             if runs == 0 {
                 eprintln!("bench: --runs must be at least 1");
                 std::process::exit(2);
@@ -1212,6 +1220,10 @@ async fn main() {
             }
         },
         Commands::Plan { model, json } => {
+            let model = match model_library::resolve_model_identifier(&model) {
+                Ok(path) => path.display().to_string(),
+                Err(error) => { eprintln!("kiln plan: {error}"); std::process::exit(2); }
+            };
             if let Err(error) = model_plan::run(&model, json) {
                 eprintln!("kiln plan: {error}");
                 std::process::exit(2);
