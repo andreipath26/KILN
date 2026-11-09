@@ -16,7 +16,7 @@ use std::path::PathBuf;
 
 use kiln_io::{write_expert_sidecar, verify_expert_sidecar, write_component_expert_sidecar, verify_component_expert_sidecar, CachedExpertBlobReader, FileRangeReader};
 use kiln_mem::{evaluate_grouped_router_holdout, RouterEvent, evaluate_predictor_holdout, ExpertCachePolicy, ExpertKey, ExpertPrefetcher, PrefetchStats};
-use kiln_models::{ExpertRange, ExpertTable, NamedExpertTensor, resolve_expert_tensors_in_gguf};
+use kiln_models::{ExpertRange, ExpertTable, NamedExpertTensor, FusedExpertTensorSelection, resolve_expert_tensors_in_gguf, resolve_fused_expert_tensors_in_gguf};
 
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -166,6 +166,30 @@ enum Commands {
         #[arg(long)]
         integrity_file: PathBuf,
         /// Create-new component boundary manifest.
+        #[arg(long)]
+        components_file: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Pack individually addressable third-axis slabs of explicitly selected
+    /// fused 3-D GGUF MoE tensors; never infer expert axes or quantization.
+    ExpertPackFused {
+        /// Original GGUF, opened read-only.
+        #[arg(long)]
+        source_gguf: PathBuf,
+        /// JSON list of {layer,tensor_name,expert_count}. Axis 2 is explicit.
+        #[arg(long)]
+        selections_file: PathBuf,
+        /// New aligned sidecar; never overwrite.
+        #[arg(long)]
+        blob_file: PathBuf,
+        /// New ExpertTable index.
+        #[arg(long)]
+        index_file: PathBuf,
+        /// New per-expert CRC32 integrity manifest.
+        #[arg(long)]
+        integrity_file: PathBuf,
+        /// New per-expert component-slice manifest.
         #[arg(long)]
         components_file: PathBuf,
         #[arg(long)]
@@ -1761,6 +1785,45 @@ async fn main() {
                 }
                 Err(e) => {
                     eprintln!("named GGUF expert pack failed: {e}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::ExpertPackFused { source_gguf, selections_file, blob_file,
+            index_file, integrity_file, components_file, json } => {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let choices: Vec<FusedExpertTensorSelection> = serde_json::from_slice(
+                    &read_bounded_input(&selections_file, MAX_EXPERT_INDEX_BYTES, "GGUF fused expert selections")?
+                )?;
+                let map = resolve_fused_expert_tensors_in_gguf(&source_gguf, &choices)?;
+                let (integrity, _components) = write_component_expert_sidecar(
+                    &source_gguf, map, &blob_file, &index_file, &integrity_file, &components_file
+                )?;
+                let (table, verified) = verify_component_expert_sidecar(
+                    &blob_file, &index_file, &integrity_file, &components_file
+                )?;
+                Ok((table, integrity, verified))
+            })();
+            match result {
+                Ok((table, integrity, verified)) if json => {
+                    println!("{}", serde_json::json!({
+                        "status":"fused_gguf_expert_slabs_crc32_verified",
+                        "experts":table.ranges.len(),
+                        "components":verified.components.len(),
+                        "source_bytes":integrity.source_size_bytes,
+                        "sidecar_bytes":table.blob_size,
+                        "note":"Explicit third-axis expert slabs; source GGUF intact; storage packing only, not graph streaming"
+                    }));
+                }
+                Ok((table, _integrity, verified)) => {
+                    println!("KILN fused GGUF expert slabs packed and CRC32 verified");
+                    println!("  Expert groups: {}", table.ranges.len());
+                    println!("  Tensor slices: {}", verified.components.len());
+                    println!("  Sidecar bytes: {}", table.blob_size);
+                    println!("  Original GGUF unchanged; inference graph remains unmodified");
+                }
+                Err(error) => {
+                    eprintln!("fused GGUF expert pack failed: {error}");
                     std::process::exit(2);
                 }
             }
