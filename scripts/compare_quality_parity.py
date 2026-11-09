@@ -33,8 +33,13 @@ def assess(reference: dict, candidate: dict, max_relative_ppl_loss: float) -> di
            for x in (reference_ppl, candidate_ppl)):
         raise ValueError("invalid perplexity result")
     relative_loss = candidate_ppl / reference_ppl - 1
+    # A decimal boundary such as 10.1 / 10.0 can round above exactly
+    # 1%; accept only machine-rounding noise, not a material regression.
+    within_limit = (relative_loss <= max_relative_ppl_loss
+        or math.isclose(relative_loss, max_relative_ppl_loss,
+                        rel_tol=1e-12, abs_tol=1e-12))
     return {
-        "status": "pass" if relative_loss <= max_relative_ppl_loss else "fail",
+        "status": "pass" if within_limit else "fail",
         "protocol": reference["protocol"],
         "evaluated_tokens": scored,
         "token_fingerprint_fnv1a64": reference["token_fingerprint_fnv1a64"],
