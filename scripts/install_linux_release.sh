@@ -28,6 +28,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -77,6 +78,17 @@ with tarfile.open(archive, "r:gz") as package:
         if source_hash.hexdigest() != digest:
             raise SystemExit("KILN binary digest mismatch")
         os.chmod(tmp, 0o755)
+        # Validate the real installed executable can launch with the host's
+        # dynamic system libraries before touching ~/.local/bin/kiln.
+        for args in (("--help",), ("stream", "--help")):
+            try:
+                result = subprocess.run([str(tmp), *args], stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.PIPE, timeout=20, check=False)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise SystemExit(f"KILN binary cannot start on this machine: {exc}")
+            if result.returncode != 0:
+                raise SystemExit("KILN binary failed pre-install runtime smoke: " +
+                                 result.stderr.decode("utf-8", errors="replace")[:1000])
         # No accidental overwrite: hardlink creation is atomic and fails if
         # another install has already created the target pathname.
         os.link(tmp, target)
