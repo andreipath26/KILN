@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use kiln_mem::ExpertKey;
 
-use crate::ffi::LlamaError;
+use crate::ffi::{LlamaError, KvSnapshot};
 
 #[derive(Debug, Clone)]
 pub enum RuntimeOp {
@@ -33,6 +33,10 @@ pub enum RuntimeOp {
     /// Only the actual router keys can authorize bytes for compute.
     MoECommit { epoch: u64, actual: Vec<ExpertKey> },
     Reset,
+    /// Bounded, same-context KV/logit state capture for prefix reuse.
+    SaveKv { max_bytes: usize },
+    /// Restore only to the exact loaded context that produced this state.
+    RestoreKv { snapshot: Arc<KvSnapshot> },
     Tokenize { text: String },
     Logits,
     TokenToStr { token: i32 },
@@ -44,6 +48,7 @@ pub enum RuntimeOp {
 #[derive(Debug)]
 pub enum RuntimeResult {
     Unit,
+    KvSnapshot(Arc<KvSnapshot>),
     Logits(Vec<f32>),
     Tokens(Vec<i32>),
     /// Accepted prefix length and the unevaluated corrected next token.

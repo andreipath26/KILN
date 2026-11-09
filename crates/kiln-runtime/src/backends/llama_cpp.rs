@@ -3,6 +3,7 @@
 
 use crate::ffi::{LlamaContext, LlamaError};
 use crate::runtime_dispatch::{RuntimeBackend, RuntimeError, RuntimeOp, RuntimeResult};
+use std::sync::Arc;
 
 pub struct LlamaCppBackend {
     ctx: Option<LlamaContext>,
@@ -72,6 +73,15 @@ impl RuntimeBackend for LlamaCppBackend {
                 let (accepted, next) = ctx.verify_greedy_draft(tokens)?;
                 Ok(RuntimeResult::VerifiedGreedy { accepted, next })
             }
+            RuntimeOp::SaveKv { max_bytes } => {
+                let ctx = self.ctx.as_ref().ok_or(RuntimeError::NoSession)?;
+                Ok(RuntimeResult::KvSnapshot(Arc::new(ctx.snapshot_kv(*max_bytes)?)))
+            }
+            RuntimeOp::RestoreKv { snapshot } => {
+                let ctx = self.ctx.as_mut().ok_or(RuntimeError::NoSession)?;
+                ctx.restore_kv(snapshot)?;
+                Ok(RuntimeResult::Unit)
+            }
             RuntimeOp::Reset => {
                 let ctx = self.ctx.as_mut().ok_or(RuntimeError::NoSession)?;
                 ctx.reset()?;
@@ -134,6 +144,14 @@ mod tests {
             assert!(!backend.supports(&op));
             assert!(matches!(backend.execute(&op), Err(RuntimeError::NoBackend)));
         }
+    }
+
+    #[test]
+    fn kv_state_capture_requires_a_live_model_context() {
+        let mut backend = LlamaCppBackend::new();
+        let operation = RuntimeOp::SaveKv { max_bytes: 1024 };
+        assert!(!backend.supports(&operation));
+        assert!(matches!(backend.execute(&operation), Err(RuntimeError::NoSession)));
     }
 
     #[test]

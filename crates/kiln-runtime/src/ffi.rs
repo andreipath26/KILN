@@ -6,6 +6,25 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_CONTEXT_ID: AtomicU64 = AtomicU64::new(1);
+const MAX_KV_SNAPSHOT_BYTES: usize = 256 * 1024 * 1024;
+
+/// Opaque, model-context-local KV/logit snapshot. Not portable between
+/// different loaded contexts, machines, or inference configurations.
+#[derive(Debug)]
+pub struct KvSnapshot {
+    state: Vec<u8>,
+    context_id: u64,
+    n_past: i32,
+}
+
+impl KvSnapshot {
+    pub fn token_positions(&self) -> usize { self.n_past as usize }
+    pub fn bytes(&self) -> usize { self.state.len() }
+}
+
 
 #[derive(Debug)]
 pub enum LlamaError {
@@ -67,6 +86,11 @@ extern "C" {
         buf: *mut c_char,
         buf_len: c_int,
     ) -> c_int;
+    fn kiln_llama_state_size(h: *mut c_void) -> usize;
+    fn kiln_llama_state_get(h: *mut c_void, dst: *mut u8, capacity: usize) -> usize;
+    fn kiln_llama_state_set(
+        h: *mut c_void, src: *const u8, length: usize, n_past: c_int,
+    ) -> c_int;
     fn kiln_llama_reset(h: *mut c_void) -> c_int;
     fn kiln_llama_eos_token(h: *mut c_void) -> c_int;
 }
@@ -93,6 +117,7 @@ pub struct LlamaContext {
     batch_capacity: usize,
     /// Maximum token positions available in this unshifted context.
     context_capacity: usize,
+    context_id: u64,
 }
 
 unsafe impl Send for LlamaContext {}
@@ -145,11 +170,58 @@ impl LlamaContext {
         // Keep this synchronized with the C shim's allocation contract.
         let batch_capacity = params.map(|(_, n_batch, _, _)| n_batch as usize).unwrap_or(512);
         let context_capacity = params.map(|(ctx, _, _, _)| ctx as usize).unwrap_or(512);
-        Ok(Self { handle, n_vocab, n_past: 0, batch_capacity, context_capacity })
+        let context_id = NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed);
+        Ok(Self { handle, n_vocab, n_past: 0, batch_capacity, context_capacity, context_id })
     }
 
     pub fn n_vocab(&self) -> i32 { self.n_vocab }
     pub fn n_past(&self) -> i32 { self.n_past }
+
+    /// Take an explicit, bounded in-memory snapshot of the model's KV,
+    /// logits and recurrent state. This does NOT write a session file and
+    /// intentionally cannot be restored into a different context.
+    pub fn snapshot_kv(&self, requested_max_bytes: usize) -> Result<KvSnapshot, LlamaError> {
+        if self.handle.is_null() || self.n_past <= 0 {
+            return Err(LlamaError::Decode("KV snapshot requires an active decoded session".into()));
+        }
+        if requested_max_bytes == 0 || requested_max_bytes > MAX_KV_SNAPSHOT_BYTES {
+            return Err(LlamaError::Decode("KV snapshot byte cap must fit 1..=256 MiB".into()));
+        }
+        let size = unsafe { kiln_llama_state_size(self.handle) };
+        if size == 0 || size > requested_max_bytes {
+            return Err(LlamaError::Decode("KV state exceeds allowed snapshot memory".into()));
+        }
+        let mut state = vec![0u8; size];
+        let written = unsafe {
+            kiln_llama_state_get(self.handle, state.as_mut_ptr(), state.len())
+        };
+        if written == 0 || written > size {
+            return Err(LlamaError::Decode("native KV snapshot returned invalid length".into()));
+        }
+        state.truncate(written);
+        Ok(KvSnapshot { state, context_id: self.context_id, n_past: self.n_past })
+    }
+
+    /// Restore an opaque snapshot to exactly the context that produced it.
+    /// On native restoration failure, discard the old cache state and require
+    /// caller re-prefill instead of continuing with inconsistent positions.
+    pub fn restore_kv(&mut self, snapshot: &KvSnapshot) -> Result<(), LlamaError> {
+        if self.handle.is_null() || snapshot.context_id != self.context_id ||
+           snapshot.n_past <= 0 || snapshot.n_past as usize > self.context_capacity ||
+           snapshot.state.is_empty() || snapshot.state.len() > MAX_KV_SNAPSHOT_BYTES {
+            return Err(LlamaError::Decode("KV snapshot is incompatible with this context".into()));
+        }
+        let result = unsafe { kiln_llama_state_set(
+            self.handle, snapshot.state.as_ptr(), snapshot.state.len(), snapshot.n_past,
+        ) };
+        if result != 0 {
+            self.reset().map_err(|e| LlamaError::Decode(format!(
+                "KV restoration failed and reset failed: {e}")))?;
+            return Err(LlamaError::Decode("KV restoration failed; session reset".into()));
+        }
+        self.n_past = snapshot.n_past;
+        Ok(())
+    }
 
     /// Reset the KV cache and the position counter. Use between
     /// turns of a multi-turn conversation on the same context.
@@ -354,6 +426,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn kv_snapshot_rejects_invalid_state_without_native_calls() {
+        let mut ctx = LlamaContext {
+            handle: std::ptr::null_mut(), n_vocab: 10, n_past: 7,
+            batch_capacity: 8, context_capacity: 16, context_id: 99,
+        };
+        assert!(ctx.snapshot_kv(1024).is_err());
+        let foreign = KvSnapshot { state: vec![0;16], context_id: 100, n_past: 7 };
+        assert!(ctx.restore_kv(&foreign).is_err());
+        let oversized_pos = KvSnapshot { state: vec![0;16], context_id: 99, n_past: 17 };
+        assert!(ctx.restore_kv(&oversized_pos).is_err());
+        let empty = KvSnapshot { state: vec![], context_id: 99, n_past: 7 };
+        assert!(ctx.restore_kv(&empty).is_err());
+        assert_eq!(ctx.n_past(), 7);
+        assert_eq!(foreign.token_positions(), 7);
+        assert_eq!(foreign.bytes(), 16);
+    }
+
+    #[test]
+    #[ignore = "requires pinned real GGUF and native KV continuation"]
+    fn native_kv_snapshot_restores_identical_next_greedy_token() {
+        let model = std::env::var("KILN_TEST_MODEL_PATH")
+            .expect("set KILN_TEST_MODEL_PATH to a pinned local GGUF");
+        let mut ctx = LlamaContext::load_with_ubatch(
+            Path::new(&model), Some((2048,256,128,2))
+        ).unwrap();
+        let prompt = ctx.tokenize("Local KV snapshot continuity is verified.").unwrap();
+        let first = ctx.forward_greedy(&prompt).unwrap();
+        let snapshot = ctx.snapshot_kv(256*1024*1024).unwrap();
+        let before = ctx.forward_greedy(&[first]).unwrap();
+        ctx.restore_kv(&snapshot).unwrap();
+        assert_eq!(ctx.n_past() as usize, snapshot.token_positions());
+        let after = ctx.forward_greedy(&[first]).unwrap();
+        assert_eq!(before, after);
+    }
+
+    #[test]
     fn empty_decode_batch_is_rejected_before_ffi() {
         let mut ctx = LlamaContext {
             handle: std::ptr::null_mut(),
@@ -361,6 +469,7 @@ mod tests {
             n_past: 0,
             batch_capacity: 512,
             context_capacity: usize::MAX,
+            context_id: 0,
         };
         let err = ctx.decode(&[]).unwrap_err();
         assert!(matches!(err, LlamaError::Decode(message) if message.contains("empty")));
@@ -374,6 +483,7 @@ mod tests {
             n_past: i32::MAX,
             batch_capacity: 512,
             context_capacity: usize::MAX,
+            context_id: 0,
         };
         let err = ctx.decode(&[1]).unwrap_err();
         assert!(matches!(err, LlamaError::Decode(message) if message.contains("overflow")));
@@ -423,7 +533,7 @@ mod tests {
     fn draft_validation_happens_before_native_call() {
         let mut ctx = LlamaContext {
             handle: std::ptr::null_mut(), n_vocab: 64, n_past: 10,
-            batch_capacity: 4, context_capacity: 12,
+            batch_capacity: 4, context_capacity: 12, context_id: 0,
         };
         assert!(ctx.verify_greedy_draft(&[]).is_err());
         assert!(ctx.verify_greedy_draft(&[1, 2, 3, 4, 5]).is_err());
@@ -448,6 +558,7 @@ mod tests {
             n_past: 0,
             batch_capacity: 0,
             context_capacity: usize::MAX,
+            context_id: 0,
         };
         let err = ctx.decode(&[1]).unwrap_err();
         assert!(matches!(err, LlamaError::Decode(message) if message.contains("capacity")));
@@ -620,6 +731,7 @@ mod tests {
             n_past: 16,
             batch_capacity: 512,
             context_capacity: 16,
+            context_id: 0,
         };
         let error = ctx.decode(&[1]).unwrap_err();
         assert!(matches!(error, LlamaError::Decode(message) if message.contains("n_ctx")));
@@ -634,6 +746,7 @@ mod tests {
             n_past: 8,
             batch_capacity: 4,
             context_capacity: 13,
+            context_id: 0,
         };
         let error = ctx.decode(&[1,2,3,4,5,6]).unwrap_err();
         assert!(matches!(error, LlamaError::Decode(message) if message.contains("n_ctx")));

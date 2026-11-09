@@ -78,6 +78,15 @@ int32_t kiln_llama_token_to_str(
  * session. Returns 0 on success. */
 int32_t kiln_llama_reset(kiln_llama_t h);
 
+/* Strictly bounded in-memory KV snapshot interface.
+ * These opaque bytes are valid only for the same model/context parameters.
+ * KILN's Rust wrapper enforces same-context identity and byte caps. */
+size_t kiln_llama_state_size(kiln_llama_t h);
+size_t kiln_llama_state_get(kiln_llama_t h, uint8_t* dst, size_t capacity);
+/* Return 0 only if the full buffer restores successfully; reset on failure. */
+int32_t kiln_llama_state_set(
+    kiln_llama_t h, const uint8_t* src, size_t length, int32_t n_past);
+
 /* Return the EOS token id for this model. -1 if the model has no EOS. */
 int32_t kiln_llama_eos_token(kiln_llama_t h);
 

@@ -247,6 +247,32 @@ int32_t kiln_llama_reset(kiln_llama_t h) {
     return 0;
 }
 
+size_t kiln_llama_state_size(kiln_llama_t h) {
+    struct kiln_llama* k = (struct kiln_llama*)h;
+    return k ? llama_state_get_size(k->ctx) : 0;
+}
+
+size_t kiln_llama_state_get(kiln_llama_t h, uint8_t* dst, size_t capacity) {
+    struct kiln_llama* k = (struct kiln_llama*)h;
+    if (!k || !dst || capacity == 0) return 0;
+    return llama_state_get_data(k->ctx, dst, capacity);
+}
+
+int32_t kiln_llama_state_set(
+    kiln_llama_t h, const uint8_t* src, size_t length, int32_t n_past) {
+    struct kiln_llama* k = (struct kiln_llama*)h;
+    if (!k || !src || length == 0 || n_past <= 0) return -1;
+    const size_t restored = llama_state_set_data(k->ctx, src, length);
+    if (restored != length) {
+        // Do not allow a caller to continue from a partially modified KV
+        // allocation after a corrupt or truncated snapshot.
+        kiln_llama_reset(h);
+        return -1;
+    }
+    k->n_past = n_past;
+    return 0;
+}
+
 int32_t kiln_llama_eos_token(kiln_llama_t h) {
     struct kiln_llama* k = (struct kiln_llama*)h;
     if (!k) return -1;
