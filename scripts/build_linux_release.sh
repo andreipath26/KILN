@@ -34,14 +34,17 @@ for file in "$archive" "$manifest" "$digest"; do
   [[ ! -e "$file" ]] || { echo "Artifact exists: $file" >&2; exit 2; }
 done
 # Do not bake -march=native of the builder into the KILN binary.
-cmake -S vendor/llama.cpp -B vendor/llama.cpp/build \
+# Keep portable release compilation isolated from developer's native CMake
+# archives. The Rust build script links these exact portable static libraries.
+NATIVE_BUILD_DIR="$ROOT/target/kiln-native-portable"
+cmake -S vendor/llama.cpp -B "$NATIVE_BUILD_DIR" \
   -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF \
   -DBUILD_SHARED_LIBS=OFF \
   -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_TOOLS=OFF \
   -DLLAMA_BUILD_COMMON=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
   -DLLAMA_BUILD_SERVER=OFF -DLLAMA_BUILD_APP=OFF
-cmake --build vendor/llama.cpp/build --config Release --parallel "${KILN_BUILD_JOBS:-2}"
-cargo build --locked --release -p kiln-cli
+cmake --build "$NATIVE_BUILD_DIR" --config Release --parallel "${KILN_BUILD_JOBS:-2}"
+KILN_LLAMA_BUILD_DIR="$NATIVE_BUILD_DIR" cargo build --locked --release -p kiln-cli
 binary=target/release/kiln
 [[ -x "$binary" ]] || { echo "No release binary" >&2; exit 1; }
 "$binary" --help >/dev/null
