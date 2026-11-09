@@ -39,6 +39,12 @@ done
 NATIVE_BUILD_DIR="$ROOT/target/kiln-native-portable"
 cmake -S vendor/llama.cpp -B "$NATIVE_BUILD_DIR" \
   -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF \
+  -DGGML_CPU_ALL_VARIANTS=OFF \
+  -DGGML_SSE42=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF \
+  -DGGML_BMI2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF \
+  -DGGML_AVX_VNNI=OFF -DGGML_AVX512=OFF \
+  -DGGML_AVX512_VBMI=OFF -DGGML_AVX512_VNNI=OFF \
+  -DGGML_AVX512_BF16=OFF \
   -DBUILD_SHARED_LIBS=OFF \
   -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_TOOLS=OFF \
   -DLLAMA_BUILD_COMMON=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
@@ -69,6 +75,7 @@ Path(out).write_text(json.dumps({
     "binary":"kiln","os":"linux","architecture":arch,
     "kiln_commit":commit,"vendored_native_commit":native,
     "binary_sha256":sha,"ggml_native":False,
+    "cpu_variant":"baseline_no_optional_x86_simd",
     "included_model_weights":False,"experimental_moe_streaming":True,
     "tier0_deployment_accepted":False,
     "caveat":"System dynamic libraries/CPU compatibility and target quality/throughput require hardware validation"

@@ -560,6 +560,7 @@ jobs:
           meta = json.loads(candidates[0].read_text(encoding="utf-8"))
           assert meta["artifact_type"] == "single_executable_linux_release"
           assert meta["ggml_native"] is False
+          assert meta["cpu_variant"] == "baseline_no_optional_x86_simd"
           assert meta["tier0_deployment_accepted"] is False
           assert meta["included_model_weights"] is False
           archives = list(root.glob("*.tar.gz"))
