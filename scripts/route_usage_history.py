@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import stat
 from collections import Counter
 from pathlib import Path
 
@@ -33,6 +35,48 @@ def _validated_history(payload: object, model_sha256: str) -> dict[str, int]:
                 or type(score) is not int or score < 0 or score > MAX_EVENTS * 1000):
             raise ValueError("invalid routing-history entry")
     return counts
+
+
+def admission_plan(scores: dict[str, int], sizes: dict[str, int],
+                   capacity_bytes: int) -> dict:
+    """Deterministic advisory RAM working set; never changes actual router keys."""
+    if type(capacity_bytes) is not int or not 0 <= capacity_bytes <= (1 << 50):
+        raise ValueError("invalid cache byte budget")
+    if not isinstance(sizes, dict) or len(sizes) > MAX_KEYS:
+        raise ValueError("invalid verified expert-size index")
+    candidates = []
+    for key, size in sizes.items():
+        if (not isinstance(key, str) or not re.fullmatch(r"\d{1,5}:\d{1,5}", key)
+                or any(int(part) > 65535 for part in key.split(":"))
+                or type(size) is not int or not 0 < size <= (1 << 40)):
+            raise ValueError("invalid expert size or key")
+        score = scores.get(key, 0)
+        if type(score) is not int or score < 0:
+            raise ValueError("invalid expert heat")
+        if score:
+            candidates.append((key, score, size))
+    # Rank by observed accesses per resident byte, then by total heat.
+    # Integer comparisons avoid unstable floating-point tie ordering.
+    from functools import cmp_to_key
+    def compare(left, right):
+        cross = left[1] * right[2] - right[1] * left[2]
+        if cross != 0:
+            return -1 if cross > 0 else 1
+        if left[1] != right[1]:
+            return -1 if left[1] > right[1] else 1
+        return (left[0] > right[0]) - (left[0] < right[0])
+    candidates.sort(key=cmp_to_key(compare))
+    used = 0
+    selected = []
+    for key, score, size in candidates:
+        if size <= capacity_bytes - used:
+            layer, expert = map(int, key.split(":"))
+            selected.append({"layer": layer, "expert_id": expert,
+                             "score": score, "bytes": size})
+            used += size
+    return {"cache_budget_bytes": capacity_bytes, "selected_bytes": used,
+            "selected_experts": selected, "actual_routing_modified": False,
+            "runtime_cache_activated": False}
 
 
 def build_history(trace: Path, output: Path, model_sha256: str,
@@ -80,9 +124,18 @@ def build_history(trace: Path, output: Path, model_sha256: str,
         "runtime_cache_activated": False,
     }
     output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("x", encoding="utf-8") as target:
-        json.dump(report, target, sort_keys=True, separators=(",", ":"))
-        target.write("\n")
+    # Routing history contains potentially sensitive workload information.
+    # Open atomically with an owner-only mode, never follow an existing output.
+    fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as target:
+            json.dump(report, target, sort_keys=True, separators=(",", ":"))
+            target.write("\n")
+            target.flush()
+            os.fsync(target.fileno())
+    except BaseException:
+        output.unlink(missing_ok=True)
+        raise
     return report
 
 
@@ -92,9 +145,25 @@ def main() -> None:
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--model-sha256", required=True)
     parser.add_argument("--previous", type=Path)
+    parser.add_argument("--verified-sizes", type=Path,
+                        help="optional key-to-byte-size JSON map for advisory hot expert admission")
+    parser.add_argument("--cache-budget-bytes", type=int,
+                        help="bounded advisory cache budget for --verified-sizes")
     args = parser.parse_args()
     try:
         report = build_history(args.trace, args.out, args.model_sha256, args.previous)
+        if args.verified_sizes is not None:
+            if args.cache_budget_bytes is None:
+                raise ValueError("--cache-budget-bytes is required with --verified-sizes")
+            if not 0 < args.verified_sizes.stat().st_size <= MAX_PREVIOUS_BYTES:
+                raise ValueError("invalid expert size index")
+            admission = admission_plan(report["operator_event_heat"],
+                                       json.loads(args.verified_sizes.read_text(encoding="utf-8")),
+                                       args.cache_budget_bytes)
+            print(json.dumps(admission, sort_keys=True))
+            return
+        if args.cache_budget_bytes is not None:
+            raise ValueError("--verified-sizes is required with --cache-budget-bytes")
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         parser.error(str(exc))
     print(json.dumps({"events": report["source_events"],

@@ -123,8 +123,14 @@ impl CachedExpertBlobReader {
             options.mode(0o600);
         }
         let mut output = options.open(path)?;
-        output.write_all(&bytes)?;
-        output.sync_all()
+        if let Err(error) = output.write_all(&bytes).and_then(|_| output.sync_all()) {
+            // Do not leave a truncated routing trace that might be ingested
+            // as legitimate evidence by a later optimization pass.
+            drop(output);
+            let _ = std::fs::remove_file(path);
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Backwards-compatible owned result; callers requiring a bounded
