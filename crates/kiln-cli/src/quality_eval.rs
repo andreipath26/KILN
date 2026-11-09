@@ -13,11 +13,17 @@ const MAX_EVAL_TOKENS: usize = 65_536;
 fn log_probability(logits: &[f32], target: i32) -> Result<f64, String> {
     let index = usize::try_from(target).map_err(|_| "negative target token id")?;
     let wanted = *logits.get(index).ok_or("target token id exceeds vocabulary")? as f64;
+    // A -infinity logit is a legitimate zero-probability masked vocabulary
+    // entry. Reject NaN/+infinity everywhere and a masked target, but do not
+    // declare normal model logits invalid merely because EOG IDs are masked.
     if logits.is_empty() || !wanted.is_finite() ||
-        logits.iter().any(|value| !value.is_finite()) {
-        return Err("non-finite model logits invalidate quality measurement".into());
+        logits.iter().any(|value| value.is_nan() || *value == f32::INFINITY) {
+        return Err("invalid target or NaN/+infinity vocabulary logit".into());
     }
     let maximum = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max) as f64;
+    if !maximum.is_finite() {
+        return Err("no finite logits remain after vocabulary masking".into());
+    }
     let normalizer: f64 = logits.iter()
         .map(|value| ((*value as f64) - maximum).exp()).sum();
     if !normalizer.is_finite() || normalizer <= 0.0 {
@@ -157,6 +163,9 @@ mod tests {
         assert!(extreme.abs() < 1e-12);
         assert!(log_probability(&[1.0, f32::NAN],0).is_err());
         assert!(log_probability(&[1.0],3).is_err());
+        assert!(log_probability(&[0.0, f32::NEG_INFINITY], 0).unwrap().abs() < 1e-12);
+        assert!(log_probability(&[0.0, f32::NEG_INFINITY], 1).is_err());
+        assert!(log_probability(&[f32::NEG_INFINITY], 0).is_err());
     }
     #[test]
     fn same_token_sequence_has_stable_cross_platform_fingerprint() {
