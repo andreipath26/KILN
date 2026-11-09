@@ -220,6 +220,20 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Map explicitly declared fused expert slabs directly inside the
+    /// original GGUF, avoiding any duplicate expert sidecar on disk.
+    ExpertExportGgufStreamIndex {
+        #[arg(long)]
+        source_gguf: PathBuf,
+        /// JSON [{layer,tensor_name,expert_count}] with verified axis-2 experts.
+        #[arg(long)]
+        selections_file: PathBuf,
+        /// Create-new validated offset TSV. The untouched GGUF is the data file.
+        #[arg(long)]
+        output_file: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     /// Validate full sidecar index and all expert payload CRC32 values.
     ExpertPackVerify {
         #[arg(long)]
@@ -963,6 +977,51 @@ fn run_expert_cache(
 
 const MAX_EXPERT_INDEX_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_EXPERT_TRACE_BYTES: u64 = 128 * 1024 * 1024;
+
+/// Emit one compact graph-readable lookup for either validated source-GGUF
+/// fused slices or packed sidecar slices. Neither mode duplicates any weights
+/// in the lookup; full verified storage boundaries must be supplied by caller.
+fn write_external_expert_lookup(
+    output_file: &std::path::Path,
+    components: impl IntoIterator<Item = (String, u32, u64, u64)>,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let mut lines = String::from("KILN-MOE-STREAM-1\n");
+    let mut keys = std::collections::HashSet::new();
+    for (component_name, expert_id, offset, length) in components {
+        let suffix = format!("#expert:{expert_id}");
+        let name = component_name.strip_suffix(&suffix)
+            .ok_or("component is not a validated explicit fused expert slab")?;
+        if name.is_empty() || name.len() >= 64 ||
+            !name.bytes().all(|c| c.is_ascii_alphanumeric() ||
+                matches!(c, b'.' | b'_' | b'-')) {
+            return Err("fused tensor name is not a safe GGML tensor identity".into());
+        }
+        if length == 0 || offset.checked_add(length).is_none() {
+            return Err("external expert slab has empty or overflowing range".into());
+        }
+        if !keys.insert((name.to_owned(), expert_id)) {
+            return Err("duplicate named expert slab".into());
+        }
+        let line = format!("{name}\t{expert_id}\t{offset}\t{length}\n");
+        if lines.len().checked_add(line.len()).is_none_or(|n| n > 64*1024*1024) {
+            return Err("stream index exceeds 64 MiB".into());
+        }
+        lines.push_str(&line);
+    }
+    if keys.is_empty() {
+        return Err("no fused expert slabs".into());
+    }
+    let mut output = std::fs::OpenOptions::new().create_new(true).write(true)
+        .open(output_file)?;
+    use std::io::Write as _;
+    if let Err(error) = output.write_all(lines.as_bytes())
+        .and_then(|_| output.sync_all()) {
+        drop(output);
+        let _ = std::fs::remove_file(output_file);
+        return Err(Box::new(error));
+    }
+    Ok(keys.len())
+}
 
 fn read_bounded_input(
     path: &std::path::Path,
@@ -1902,37 +1961,10 @@ async fn main() {
                 let (_table, manifest) = verify_component_expert_sidecar(
                     &blob_file, &index_file, &integrity_file, &components_file
                 )?;
-                let mut lines = String::from("KILN-MOE-STREAM-1\n");
-                let mut keys = std::collections::HashSet::new();
-                for item in manifest.components {
-                    let suffix = format!("#expert:{}", item.expert_id);
-                    let name = item.tensor_name.strip_suffix(&suffix)
-                        .ok_or("packed component is not an explicit fused expert slab")?;
-                    if name.is_empty() || name.len() >= 64 ||
-                        !name.bytes().all(|c| c.is_ascii_alphanumeric() ||
-                            matches!(c, b'.' | b'_' | b'-')) {
-                        return Err("fused tensor name is not a safe GGML tensor identity".into());
-                    }
-                    if !keys.insert((name.to_owned(), item.expert_id)) {
-                        return Err("duplicate named expert slab".into());
-                    }
-                    let line = format!("{name}\t{}\t{}\t{}\n",
-                        item.expert_id,item.byte_offset,item.byte_length);
-                    if lines.len().checked_add(line.len()).is_none_or(|len| len > 64*1024*1024) {
-                        return Err("stream index exceeds 64 MiB".into());
-                    }
-                    lines.push_str(&line);
-                }
-                if keys.is_empty() { return Err("no fused expert slabs".into()); }
-                let mut output=std::fs::OpenOptions::new().create_new(true).write(true)
-                    .open(&output_file)?;
-                use std::io::Write as _;
-                if let Err(err)=output.write_all(lines.as_bytes()).and_then(|_| output.sync_all()) {
-                    drop(output);
-                    let _=std::fs::remove_file(&output_file);
-                    return Err(Box::new(err));
-                }
-                Ok(keys.len())
+                write_external_expert_lookup(&output_file, manifest.components
+                    .into_iter().map(|item| (
+                        item.tensor_name, item.expert_id, item.byte_offset, item.byte_length
+                    )))
             })();
             match result {
                 Ok(entries) if json => println!("{}", serde_json::json!({
@@ -1947,6 +1979,38 @@ async fn main() {
                 ),
                 Err(error) => {
                     eprintln!("fused expert stream index failed: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::ExpertExportGgufStreamIndex {
+            source_gguf, selections_file, output_file, json
+        } => {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let choices: Vec<FusedExpertTensorSelection> = serde_json::from_slice(
+                    &read_bounded_input(
+                        &selections_file, MAX_EXPERT_INDEX_BYTES, "explicit fused expert selections"
+                    )?
+                )?;
+                let map = resolve_fused_expert_tensors_in_gguf(&source_gguf, &choices)?;
+                write_external_expert_lookup(&output_file, map.components.into_iter().map(|item| (
+                    item.tensor_name,item.expert_id,item.source_byte_offset,item.byte_length
+                )))
+            })();
+            match result {
+                Ok(entries) if json => println!("{}", serde_json::json!({
+                    "status":"original_gguf_external_expert_offsets_verified",
+                    "entries":entries,"output":output_file,
+                    "unchanged_model_file":source_gguf,
+                    "requires_duplicate_sidecar":false,
+                    "note":"Explicit GGUF fused axis and byte ranges validated; actual graph compute parity is a separate gate"
+                })),
+                Ok(entries) => println!(
+                    "Exported {entries} expert slab offsets in untouched GGUF {} to {}",
+                    source_gguf.display(), output_file.display()
+                ),
+                Err(error) => {
+                    eprintln!("GGUF direct expert lookup export failed: {error}");
                     std::process::exit(2);
                 }
             }
