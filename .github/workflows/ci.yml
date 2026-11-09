@@ -104,6 +104,23 @@ jobs:
           KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
         run: target/debug/kiln pull QuantFactory/SmolLM2-135M-Instruct-GGUF --file SmolLM2-135M-Instruct.Q4_K_M.gguf
 
+      - name: Verify lazy-MoE A/B inference harness against actual dense GGUF
+        env:
+          KILN_TEST_MODEL_PATH: ${{ runner.temp }}/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf
+        run: |
+          python3 scripts/compare_lazy_moe.py "$KILN_TEST_MODEL_PATH" \
+            --kiln-bin target/debug/kiln --out "$RUNNER_TEMP/lazy-moe-ab.json" \
+            --tokens 8 --threads 2 --batch 128 --ubatch 64 \
+            --warmup 1 --runs 1 --pairs 1
+          python3 - "$RUNNER_TEMP/lazy-moe-ab.json" <<'PY'
+          import json
+          import sys
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert report["evaluation"]["token_parity_exact"]
+          assert len(report["captures"]) == 2
+          print("Real GGUF A/B loader and exact greedy parity smoke passed")
+          PY
+
       - name: Smoke-test Phase 3.5 real-model benchmark commands
         env:
           KILN_TEST_MODEL_PATH: ${{ runner.temp }}/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf
