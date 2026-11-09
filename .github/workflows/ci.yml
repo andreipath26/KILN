@@ -51,7 +51,8 @@ jobs:
         run: python3 -m unittest scripts.test_synthetic_moe_cache_bench -v
 
       - name: Test Tier 0 feasibility report assessor
-        run: python3 -m unittest scripts.test_assess_tier0_gate5a -v
+        run: |
+          python3 -m unittest scripts.test_assess_tier0_gate5a -v
           python3 -m unittest scripts.test_compare_lazy_moe -v
 
       - name: Test Phase 3.5 evidence summary and capture scripts
