@@ -212,7 +212,12 @@ impl AsyncGuardedExpertCoordinator {
                 unique.push(key);
             }
         }
-        // Validate all actual router indices before consuming this epoch.\n        // An invalid key must not discard staged verified predictions.\n        for key in &unique {\n            self.reader.expert_byte_length(key.layer, key.expert_id)?;\n        }\n        let committed = self.guard.commit(epoch, &unique)
+        // Validate all actual router indices before consuming this epoch.
+        // An invalid key must not discard staged verified predictions.
+        for key in &unique {
+            self.reader.expert_byte_length(key.layer, key.expert_id)?;
+        }
+        let committed = self.guard.commit(epoch, &unique)
             .map_err(|err| ExpertBlobError::InvalidRoute(err.into()))?;
         let predicted_hits = committed.accepted.len();
         let authoritative_reads = committed.missing.len();
@@ -475,6 +480,44 @@ mod tests {
         assert!(coordinator.begin_epoch(4).is_err());
         assert_eq!(coordinator.predictor_stats().in_flight_requests,0);
         drop(result);
+        drop(coordinator);
+        std::fs::remove_file(source).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn unknown_actual_expert_cannot_consume_valid_staged_predictions() {
+        let root=std::env::temp_dir().join(format!(
+            "kiln-unknown-actual-{}-{:?}",std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source=root.join("data.bin");
+        std::fs::write(&source,[7u8;32]).unwrap();
+        let table=ExpertTable {blob_version:1,blob_size:32,ranges:vec![
+            ExpertRange{layer:0,expert_id:0,byte_offset:0,byte_length:16},
+            ExpertRange{layer:0,expert_id:1,byte_offset:16,byte_length:16},
+        ]};
+        let reader=Arc::new(CachedExpertBlobReader::open(
+            &source,table,32,ExpertCachePolicy::Lru
+        ).unwrap());
+        let mut coordinator=AsyncGuardedExpertCoordinator::new(reader,2,32,32,2);
+        let key=|id| ExpertKey {layer:0,expert_id:id};
+        coordinator.begin_epoch(1).unwrap();
+        assert_eq!(coordinator.schedule_prediction(1,key(0)),SubmitResult::Submitted);
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
+        while coordinator.prefetch_stats().completed==0 {
+            coordinator.poll_and_stage();
+            assert!(std::time::Instant::now()<deadline);
+            std::thread::yield_now();
+        }
+        assert!(coordinator.load_actual(1,&[key(0),key(99)]).is_err());
+        assert_eq!(coordinator.guard_stats().accepted,0);
+        let valid=coordinator.load_actual(1,&[key(0)]).unwrap();
+        assert_eq!(valid.predicted_hits,1);
+        assert_eq!(valid.authoritative_reads,0);
+        assert_eq!(valid.experts[0].1.as_ref(),&[7u8;16]);
+        drop(valid);
         drop(coordinator);
         std::fs::remove_file(source).unwrap();
         std::fs::remove_dir(root).unwrap();

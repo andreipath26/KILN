@@ -92,7 +92,10 @@ pub fn prewarm_verified_history(
         }
         ranked.push(key);
     }
-    if ranked.is_empty() && selected_bytes != 0 {\n        return Err(invalid("empty selected expert list has nonzero admission"));\n    }\n    if total != selected_bytes {
+    if ranked.is_empty() && selected_bytes != 0 {
+        return Err(invalid("empty selected expert list has nonzero admission"));
+    }
+    if total != selected_bytes {
         return Err(invalid("selected byte total does not match verified index"));
     }
     reader.prewarm_ranked(&ranked, budget)
