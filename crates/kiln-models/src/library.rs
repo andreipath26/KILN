@@ -89,7 +89,40 @@ fn has_gguf_magic(path: &Path) -> bool {
     fs::File::open(path).and_then(|mut file| file.read_exact(&mut magic)).is_ok() && &magic == b"GGUF"
 }
 
-fn collect_files(root: &Path, depth: usize, visited: &mut usize, seen: &mut HashSet<PathBuf>, out: &mut Vec<PathBuf>) {
+/// Human-readable canonical Hugging Face cache identity for a local
+/// snapshot GGUF symlink. This is a path-to-name mapping only: the original
+/// source is always canonicalized and validated as GGUF before use.
+fn huggingface_snapshot_name(path: &Path) -> Option<String> {
+    let parts = path.components().filter_map(|c| match c {
+        std::path::Component::Normal(s) => s.to_str(),
+        _ => None,
+    }).collect::<Vec<_>>();
+    for (index, part) in parts.iter().enumerate() {
+        let Some(repo) = part.strip_prefix("models--") else { continue };
+        if index + 3 >= parts.len() || parts[index + 1] != "snapshots" {
+            continue;
+        }
+        let fields: Vec<_> = repo.split("--").collect();
+        if fields.len() != 2 || fields.iter().any(|x| x.is_empty()) {
+            continue;
+        }
+        let revision = parts[index + 2];
+        if revision.is_empty() || !revision.bytes().all(|b| b.is_ascii_hexdigit()) {
+            continue;
+        }
+        let filename = parts[index + 3..].join("/");
+        if !filename.to_ascii_lowercase().ends_with(".gguf") {
+            continue;
+        }
+        if fields.iter().any(|x| !x.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))) {
+            continue;
+        }
+        return Some(format!("{}/{}/{}", fields[0], fields[1], filename));
+    }
+    None
+}
+
+fn collect_files(root: &Path, depth: usize, visited: &mut usize, seen: &mut HashSet<PathBuf>, aliases: &mut std::collections::HashMap<PathBuf, Vec<String>>, out: &mut Vec<PathBuf>) {
     if depth > MAX_SCAN_DEPTH || *visited >= MAX_SCAN_ENTRIES { return; }
     let Ok(entries) = fs::read_dir(root) else { return; };
     for entry in entries.flatten() {
@@ -100,14 +133,19 @@ fn collect_files(root: &Path, depth: usize, visited: &mut usize, seen: &mut Hash
         if meta.is_dir() {
             // Do not follow directory symlinks; this prevents loops and duplicate full-tree scans.
             if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                collect_files(&path, depth + 1, visited, seen, out);
+                collect_files(&path, depth + 1, visited, seen, aliases, out);
             }
         } else if meta.is_file() {
             let looks_like_gguf = path.extension().and_then(|x| x.to_str())
                 .map(|x| x.eq_ignore_ascii_case("gguf")).unwrap_or(false);
             // Ollama stores GGUF weights as extensionless content-addressed blobs.
             if looks_like_gguf || has_gguf_magic(&path) {
+                let hf_name = huggingface_snapshot_name(&path);
                 let canonical = fs::canonicalize(&path).unwrap_or(path);
+                if let Some(name) = hf_name {
+                    let names = aliases.entry(canonical.clone()).or_default();
+                    if !names.contains(&name) { names.push(name); }
+                }
                 if seen.insert(canonical.clone()) { out.push(canonical); }
             }
         }
@@ -204,6 +242,7 @@ pub fn discover_models(extra_roots: &[PathBuf]) -> Vec<LocalModel> {
     ollama_roots.extend(extra_roots.iter().cloned());
     let ollama_names = ollama_names_for_roots(&ollama_roots);
     let mut files = Vec::new();
+    let mut hf_aliases = std::collections::HashMap::<PathBuf, Vec<String>>::new();
     let mut seen = HashSet::new();
     let mut unique_roots = HashSet::new();
     let mut visited = 0usize;
@@ -211,7 +250,7 @@ pub fn discover_models(extra_roots: &[PathBuf]) -> Vec<LocalModel> {
         if root.is_dir() {
             let canonical = fs::canonicalize(&root).unwrap_or(root);
             if unique_roots.insert(canonical.clone()) {
-                collect_files(&canonical, 0, &mut visited, &mut seen, &mut files);
+                collect_files(&canonical, 0, &mut visited, &mut seen, &mut hf_aliases, &mut files);
             }
         } else if root.is_file() {
             let canonical = fs::canonicalize(&root).unwrap_or(root);
@@ -223,17 +262,27 @@ pub fn discover_models(extra_roots: &[PathBuf]) -> Vec<LocalModel> {
     for path in files {
         if !inspect_gguf(&path) { continue; }
         let Ok(metadata) = fs::metadata(&path) else { continue; };
-        let aliases = ollama_names.get(&path);
-        let name = aliases.and_then(|names| names.first()).cloned()
+        let mut aliases = ollama_names.get(&path).cloned().unwrap_or_default();
+        if let Some(hf_names) = hf_aliases.get(&path) {
+            for alias in hf_names {
+                if !aliases.contains(alias) { aliases.push(alias.clone()); }
+            }
+        }
+        aliases.sort();
+        let name = ollama_names.get(&path).and_then(|names| names.first())
+            .or_else(|| hf_aliases.get(&path).and_then(|names| names.first()))
+            .cloned()
             .unwrap_or_else(|| path.file_name().and_then(|x| x.to_str())
                 .unwrap_or("model.gguf").to_owned());
         models.push(LocalModel {
             name,
             path: path.display().to_string(),
             size_bytes: metadata.len(),
-            source: if aliases.is_some() { "Ollama manifest".into() } else { root_label(&path) },
+            source: if ollama_names.contains_key(&path) { "Ollama manifest".into() }
+                else if hf_aliases.contains_key(&path) { "Hugging Face snapshot".into() }
+                else { root_label(&path) },
             valid_gguf: true,
-            aliases: aliases.cloned().unwrap_or_default(),
+            aliases,
         });
     }
     models.sort_by(|a,b| a.name.to_lowercase().cmp(&b.name.to_lowercase()).then(a.path.cmp(&b.path)));
@@ -578,6 +627,22 @@ pub async fn pull_hugging_face_async_with_progress(
 mod tests {
     use super::{sha256_from_metadata, valid_repo_file, valid_repo_id};
     use serde_json::json;
+
+    #[test]
+    fn cache_snapshot_names_preserve_human_repo_and_file_identity_without_weight_copy() {
+        use super::huggingface_snapshot_name;
+        let path = std::path::Path::new(
+            "/home/example/.cache/huggingface/hub/models--author--project/snapshots/abcdef1234/quant/model.Q4_K_M.gguf"
+        );
+        assert_eq!(huggingface_snapshot_name(path).as_deref(),
+            Some("author/project/quant/model.Q4_K_M.gguf"));
+        assert!(huggingface_snapshot_name(std::path::Path::new(
+            "/tmp/models--author--project/blobs/sha256-other")).is_none());
+        assert!(huggingface_snapshot_name(std::path::Path::new(
+            "/tmp/models--author--project/snapshots/not-a-commit/weights.gguf")).is_none());
+        assert!(huggingface_snapshot_name(std::path::Path::new(
+            "/tmp/models--author--project/snapshots/012abc/file.bin")).is_none());
+    }
 
     #[test]
     fn ollama_manifest_resolves_real_model_name_from_existing_blob_without_copying() {
