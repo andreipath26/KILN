@@ -125,6 +125,18 @@ proof = {
     "external_bytes_read": sum(row["pread_bytes"] for row in audit),
     "hot_expert_cache_hits": sum(row["cache_hits"] for row in audit),
     "external_matmul_ops": sum(row["loaded"] > 0 for row in audit),
+    "model_size_bytes": model_file.stat().st_size,
+    "os": external.get("environment", {}).get("os"),
+    "architecture": external.get("environment", {}).get("architecture"),
+    "logical_cpus": external.get("environment", {}).get("logical_cpus"),
+    "baseline_decode_forward_tps": baseline.get("statistics", {})
+        .get("decode_forward_tokens_per_second", {}).get("mean"),
+    "external_decode_forward_tps": external.get("statistics", {})
+        .get("decode_forward_tokens_per_second", {}).get("mean"),
+    "baseline_process_peak_rss_kib": baseline.get("process_memory", {})
+        .get("after_benchmark", {}).get("peak_rss_to_date"),
+    "external_process_peak_rss_kib": external.get("process_memory", {})
+        .get("after_benchmark", {}).get("peak_rss_to_date"),
     "resident_model_still_mapped": True,
     "duplicate_weight_blob_required": (out / "packed.json").exists(),
     "tier0_deployment_accepted": False,
