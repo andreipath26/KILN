@@ -24,8 +24,10 @@ impl RuntimeBackend for LlamaCppBackend {
     fn supports(&self, op: &RuntimeOp) -> bool {
         match op {
             RuntimeOp::Load { .. } => true,
-            RuntimeOp::MoEBeginToken { .. } | RuntimeOp::MoEPrefetch { .. }
-                | RuntimeOp::MoEPoll | RuntimeOp::MoECommit { .. } => false,
+            RuntimeOp::MoEWarmup { .. } | RuntimeOp::MoEWarmupHistory { .. }
+                | RuntimeOp::MoETracePredict { .. } | RuntimeOp::MoEBeginToken { .. }
+                | RuntimeOp::MoEPrefetch { .. } | RuntimeOp::MoEPoll
+                | RuntimeOp::MoECommit { .. } => false,
             _ => self.ctx.is_some(),
         }
     }
@@ -34,8 +36,10 @@ impl RuntimeBackend for LlamaCppBackend {
 
     fn execute(&mut self, op: &RuntimeOp) -> Result<RuntimeResult, RuntimeError> {
         match op {
-            RuntimeOp::MoEBeginToken { .. } | RuntimeOp::MoEPrefetch { .. }
-                | RuntimeOp::MoEPoll | RuntimeOp::MoECommit { .. } => Err(RuntimeError::NoBackend),
+            RuntimeOp::MoEWarmup { .. } | RuntimeOp::MoEWarmupHistory { .. }
+                | RuntimeOp::MoETracePredict { .. } | RuntimeOp::MoEBeginToken { .. }
+                | RuntimeOp::MoEPrefetch { .. } | RuntimeOp::MoEPoll
+                | RuntimeOp::MoECommit { .. } => Err(RuntimeError::NoBackend),
             RuntimeOp::Load { path, n_ctx, n_batch, n_ubatch, n_threads, lazy_moe_experts } => {
                 let max = i32::MAX as u32;
                 if *n_ctx == 0 || *n_batch == 0 || *n_ubatch == 0 || *n_threads == 0
@@ -112,6 +116,15 @@ mod tests {
     fn streamed_operations_are_never_claimed_or_executed_by_resident_backend() {
         let mut backend = LlamaCppBackend::new();
         let operations = [
+            RuntimeOp::MoEWarmup { experts: vec![], max_bytes: 16 },
+            RuntimeOp::MoEWarmupHistory {
+                path: PathBuf::from("not-a-real-history.json"),
+                actual_model_sha256: "a".repeat(64),
+            },
+            RuntimeOp::MoETracePredict {
+                epoch: 1, current: kiln_mem::ExpertKey { layer: 0, expert_id: 0 },
+                candidates: vec![], top_k: 0,
+            },
             RuntimeOp::MoEBeginToken { epoch: 1 },
             RuntimeOp::MoEPrefetch { epoch: 1, experts: vec![] },
             RuntimeOp::MoEPoll,

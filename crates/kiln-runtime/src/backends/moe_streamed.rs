@@ -320,6 +320,17 @@ mod tests {
     #[test]
     fn resident_llama_backend_never_claims_stream_ops() {
         let backend = LlamaCppBackend::new();
+        assert!(!backend.supports(&RuntimeOp::MoEWarmup {
+            experts: vec![], max_bytes: 8,
+        }));
+        assert!(!backend.supports(&RuntimeOp::MoEWarmupHistory {
+            path: std::path::PathBuf::from("missing-history.json"),
+            actual_model_sha256: "a".repeat(64),
+        }));
+        assert!(!backend.supports(&RuntimeOp::MoETracePredict {
+            epoch: 1, current: ExpertKey { layer: 0, expert_id: 0 },
+            candidates: vec![], top_k: 0,
+        }));
         assert!(!backend.supports(&RuntimeOp::MoEPoll));
         assert!(!backend.supports(&RuntimeOp::MoEBeginToken{epoch:1}));
     }
