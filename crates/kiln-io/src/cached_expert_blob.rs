@@ -721,7 +721,7 @@ mod tests {
     fn prewarm_does_not_evict_expert_held_by_computation() {
         let (path, _, table) = fixture();
         let reader = CachedExpertBlobReader::open(
-            &path, table, 8, ExpertCachePolicy::Adaptive
+            &path, table, 8, ExpertCachePolicy::Lru
         ).unwrap();
         let held = reader.read_expert_shared(0, 0).unwrap();
         let other = ExpertKey { layer: 0, expert_id: 1 };
