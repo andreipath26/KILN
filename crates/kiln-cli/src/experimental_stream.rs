@@ -63,7 +63,14 @@ impl TemporaryStreamIndex {
             let path = std::env::temp_dir().join(format!(
                 "kiln-moe-index-{}-{nanos}-{attempt}.tsv", std::process::id()
             ));
-            match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            match options.open(&path) {
                 Ok(mut handle) => {
                     if let Err(error) = handle.write_all(bytes).and_then(|_| handle.sync_all()) {
                         drop(handle);
@@ -157,7 +164,14 @@ impl TemporaryAudit {
             let path = std::env::temp_dir().join(format!(
                 "kiln-moe-audit-{}-{seed}-{attempt}.tsv", std::process::id()
             ));
-            match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            match options.open(&path) {
                 Ok(file) => { drop(file); return Ok(Self { path }); }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(error) => return Err(format!("native audit setup failed: {error}")),
@@ -297,6 +311,16 @@ mod tests {
         assert!(verify_stream_audit(&rows.lines().take(2).collect::<Vec<_>>().join("\n"), &expected).is_err());
         assert!(verify_stream_audit(&rows.replace("\t2\t2\t1024\t1024\t0", "\t2\t1\t1024\t1024\t0"), &expected).is_err());
         assert!(verify_stream_audit(&rows.replace("\t0\t2", "\t0\t0"), &expected).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn temporary_expert_index_and_audit_are_owner_readable_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let index = TemporaryStreamIndex::create(b"KILN-MOE-STREAM-1\n").unwrap();
+        let audit = TemporaryAudit::create().unwrap();
+        assert_eq!(std::fs::metadata(&index.path).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::metadata(&audit.path).unwrap().permissions().mode() & 0o777, 0o600);
     }
 
     #[test]
