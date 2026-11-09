@@ -376,12 +376,16 @@ mod tests {
         let cache = ExpertCache::new(4, ExpertCachePolicy::Lru);
         cache.insert(key(1), vec![9; 4]);
         let held = cache.get_shared(key(1)).unwrap();
-        assert_eq!(cache.insert(key(2), vec![8; 4]), InsertOutcome::Inserted { evicted_entries: 1 });
+        assert_eq!(cache.insert(key(2), vec![8; 4]), InsertOutcome::RejectedPinned {
+            entry_bytes: 4, capacity_bytes: 4,
+        });
         assert_eq!(held.as_ref(), &[9, 9, 9, 9]);
         assert_eq!(cache.stats().used_bytes, 4);
+        assert!(cache.get_shared(key(1)).is_some());
+        // The external Arc acts as a lease: residency stays charged until release.
+        drop(held);
+        assert_eq!(cache.insert(key(2), vec![8; 4]), InsertOutcome::Inserted { evicted_entries: 1 });
         assert!(cache.get_shared(key(1)).is_none());
-        // Cache membership under cap does not include held external Arcs.
-        assert_eq!(Arc::strong_count(&held), 1);
     }
 
     #[test]
