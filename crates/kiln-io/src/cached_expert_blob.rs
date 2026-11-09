@@ -18,6 +18,20 @@ pub struct ExpertAccessTraceSnapshot {
     pub dropped_events: u64,
 }
 
+/// Opt-in model-keyed warm-up of the hottest verified experts.
+/// Counters describe cache residency, not verified inference speedups.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExpertWarmupReport {
+    pub requested: usize,
+    pub admitted: usize,
+    pub already_resident: usize,
+    pub duplicate_keys: usize,
+    pub skipped_budget: usize,
+    pub rejected_pinned: usize,
+    pub selected_bytes: u64,
+    pub admitted_bytes: u64,
+}
+
 struct AccessTraceState {
     max_events: usize,
     events: Vec<ExpertKey>,
@@ -198,6 +212,72 @@ impl CachedExpertBlobReader {
         let bytes = self.read_expert_shared(layer, expert_id)?;
         buffer.copy_from_slice(&bytes);
         Ok(())
+    }
+
+    /// Warm externally ranked expert keys with exact index sizes and a strict
+    /// byte budget. This is a placement optimization, NEVER a prediction of
+    /// which expert the actual model router will select. No tensors are
+    /// activated unless the caller explicitly invokes this method.
+    ///
+    /// Admission may fail when existing read leases pin cache capacity.
+    /// Hold newly warmed blocks until the batch is complete so lower-priority
+    /// entries cannot displace previously admitted, hotter experts.
+    pub fn prewarm_ranked(
+        &self,
+        ranked: &[ExpertKey],
+        requested_budget_bytes: u64,
+    ) -> Result<ExpertWarmupReport, ExpertBlobError> {
+        const MAX_WARM_KEYS: usize = 65_536;
+        if ranked.len() > MAX_WARM_KEYS {
+            return Err(ExpertBlobError::InvalidRoute(
+                "prewarm expert count exceeds the bounded request limit".into(),
+            ));
+        }
+        let capacity = self.cache.stats().capacity_bytes;
+        let budget = requested_budget_bytes.min(capacity);
+        let mut result = ExpertWarmupReport {
+            requested: ranked.len(),
+            ..ExpertWarmupReport::default()
+        };
+        let mut unique = std::collections::HashSet::new();
+        let mut plan = Vec::new();
+        let mut planned_bytes = 0u64;
+        // Validate *all* keys before starting any read so a malformed
+        // model-keyed history cannot cause partial disk I/O.
+        for &key in ranked {
+            if !unique.insert(key) {
+                result.duplicate_keys += 1;
+                continue;
+            }
+            let bytes = self.expert_byte_length(key.layer, key.expert_id)?;
+            if bytes > budget.saturating_sub(planned_bytes) {
+                result.skipped_budget += 1;
+                continue;
+            }
+            planned_bytes += bytes;
+            plan.push((key, bytes));
+        }
+        result.selected_bytes = planned_bytes;
+        let mut pinned: Vec<Arc<[u8]>> = Vec::with_capacity(plan.len());
+        for (key, bytes) in plan {
+            let was_cached = self.cache.get_shared_if_present(key);
+            if let Some(handle) = was_cached {
+                result.already_resident += 1;
+                result.admitted += 1;
+                result.admitted_bytes += bytes;
+                pinned.push(handle);
+                continue;
+            }
+            let expert = self.read_expert_shared(key.layer, key.expert_id)?;
+            if self.cache.get_shared_if_present(key).is_some() {
+                result.admitted += 1;
+                result.admitted_bytes += bytes;
+                pinned.push(expert);
+            } else {
+                result.rejected_pinned += 1;
+            }
+        }
+        Ok(result)
     }
 
     pub fn invalidate(&self, layer: u32, expert_id: u32) -> bool {
@@ -440,6 +520,61 @@ mod tests {
         assert_eq!(reader.access_trace_snapshot().max_events, 0);
         assert_eq!(reader.access_trace_snapshot().dropped_events, 0);
         std::fs::remove_file(trace_path).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn prewarm_ranked_deduplicates_and_respects_strict_cache_budget() {
+        let (path, data, table) = fixture();
+        let reader = CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap();
+        let a = ExpertKey { layer: 0, expert_id: 0 };
+        let b = ExpertKey { layer: 0, expert_id: 1 };
+        let c = ExpertKey { layer: 1, expert_id: 0 };
+        let result = reader.prewarm_ranked(&[a, a, b, c], 16).unwrap();
+        assert_eq!(result.requested, 4);
+        assert_eq!(result.duplicate_keys, 1);
+        assert_eq!(result.skipped_budget, 1);
+        assert_eq!(result.admitted, 2);
+        assert_eq!(result.selected_bytes, 16);
+        assert_eq!(result.admitted_bytes, 16);
+        assert_eq!(reader.cache_stats().used_bytes, 16);
+        assert_eq!(reader.read_expert(0, 0).unwrap(), data[0..8]);
+        assert_eq!(reader.read_expert(0, 1).unwrap(), data[8..16]);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn prewarm_rejects_bad_key_before_any_disk_read() {
+        let (path, _, table) = fixture();
+        let reader = CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap();
+        let good = ExpertKey { layer: 0, expert_id: 0 };
+        let bad = ExpertKey { layer: 99, expert_id: 0 };
+        assert!(reader.prewarm_ranked(&[good, bad], 16).is_err());
+        assert_eq!(reader.cache_stats().misses, 0);
+        assert_eq!(reader.cache_stats().entries, 0);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn prewarm_does_not_evict_expert_held_by_computation() {
+        let (path, _, table) = fixture();
+        let reader = CachedExpertBlobReader::open(
+            &path, table, 8, ExpertCachePolicy::Adaptive
+        ).unwrap();
+        let held = reader.read_expert_shared(0, 0).unwrap();
+        let other = ExpertKey { layer: 0, expert_id: 1 };
+        let refused = reader.prewarm_ranked(&[other], 8).unwrap();
+        assert_eq!(refused.rejected_pinned, 1);
+        assert_eq!(reader.cache_stats().used_bytes, 8);
+        assert_eq!(reader.cache_stats().entries, 1);
+        drop(held);
+        let accepted = reader.prewarm_ranked(&[other], 8).unwrap();
+        assert_eq!(accepted.admitted, 1);
+        assert_eq!(reader.cache_stats().used_bytes, 8);
         std::fs::remove_file(path).unwrap();
     }
 

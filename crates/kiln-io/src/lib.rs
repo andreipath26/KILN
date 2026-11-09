@@ -26,7 +26,7 @@ pub use source::{IoSource, BlockSize};
 pub use fallback::SyncIoSource;
 pub use range_reader::{FileRangeReader, RangeReadError};
 pub use expert_blob::{ExpertBlobError, ExpertBlobReader};
-pub use cached_expert_blob::{CachedExpertBlobReader, ExpertAccessTraceSnapshot};
+pub use cached_expert_blob::{CachedExpertBlobReader, ExpertAccessTraceSnapshot, ExpertWarmupReport};
 
 pub mod expert_sidecar;
 pub use expert_sidecar::{write_expert_sidecar, verify_expert_sidecar, SidecarIntegrityManifest, SidecarPackError, SIDECAR_ALIGNMENT};
