@@ -250,6 +250,28 @@ jobs:
           print("Read-only real-GGUF hardware preflight smoke passed")
           PY
 
+      - name: Archive real-model MoE routing and source-parity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase5-real-moe-evidence
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/real-moe-router.tsv
+            ${{ runner.temp }}/real-moe-router.json
+            ${{ runner.temp }}/real-moe-inference.json
+            ${{ runner.temp }}/real-moe-page-advice.json
+            ${{ runner.temp }}/real-moe-lazy-ab.json
+            ${{ runner.temp }}/moe-fused-candidates.json
+            ${{ runner.temp }}/real-moe-fused-selections.json
+            ${{ runner.temp }}/real-moe-fused.index.json
+            ${{ runner.temp }}/real-moe-fused.integrity.json
+            ${{ runner.temp }}/real-moe-fused.components.json
+            ${{ runner.temp }}/real-moe-pack-result.json
+            ${{ runner.temp }}/real-moe-fused-replay.json
+            ${{ runner.temp }}/kiln-model-plan.json
+
       - name: Smoke-test Phase 3.5 real-model benchmark commands
         env:
           KILN_TEST_MODEL_PATH: ${{ runner.temp }}/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf
