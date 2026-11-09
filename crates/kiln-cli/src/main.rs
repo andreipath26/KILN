@@ -62,6 +62,74 @@ fn process_memory_kib() -> Option<ProcessMemoryKib> {
     }
 }
 
+/// Linux /proc/self/io attribution. read_bytes reflects kernel-accounted
+/// storage fetches attributed to this process (including mmap faults), while
+/// rchar counts bytes returned by read-like syscalls even if served from cache.
+/// Neither counter is a guaranteed isolated SSD throughput measurement.
+#[derive(Debug, Clone, Copy)]
+struct ProcessIoBytes {
+    rchar: u64,
+    read_bytes: u64,
+}
+
+fn parse_process_io(contents: &str) -> Option<ProcessIoBytes> {
+    fn value(contents: &str, key: &str) -> Option<u64> {
+        let line = contents.lines().find(|line| line.split_once(':')
+            .is_some_and(|(name, _)| name == key))?;
+        let (_, raw) = line.split_once(':')?;
+        let mut fields = raw.split_whitespace();
+        let value = fields.next()?.parse::<u64>().ok()?;
+        if fields.next().is_some() { return None; }
+        Some(value)
+    }
+    Some(ProcessIoBytes {
+        rchar: value(contents, "rchar")?,
+        read_bytes: value(contents, "read_bytes")?,
+    })
+}
+
+fn process_io_bytes() -> Option<ProcessIoBytes> {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/self/io")
+            .ok().and_then(|contents| parse_process_io(&contents))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+fn process_io_delta(before: Option<ProcessIoBytes>, after: Option<ProcessIoBytes>)
+    -> Option<(u64, u64)> {
+    let (before, after) = (before?, after?);
+    Some((
+        after.rchar.checked_sub(before.rchar)?,
+        after.read_bytes.checked_sub(before.read_bytes)?,
+    ))
+}
+
+#[cfg(test)]
+mod process_io_tests {
+    use super::*;
+
+    #[test]
+    fn parses_kernel_accounted_io_counters_without_confusing_syscalls_with_disk() {
+        let data = "rchar: 1024\nwchar: 1234\nsyscr: 4\nread_bytes: 4096\nwrite_bytes: 2048\n";
+        let io = parse_process_io(data).unwrap();
+        assert_eq!(io.rchar, 1024);
+        assert_eq!(io.read_bytes, 4096);
+        assert_eq!(process_io_delta(Some(io), Some(ProcessIoBytes {
+            rchar: 1536, read_bytes: 8192
+        })), Some((512,4096)));
+        assert!(parse_process_io("rchar: 3\n").is_none());
+        assert!(parse_process_io("rchar: -3\nread_bytes: 5\n").is_none());
+        assert!(process_io_delta(Some(io), Some(ProcessIoBytes {
+            rchar: 1, read_bytes: 1
+        })).is_none());
+    }
+}
+
 #[cfg(test)]
 mod process_memory_tests {
     use super::*;
@@ -939,6 +1007,7 @@ async fn main() {
             dispatcher.register(Box::new(LlamaCppBackend::new()));
 
             let memory_before_load = process_memory_kib();
+            let io_before_load = process_io_bytes();
             let load_start = std::time::Instant::now();
             if let Err(error) = dispatcher.dispatch(RuntimeOp::Load {
                 path: std::path::PathBuf::from(&model),
@@ -953,6 +1022,7 @@ async fn main() {
             }
             let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
             let memory_after_load = process_memory_kib();
+            let io_after_load = process_io_bytes();
             let eos = match dispatcher.dispatch(RuntimeOp::EosToken) {
                 Ok(RuntimeResult::Int(token)) => token,
                 Ok(_) => {
@@ -976,8 +1046,20 @@ async fn main() {
 
             let mut measurements = Vec::with_capacity(runs);
             for index in 0..runs {
+                let io_before_run = process_io_bytes();
                 match bench_once(&mut dispatcher, &prompt, tokens, eos, native_greedy) {
                     Ok(mut result) => {
+                        let per_run_io = process_io_delta(io_before_run, process_io_bytes());
+                        result["process_read_syscall_bytes_delta"] =
+                            serde_json::json!(per_run_io.map(|pair| pair.0));
+                        result["process_storage_read_bytes_delta"] =
+                            serde_json::json!(per_run_io.map(|pair| pair.1));
+                        let generated = result.get("generated_tokens").and_then(serde_json::Value::as_u64);
+                        result["process_storage_read_mib_per_generated_token"] = serde_json::json!(
+                            per_run_io.and_then(|(_, bytes)| generated
+                                .filter(|count| *count > 0)
+                                .map(|count| bytes as f64 / (1024.0 * 1024.0 * count as f64)))
+                        );
                         // VmHWM is process-wide and monotonic: a useful upper
                         // bound at this checkpoint, not per-run isolated peak.
                         let sample = process_memory_kib();
@@ -993,6 +1075,7 @@ async fn main() {
             }
 
             let memory_after_benchmark = process_memory_kib();
+            let io_after_benchmark = process_io_bytes();
 
             // Report distribution statistics as well as means. A mean alone can
             // hide noisy runs and is insufficient for controlled comparisons.
@@ -1016,6 +1099,18 @@ async fn main() {
                 "lazy_moe_experts": lazy_moe_experts,
                 "measured_runs": runs,
                 "load_ms": load_ms,
+                "process_io": {
+                    "source": if cfg!(target_os = "linux") { "linux_proc_self_io" } else { "unsupported_platform" },
+                    "model_load": {
+                        "read_syscall_bytes_delta": process_io_delta(io_before_load, io_after_load).map(|pair| pair.0),
+                        "kernel_storage_read_bytes_delta": process_io_delta(io_before_load, io_after_load).map(|pair| pair.1)
+                    },
+                    "measured_inference": {
+                        "read_syscall_bytes_delta": process_io_delta(io_after_load, io_after_benchmark).map(|pair| pair.0),
+                        "kernel_storage_read_bytes_delta": process_io_delta(io_after_load, io_after_benchmark).map(|pair| pair.1)
+                    },
+                    "limitations": "Kernel process read_bytes counts attributed actual storage reads, including mmap-fault reads but not global device I/O and possibly affected by OS caching and other users. rchar includes cached syscalls; neither equals isolated cold SSD traffic. Measured inference includes warmups and reset overhead."
+                },
                 "process_memory": {
                     "source": if cfg!(target_os = "linux") { "linux_proc_self_status" } else { "unsupported_platform" },
                     "unit": "KiB",
@@ -1055,6 +1150,7 @@ async fn main() {
                     "token_conversion_ms": stats("token_conversion_ms"),
                     "decode_tokens_per_second": stats("decode_tokens_per_second"),
                     "decode_forward_tokens_per_second": stats("decode_forward_tokens_per_second"),
+                    "process_storage_read_mib_per_generated_token": stats("process_storage_read_mib_per_generated_token"),
                     "response_tokens_per_second_including_prefill": stats("response_tokens_per_second_including_prefill")
                 },
                 "runs": measurements

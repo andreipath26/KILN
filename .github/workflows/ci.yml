@@ -411,6 +411,9 @@ jobs:
           assert report["hot_expert_cache_hits"] > 0, "no direct-GGUF expert cache reuse"
           assert report["external_matmul_ops"] > 0
           assert report["external_decode_forward_tps"] > 0
+          assert report["external_kernel_attributed_storage_read_bytes"] is not None
+          assert report["external_kernel_attributed_storage_read_bytes"] >= 0
+          assert report["external_kernel_attributed_storage_read_mib_per_token"] is not None
           assert report["external_process_peak_rss_kib"] > 0
           assert report["source_mode"] == "original_gguf"
           assert report["lazy_moe_experts_enabled"] is True
@@ -507,6 +510,8 @@ jobs:
           spec = json.loads((root / "phase35-spec.json").read_text())
           kv = json.loads((root / "phase35-kv.json").read_text())
           assert dense["sampling_path"] == "rust_logits_greedy"
+          assert dense["process_io"]["source"] == "linux_proc_self_io"
+          assert dense["process_io"]["measured_inference"]["kernel_storage_read_bytes_delta"] is not None
           assert dense["requested_microbatch"] == 64
           assert spec["all_output_sequences_equal"] is True
           assert kv["all_argmax_equal"] is True

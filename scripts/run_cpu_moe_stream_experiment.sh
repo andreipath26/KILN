@@ -141,6 +141,12 @@ proof = {
         .get("decode_forward_tokens_per_second", {}).get("mean"),
     "external_decode_forward_tps": external.get("statistics", {})
         .get("decode_forward_tokens_per_second", {}).get("mean"),
+    "baseline_kernel_attributed_storage_read_bytes": baseline.get("process_io", {})
+        .get("measured_inference", {}).get("kernel_storage_read_bytes_delta"),
+    "external_kernel_attributed_storage_read_bytes": external.get("process_io", {})
+        .get("measured_inference", {}).get("kernel_storage_read_bytes_delta"),
+    "external_kernel_attributed_storage_read_mib_per_token": external.get("statistics", {})
+        .get("process_storage_read_mib_per_generated_token", {}).get("mean"),
     "baseline_process_peak_rss_kib": baseline.get("process_memory", {})
         .get("after_benchmark", {}).get("peak_rss_to_date"),
     "external_process_peak_rss_kib": external.get("process_memory", {})
