@@ -25,7 +25,7 @@ impl RuntimeBackend for LlamaCppBackend {
     fn supports(&self, op: &RuntimeOp) -> bool {
         match op {
             RuntimeOp::Load { .. } => true,
-            RuntimeOp::MoEWarmup { .. } | RuntimeOp::MoEWarmupHistory { .. }
+            RuntimeOp::MoECacheResize { .. } | RuntimeOp::MoEWarmup { .. } | RuntimeOp::MoEWarmupHistory { .. }
                 | RuntimeOp::MoETracePredict { .. } | RuntimeOp::MoEBeginToken { .. }
                 | RuntimeOp::MoEPrefetch { .. } | RuntimeOp::MoEPoll
                 | RuntimeOp::MoECommit { .. } => false,
@@ -37,7 +37,7 @@ impl RuntimeBackend for LlamaCppBackend {
 
     fn execute(&mut self, op: &RuntimeOp) -> Result<RuntimeResult, RuntimeError> {
         match op {
-            RuntimeOp::MoEWarmup { .. } | RuntimeOp::MoEWarmupHistory { .. }
+            RuntimeOp::MoECacheResize { .. } | RuntimeOp::MoEWarmup { .. } | RuntimeOp::MoEWarmupHistory { .. }
                 | RuntimeOp::MoETracePredict { .. } | RuntimeOp::MoEBeginToken { .. }
                 | RuntimeOp::MoEPrefetch { .. } | RuntimeOp::MoEPoll
                 | RuntimeOp::MoECommit { .. } => Err(RuntimeError::NoBackend),
@@ -126,6 +126,7 @@ mod tests {
     fn streamed_operations_are_never_claimed_or_executed_by_resident_backend() {
         let mut backend = LlamaCppBackend::new();
         let operations = [
+            RuntimeOp::MoECacheResize { capacity_bytes: 8 },
             RuntimeOp::MoEWarmup { experts: vec![], max_bytes: 16 },
             RuntimeOp::MoEWarmupHistory {
                 path: PathBuf::from("not-a-real-history.json"),
