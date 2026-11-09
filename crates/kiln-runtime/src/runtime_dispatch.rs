@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use kiln_mem::ExpertKey;
 
-use crate::ffi::LlamaError;
+use crate::ffi::{LlamaError, KvSnapshot};
 
 #[derive(Debug, Clone)]
 pub enum RuntimeOp {
@@ -16,15 +16,30 @@ pub enum RuntimeOp {
     ForwardGreedy { tokens: Vec<i32> },
     /// Batched greedy draft verification, with rejected KV tail rolled back.
     VerifyGreedyDraft { tokens: Vec<i32> },
+    /// Adjust byte-bounded expert cache during memory pressure; leased
+    /// computations remain pinned until their readers release them.
+    MoECacheResize { capacity_bytes: u64 },
+    /// Opt-in, exact-index-verified prewarm that never overrides router choices.
+    MoEWarmup { experts: Vec<ExpertKey>, max_bytes: u64 },
+    /// Explicit historical heat file, bound to the current model's true GGUF SHA256.
+    MoEWarmupHistory { path: PathBuf, actual_model_sha256: String },
     /// Advance the token-scoped expert Commit Guard.
     MoEBeginToken { epoch: u64 },
     /// Schedule optional predicted expert reads; these are not authoritative.
     MoEPrefetch { epoch: u64, experts: Vec<ExpertKey> },
+    /// Speculation trained from exact observed expert routes; no router override.
+    MoETracePredict {
+        epoch: u64, current: ExpertKey, candidates: Vec<ExpertKey>, top_k: usize,
+    },
     /// Poll completed speculative I/O without blocking the decode thread.
     MoEPoll,
     /// Only the actual router keys can authorize bytes for compute.
     MoECommit { epoch: u64, actual: Vec<ExpertKey> },
     Reset,
+    /// Bounded, same-context KV/logit state capture for prefix reuse.
+    SaveKv { max_bytes: usize },
+    /// Restore only to the exact loaded context that produced this state.
+    RestoreKv { snapshot: Arc<KvSnapshot> },
     Tokenize { text: String },
     Logits,
     TokenToStr { token: i32 },
@@ -36,11 +51,14 @@ pub enum RuntimeOp {
 #[derive(Debug)]
 pub enum RuntimeResult {
     Unit,
+    KvSnapshot(Arc<KvSnapshot>),
     Logits(Vec<f32>),
     Tokens(Vec<i32>),
     /// Accepted prefix length and the unevaluated corrected next token.
     VerifiedGreedy { accepted: usize, next: i32 },
     MoEPrefetchSubmitted { submitted: usize, rejected: usize },
+    MoEWarmupReport(kiln_io::ExpertWarmupReport),
+    MoECacheResizeResult(kiln_mem::ResizeOutcome),
     MoEStaged { count: usize },
     MoEExpertBytes {
         experts: Vec<(ExpertKey, Arc<[u8]>)>,

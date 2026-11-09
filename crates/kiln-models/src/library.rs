@@ -23,6 +23,10 @@ pub struct LocalModel {
     pub size_bytes: u64,
     pub source: String,
     pub valid_gguf: bool,
+    /// All installed Ollama tags that refer to the same physical GGUF blob.
+    /// A single blob remains one model for auto-selection and memory accounting.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -60,6 +64,8 @@ fn standard_roots() -> Vec<PathBuf> {
     add(std::env::var_os("KILN_MODELS_DIR"));
     add(std::env::var_os("HF_HOME").map(|p| PathBuf::from(p).join("hub").into_os_string()));
     add(std::env::var_os("XDG_CACHE_HOME").map(|p| PathBuf::from(p).join("huggingface/hub").into_os_string()));
+    // Keep discovery aligned with model_dir(), which writes here when XDG_DATA_HOME is set.
+    add(std::env::var_os("XDG_DATA_HOME").map(|p| PathBuf::from(p).join("kiln/models").into_os_string()));
     add(std::env::var_os("OLLAMA_MODELS"));
     #[cfg(target_os = "windows")]
     add(std::env::var_os("LOCALAPPDATA").map(|p| PathBuf::from(p).join("KILN/models").into_os_string()));
@@ -85,7 +91,40 @@ fn has_gguf_magic(path: &Path) -> bool {
     fs::File::open(path).and_then(|mut file| file.read_exact(&mut magic)).is_ok() && &magic == b"GGUF"
 }
 
-fn collect_files(root: &Path, depth: usize, visited: &mut usize, seen: &mut HashSet<PathBuf>, out: &mut Vec<PathBuf>) {
+/// Human-readable canonical Hugging Face cache identity for a local
+/// snapshot GGUF symlink. This is a path-to-name mapping only: the original
+/// source is always canonicalized and validated as GGUF before use.
+fn huggingface_snapshot_name(path: &Path) -> Option<String> {
+    let parts = path.components().filter_map(|c| match c {
+        std::path::Component::Normal(s) => s.to_str(),
+        _ => None,
+    }).collect::<Vec<_>>();
+    for (index, part) in parts.iter().enumerate() {
+        let Some(repo) = part.strip_prefix("models--") else { continue };
+        if index + 3 >= parts.len() || parts[index + 1] != "snapshots" {
+            continue;
+        }
+        let fields: Vec<_> = repo.split("--").collect();
+        if fields.len() != 2 || fields.iter().any(|x| x.is_empty()) {
+            continue;
+        }
+        let revision = parts[index + 2];
+        if revision.is_empty() || !revision.bytes().all(|b| b.is_ascii_hexdigit()) {
+            continue;
+        }
+        let filename = parts[index + 3..].join("/");
+        if !filename.to_ascii_lowercase().ends_with(".gguf") {
+            continue;
+        }
+        if fields.iter().any(|x| !x.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))) {
+            continue;
+        }
+        return Some(format!("{}/{}/{}", fields[0], fields[1], filename));
+    }
+    None
+}
+
+fn collect_files(root: &Path, depth: usize, visited: &mut usize, seen: &mut HashSet<PathBuf>, aliases: &mut std::collections::HashMap<PathBuf, Vec<String>>, out: &mut Vec<PathBuf>) {
     if depth > MAX_SCAN_DEPTH || *visited >= MAX_SCAN_ENTRIES { return; }
     let Ok(entries) = fs::read_dir(root) else { return; };
     for entry in entries.flatten() {
@@ -96,24 +135,116 @@ fn collect_files(root: &Path, depth: usize, visited: &mut usize, seen: &mut Hash
         if meta.is_dir() {
             // Do not follow directory symlinks; this prevents loops and duplicate full-tree scans.
             if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                collect_files(&path, depth + 1, visited, seen, out);
+                collect_files(&path, depth + 1, visited, seen, aliases, out);
             }
         } else if meta.is_file() {
             let looks_like_gguf = path.extension().and_then(|x| x.to_str())
                 .map(|x| x.eq_ignore_ascii_case("gguf")).unwrap_or(false);
             // Ollama stores GGUF weights as extensionless content-addressed blobs.
             if looks_like_gguf || has_gguf_magic(&path) {
+                let hf_name = huggingface_snapshot_name(&path);
                 let canonical = fs::canonicalize(&path).unwrap_or(path);
+                if let Some(name) = hf_name {
+                    let names = aliases.entry(canonical.clone()).or_default();
+                    if !names.contains(&name) { names.push(name); }
+                }
                 if seen.insert(canonical.clone()) { out.push(canonical); }
             }
         }
     }
 }
 
+/// Resolve Ollama's registry manifests into familiar names without copying
+/// model blobs or invoking the Ollama daemon. All paths stay inside the
+/// configured models tree; malformed or oversized manifests are ignored.
+fn ollama_names_for_roots(roots: &[PathBuf]) -> std::collections::HashMap<PathBuf, Vec<String>> {
+    const MAX_MANIFESTS: usize = 10_000;
+    const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+    let mut result: std::collections::HashMap<PathBuf, Vec<String>> =
+        std::collections::HashMap::new();
+    let mut scanned = 0usize;
+    for root in roots {
+        let manifests = root.join("manifests");
+        let blobs = root.join("blobs");
+        if !manifests.is_dir() || !blobs.is_dir() {
+            continue;
+        }
+        let Ok(canonical_blobs) = fs::canonicalize(&blobs) else { continue };
+        let mut dirs = vec![(manifests, 0usize)];
+        while let Some((dir, depth)) = dirs.pop() {
+            if scanned >= MAX_MANIFESTS { break; }
+            let Ok(items) = fs::read_dir(&dir) else { continue };
+            for entry in items.flatten() {
+                if scanned >= MAX_MANIFESTS { break; }
+                let Ok(file_type) = entry.file_type() else { continue };
+                let path = entry.path();
+                if file_type.is_dir() {
+                    if depth < 4 { dirs.push((path, depth + 1)); }
+                    continue;
+                }
+                if !file_type.is_file() || depth != 3 { continue; }
+                scanned += 1;
+                let Ok(relative) = path.strip_prefix(root.join("manifests")) else { continue };
+                let pieces: Vec<_> = relative.components().filter_map(|c| match c {
+                    std::path::Component::Normal(name) => name.to_str(),
+                    _ => None,
+                }).collect();
+                if pieces.len() != 4 { continue; }
+                let [registry, namespace, model, tag] =
+                    [pieces[0], pieces[1], pieces[2], pieces[3]];
+                if ![registry, namespace, model, tag].iter().all(|part| {
+                    !part.is_empty() && !part.bytes().any(|b| b.is_ascii_control())
+                }) { continue; }
+                let Ok(metadata) = entry.metadata() else { continue };
+                if metadata.len() == 0 || metadata.len() > MAX_MANIFEST_BYTES { continue; }
+                let Ok(bytes) = fs::read(&path) else { continue };
+                let Ok(manifest) = serde_json::from_slice::<Value>(&bytes) else { continue };
+                let Some(layers) = manifest.get("layers").and_then(Value::as_array) else { continue };
+                let alias = if registry == "registry.ollama.ai" && namespace == "library" {
+                    format!("{model}:{tag}")
+                } else if registry == "registry.ollama.ai" {
+                    format!("{namespace}/{model}:{tag}")
+                } else {
+                    format!("{registry}/{namespace}/{model}:{tag}")
+                };
+                for layer in layers {
+                    if layer.get("mediaType").and_then(Value::as_str)
+                        != Some("application/vnd.ollama.image.model") {
+                        continue;
+                    }
+                    let Some(digest) = layer.get("digest").and_then(Value::as_str)
+                        .and_then(|v| v.strip_prefix("sha256:")) else { continue };
+                    if digest.len() != 64 ||
+                        !digest.bytes().all(|b| b.is_ascii_hexdigit()) { continue; }
+                    let blob = canonical_blobs.join(format!("sha256-{}", digest.to_ascii_lowercase()));
+                    let Ok(canonical_blob) = fs::canonicalize(&blob) else { continue };
+                    if !canonical_blob.starts_with(&canonical_blobs) ||
+                        !canonical_blob.is_file() { continue; }
+                    let names = result.entry(canonical_blob).or_default();
+                    if !names.contains(&alias) { names.push(alias.clone()); }
+                }
+            }
+        }
+    }
+    for aliases in result.values_mut() { aliases.sort(); }
+    result
+}
+
 pub fn discover_models(extra_roots: &[PathBuf]) -> Vec<LocalModel> {
     let mut roots = standard_roots();
     roots.extend(extra_roots.iter().cloned());
+    let mut ollama_roots = Vec::new();
+    if let Some(path) = std::env::var_os("OLLAMA_MODELS") {
+        ollama_roots.push(PathBuf::from(path));
+    }
+    if let Some(home) = home_dir() {
+        ollama_roots.push(home.join(".ollama/models"));
+    }
+    // Extra model roots may themselves be Ollama storage roots.
+    ollama_roots.extend(extra_roots.iter().cloned());
+    let ollama_names = ollama_names_for_roots(&ollama_roots);
     let mut files = Vec::new();
+    let mut hf_aliases = std::collections::HashMap::<PathBuf, Vec<String>>::new();
     let mut seen = HashSet::new();
     let mut unique_roots = HashSet::new();
     let mut visited = 0usize;
@@ -121,7 +252,7 @@ pub fn discover_models(extra_roots: &[PathBuf]) -> Vec<LocalModel> {
         if root.is_dir() {
             let canonical = fs::canonicalize(&root).unwrap_or(root);
             if unique_roots.insert(canonical.clone()) {
-                collect_files(&canonical, 0, &mut visited, &mut seen, &mut files);
+                collect_files(&canonical, 0, &mut visited, &mut seen, &mut hf_aliases, &mut files);
             }
         } else if root.is_file() {
             let canonical = fs::canonicalize(&root).unwrap_or(root);
@@ -133,13 +264,27 @@ pub fn discover_models(extra_roots: &[PathBuf]) -> Vec<LocalModel> {
     for path in files {
         if !inspect_gguf(&path) { continue; }
         let Ok(metadata) = fs::metadata(&path) else { continue; };
-        let name = path.file_name().and_then(|x| x.to_str()).unwrap_or("model.gguf").to_owned();
+        let mut aliases = ollama_names.get(&path).cloned().unwrap_or_default();
+        if let Some(hf_names) = hf_aliases.get(&path) {
+            for alias in hf_names {
+                if !aliases.contains(alias) { aliases.push(alias.clone()); }
+            }
+        }
+        aliases.sort();
+        let name = ollama_names.get(&path).and_then(|names| names.first())
+            .or_else(|| hf_aliases.get(&path).and_then(|names| names.first()))
+            .cloned()
+            .unwrap_or_else(|| path.file_name().and_then(|x| x.to_str())
+                .unwrap_or("model.gguf").to_owned());
         models.push(LocalModel {
             name,
             path: path.display().to_string(),
             size_bytes: metadata.len(),
-            source: root_label(&path),
+            source: if ollama_names.contains_key(&path) { "Ollama manifest".into() }
+                else if hf_aliases.contains_key(&path) { "Hugging Face snapshot".into() }
+                else { root_label(&path) },
             valid_gguf: true,
+            aliases,
         });
     }
     models.sort_by(|a,b| a.name.to_lowercase().cmp(&b.name.to_lowercase()).then(a.path.cmp(&b.path)));
@@ -484,6 +629,81 @@ pub async fn pull_hugging_face_async_with_progress(
 mod tests {
     use super::{sha256_from_metadata, valid_repo_file, valid_repo_id};
     use serde_json::json;
+
+    #[cfg(unix)]
+    #[test]
+    fn snapshot_symlink_discovers_alias_without_a_duplicate_weight_file() {
+        use super::collect_files;
+        use std::collections::{HashMap, HashSet};
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!(
+            "kiln-hf-zero-copy-{}-{:?}",std::process::id(),std::thread::current().id()
+        ));
+        let snapshot = root.join("models--vendor--generic/snapshots/abc123");
+        let blobs = root.join("models--vendor--generic/blobs");
+        std::fs::create_dir_all(&snapshot).unwrap();
+        std::fs::create_dir_all(&blobs).unwrap();
+        let blob = blobs.join("weight");
+        std::fs::write(&blob,b"GGUF fixture").unwrap();
+        symlink("../../blobs/weight",snapshot.join("model.gguf")).unwrap();
+        let mut visited=0;
+        let mut seen=HashSet::new();
+        let mut aliases=HashMap::new();
+        let mut files=Vec::new();
+        collect_files(&root,0,&mut visited,&mut seen,&mut aliases,&mut files);
+        let canonical=std::fs::canonicalize(blob).unwrap();
+        assert_eq!(files.len(),1);
+        assert_eq!(files[0],canonical);
+        assert_eq!(aliases.get(&canonical).unwrap(),&vec![
+            "vendor/generic/model.gguf".to_string()
+        ]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn cache_snapshot_names_preserve_human_repo_and_file_identity_without_weight_copy() {
+        use super::huggingface_snapshot_name;
+        let path = std::path::Path::new(
+            "/home/example/.cache/huggingface/hub/models--author--project/snapshots/abcdef1234/quant/model.Q4_K_M.gguf"
+        );
+        assert_eq!(huggingface_snapshot_name(path).as_deref(),
+            Some("author/project/quant/model.Q4_K_M.gguf"));
+        assert!(huggingface_snapshot_name(std::path::Path::new(
+            "/tmp/models--author--project/blobs/sha256-other")).is_none());
+        assert!(huggingface_snapshot_name(std::path::Path::new(
+            "/tmp/models--author--project/snapshots/not-a-commit/weights.gguf")).is_none());
+        assert!(huggingface_snapshot_name(std::path::Path::new(
+            "/tmp/models--author--project/snapshots/012abc/file.bin")).is_none());
+    }
+
+    #[test]
+    fn ollama_manifest_resolves_real_model_name_from_existing_blob_without_copying() {
+        use super::ollama_names_for_roots;
+        let root=std::env::temp_dir().join(format!(
+            "kiln-ollama-alias-{}-{:?}",std::process::id(),std::thread::current().id()
+        ));
+        let manifests=root.join("manifests/registry.ollama.ai/library/fixture");
+        let blobs=root.join("blobs");
+        std::fs::create_dir_all(&manifests).unwrap();
+        std::fs::create_dir_all(&blobs).unwrap();
+        let digest="a".repeat(64);
+        let blob=blobs.join(format!("sha256-{digest}"));
+        std::fs::write(&blob,b"GGUF test").unwrap();
+        let manifest=serde_json::json!({
+            "schemaVersion":2,
+            "layers":[
+                {"mediaType":"application/vnd.ollama.image.model",
+                 "digest":format!("sha256:{digest}"),"size":9}
+            ]
+        });
+        std::fs::write(manifests.join("latest"),serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let mapping=ollama_names_for_roots(&[root.clone()]);
+        assert_eq!(mapping.get(&blob).unwrap(),&vec!["fixture:latest".to_string()]);
+        assert_eq!(std::fs::read(&blob).unwrap(),b"GGUF test");
+        std::fs::write(manifests.join("bad"),br#"{"layers":[{"mediaType":"application/vnd.ollama.image.model","digest":"sha256:../escape"}]}"#).unwrap();
+        assert_eq!(ollama_names_for_roots(&[root.clone()]).len(),1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn model_library_rejects_traversal_and_non_gguf_files() {

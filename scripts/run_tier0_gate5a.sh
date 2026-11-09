@@ -31,6 +31,15 @@ cd "$ROOT"
 OUT="${3:-tier0-gate5a-$(date -u +%Y%m%dT%H%M%SZ)}"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
+RAW_TRACE=""
+if [[ -n "$TRACE" && "$TRACE" == *.tsv ]]; then
+  RAW_TRACE="$TRACE"
+  # Convert the actual CPU MAT_ID operator log to bounded, chronological JSON.
+  # Projection repeats are retained; this is not a unique token-level trace.
+  python3 scripts/convert_moe_router_trace.py "$RAW_TRACE" \
+    --out "$OUT/router-trace.json" > "$OUT/router-trace-conversion.json"
+  TRACE="$OUT/router-trace.json"
+fi
 {
  echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
  echo "kiln_commit=$(git rev-parse HEAD)"
@@ -47,6 +56,10 @@ OUT="$(cd "$OUT" && pwd)"
  if [[ -n "$TRACE" ]]; then
    echo "router_trace_path=$TRACE"
    echo "router_trace_sha256=$(sha256sum "$TRACE" | awk '{print $1}')"
+   if [[ -n "$RAW_TRACE" ]]; then
+     echo "router_raw_tsv_path=$RAW_TRACE"
+     echo "router_raw_tsv_sha256=$(sha256sum "$RAW_TRACE" | awk '{print $1}')"
+   fi
  fi
  echo "cargo=$(cargo --version)"
  echo "rustc=$(rustc --version)"

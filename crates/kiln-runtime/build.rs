@@ -9,8 +9,14 @@ use std::path::PathBuf;
 fn main() {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let llama_root = manifest_dir.parent().unwrap().parent().unwrap().join("vendor").join("llama.cpp");
-    let lib_dir = llama_root.join("build").join("src");
-    let ggml_lib_dir = llama_root.join("build").join("ggml").join("src");
+    // A portable distribution MUST NOT accidentally pick up native-tuned
+    // developer archives from vendor/llama.cpp/build. The release packager
+    // supplies an isolated, explicitly non-native CMake build directory.
+    let build_root = std::env::var_os("KILN_LLAMA_BUILD_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| llama_root.join("build"));
+    let lib_dir = build_root.join("src");
+    let ggml_lib_dir = build_root.join("ggml").join("src");
     let include_dir = llama_root.join("include");
     let ggml_include = llama_root.join("ggml").join("include");
     let shim_dir = PathBuf::from("../../cpp/llama_shim");
@@ -41,6 +47,9 @@ fn main() {
     println!("cargo:rustc-link-lib=stdc++");
     println!("cargo:rustc-link-lib=gomp");
 
+    println!("cargo:rerun-if-env-changed=KILN_LLAMA_BUILD_DIR");
+    println!("cargo:rerun-if-changed={}", lib_dir.join("libllama.a").display());
+    println!("cargo:rerun-if-changed={}", ggml_lib_dir.join("libggml-cpu.a").display());
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={}", shim_dir.join("kiln_llama_shim.cpp").display());
     println!("cargo:rerun-if-changed={}", shim_dir.join("kiln_llama_shim.h").display());

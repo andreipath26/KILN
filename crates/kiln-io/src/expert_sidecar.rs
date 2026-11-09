@@ -518,6 +518,67 @@ mod tests {
     use std::io::{Seek, Write};
 
     #[test]
+    fn packs_quantized_fused_experts_byte_exact_with_source_verification() {
+        use kiln_models::{FusedExpertTensorSelection, GgufTensorInfo, GgufType,
+            resolve_fused_expert_tensor_components};
+        let root = std::env::temp_dir().join(format!(
+            "kiln-fused-slab-parity-{}-{:?}", std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source=root.join("fused-source.bin");
+        let blob=root.join("fused-experts.bin");
+        let index=root.join("fused-index.json");
+        let integrity=root.join("fused-integrity.json");
+        let components=root.join("fused-components.json");
+        let bytes:Vec<u8>=(0..8192).map(|i| ((i * 31 + 7) % 256) as u8).collect();
+        std::fs::write(&source,&bytes).unwrap();
+        let tensors=[
+            GgufTensorInfo {
+                name:"blk.0.ffn_up_exps".into(),
+                shape:vec![256,3,4],dtype:GgufType::Q4_K,offset:0,
+            },
+            GgufTensorInfo {
+                name:"blk.0.ffn_down_exps".into(),
+                shape:vec![256,2,4],dtype:GgufType::Q4_K,offset:2048,
+            },
+        ];
+        let map=resolve_fused_expert_tensor_components(
+            &tensors,0,bytes.len() as u64,&[
+                FusedExpertTensorSelection {
+                    layer:0,tensor_name:"blk.0.ffn_up_exps".into(),expert_count:4,
+                },
+                FusedExpertTensorSelection {
+                    layer:0,tensor_name:"blk.0.ffn_down_exps".into(),expert_count:4,
+                },
+            ],
+        ).unwrap();
+        let (checks,_)=write_component_expert_sidecar(
+            &source,map.clone(),&blob,&index,&integrity,&components
+        ).unwrap();
+        assert_eq!(checks.experts.len(),4);
+        let (table,packed)=verify_component_expert_sidecar(
+            &blob,&index,&integrity,&components
+        ).unwrap();
+        assert_eq!(table.ranges.len(),4);
+        assert_eq!(packed.components.len(),8);
+        assert_eq!(verify_component_sidecar_against_source(
+            &source,&map,&blob,&index,&integrity,&components
+        ).unwrap(),8);
+        // Mutating source detects content drift even when packed CRC32 is intact.
+        let mut corrupted=bytes;
+        corrupted[500]^=0xff;
+        std::fs::write(&source,&corrupted).unwrap();
+        assert!(verify_component_sidecar_against_source(
+            &source,&map,&blob,&index,&integrity,&components
+        ).is_err());
+        for p in [&source,&blob,&index,&integrity,&components] {
+            std::fs::remove_file(p).unwrap();
+        }
+        std::fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
     fn packed_components_match_source_and_detect_changed_source() {
         let root = std::env::temp_dir().join(format!(
             "kiln-sidecar-parity-{}-{:?}",std::process::id(),

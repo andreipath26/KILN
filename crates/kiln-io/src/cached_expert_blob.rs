@@ -1,9 +1,9 @@
-//! Expert blob reader with a byte-bounded expert cache.
+//! Expert blob reader with a byte-bounded expert cache and pinned leases.
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 
-use kiln_mem::{ExpertCache, ExpertCachePolicy, ExpertCacheStats, ExpertKey};
+use kiln_mem::{ExpertCache, ExpertCachePolicy, ExpertCacheStats, ExpertKey, ResizeOutcome};
 use kiln_models::ExpertTable;
 
 use crate::{ExpertBlobError, ExpertBlobReader};
@@ -16,6 +16,22 @@ pub struct ExpertAccessTraceSnapshot {
     pub events: Vec<ExpertKey>,
     pub max_events: usize,
     pub dropped_events: u64,
+}
+
+/// Opt-in model-keyed warm-up of the hottest verified experts.
+/// Counters describe cache residency, not verified inference speedups.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExpertWarmupReport {
+    pub requested: usize,
+    pub admitted: usize,
+    pub already_resident: usize,
+    pub duplicate_keys: usize,
+    pub skipped_budget: usize,
+    pub rejected_pinned: usize,
+    /// Prefetch capacity was unavailable without displacing resident experts.
+    pub rejected_capacity: usize,
+    pub selected_bytes: u64,
+    pub admitted_bytes: u64,
 }
 
 struct AccessTraceState {
@@ -107,12 +123,31 @@ impl CachedExpertBlobReader {
         }
     }
 
-    /// Write the recorded trace in the JSON format accepted by kiln-bench.
+    /// Export a bounded, private router trace to a new file only. Model
+    /// routing patterns may reveal workload characteristics; never overwrite
+    /// another file or write them world-readable on Unix.
     pub fn write_access_trace_json(&self, path: impl AsRef<Path>) -> std::io::Result<()> {
+        use std::io::Write;
         let snapshot = self.access_trace_snapshot();
         let bytes = serde_json::to_vec_pretty(&snapshot.events)
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-        std::fs::write(path, bytes)
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let path = path.as_ref();
+        let mut output = options.open(path)?;
+        if let Err(error) = output.write_all(&bytes).and_then(|_| output.sync_all()) {
+            // Do not leave a truncated routing trace that might be ingested
+            // as legitimate evidence by a later optimization pass.
+            drop(output);
+            let _ = std::fs::remove_file(path);
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Backwards-compatible owned result; callers requiring a bounded
@@ -126,10 +161,86 @@ impl CachedExpertBlobReader {
         Ok(self.read_expert_shared(layer, expert_id)?.as_ref().to_vec())
     }
 
+    /// Fork the already validated source handle for independently-positioned
+    /// worker reads. This avoids reopening the pathname and preserves index
+    /// validation, while allowing actual parallel bounded prefetch.
+    pub fn fork_source_reader(&self) -> Result<ExpertBlobReader, ExpertBlobError> {
+        self.lock_reader().try_clone()
+    }
+
+    /// Read from a separately forked validated source and share cache
+    /// residency. Distinct workers can issue positional reads concurrently;
+    /// cache admission remains serialized and lease-safe.
+    ///
+    /// Concurrent cold requests for the same key can race and produce two
+    /// transient allocations. The async coordinator bounds these using its
+    /// global pending byte cap, and never changes actual router choices.
+    pub fn read_with_fork(
+        &self,
+        source: &mut ExpertBlobReader,
+        key: ExpertKey,
+    ) -> Result<Arc<[u8]>, ExpertBlobError> {
+        if let Some(bytes) = self.cache.get_shared_if_present(key) {
+            self.record_access(key);
+            return Ok(bytes);
+        }
+        self.cache.record_miss();
+        let bytes: Arc<[u8]> = Arc::from(source.read_expert(key.layer, key.expert_id)?);
+        let _ = self.cache.insert_shared(key, Arc::clone(&bytes));
+        self.record_access(key);
+        Ok(bytes)
+    }
+
+    /// Speculative reads must not train the demand-cache admission history,
+    /// inflate demand hit counters, or evict actually routed hot experts.
+    /// The verified reader and bounded async coordinator still own the I/O.
+    pub fn read_speculative_expert_shared(
+        &self, key: ExpertKey,
+    ) -> Result<Arc<[u8]>, ExpertBlobError> {
+        if let Some(bytes) = self.cache.peek_shared(key) {
+            return Ok(bytes);
+        }
+        let mut source = self.lock_reader();
+        if let Some(bytes) = self.cache.peek_shared(key) {
+            return Ok(bytes);
+        }
+        Ok(Arc::from(source.read_expert(key.layer, key.expert_id)?))
+    }
+
+    /// Independent positional speculative worker. A wrong prediction never
+    /// modifies the cache, only consumes its explicitly reserved I/O budget.
+    pub fn read_speculative_with_fork(
+        &self, source: &mut ExpertBlobReader, key: ExpertKey,
+    ) -> Result<Arc<[u8]>, ExpertBlobError> {
+        if let Some(bytes) = self.cache.peek_shared(key) {
+            return Ok(bytes);
+        }
+        Ok(Arc::from(source.read_expert(key.layer, key.expert_id)?))
+    }
+
+    /// The *actual router* confirmed this previously speculative allocation.
+    /// Now and only now may its heat influence adaptive cache admission.
+    pub fn promote_authoritative_expert(
+        &self, key: ExpertKey, data: Arc<[u8]>,
+    ) -> Result<(), ExpertBlobError> {
+        let expected = self.expert_byte_length(key.layer, key.expert_id)?;
+        if data.len() as u64 != expected {
+            return Err(ExpertBlobError::InvalidRoute(
+                "speculative expert allocation length does not match model index".into()
+            ));
+        }
+        if self.cache.peek_shared(key).is_none() {
+            let _ = self.cache.insert_shared(key, data);
+        }
+        self.record_access(key);
+        Ok(())
+    }
+
     /// Return a reference-counted expert allocation. Hits do not duplicate
     /// the underlying block and concurrent cold requests are coalesced.
-    /// A caller holding the Arc after eviction keeps its bytes resident;
-    /// the cache budget limits membership, not all outstanding readers.
+    /// Active Arc leases prevent eviction of the retained entry. A cold
+    /// miss that cannot be cached may still return transient bytes; callers
+    /// must separately bound their aggregate in-flight allocations.
     pub fn read_expert_shared(
         &self,
         layer: u32,
@@ -151,7 +262,9 @@ impl CachedExpertBlobReader {
 
         self.cache.record_miss();
         let bytes: Arc<[u8]> = Arc::from(reader.read_expert(layer, expert_id)?);
-        self.cache.insert_shared(key, Arc::clone(&bytes));
+        // Admission can reject a cold block while all existing entries
+        // are pinned. Correctness takes precedence over cache residency.
+        let _admission = self.cache.insert_shared(key, Arc::clone(&bytes));
         self.record_access(key);
         Ok(bytes)
     }
@@ -179,6 +292,74 @@ impl CachedExpertBlobReader {
         Ok(())
     }
 
+    /// Warm externally ranked expert keys with exact index sizes and a strict
+    /// byte budget. This is a placement optimization, NEVER a prediction of
+    /// which expert the actual model router will select. No tensors are
+    /// activated unless the caller explicitly invokes this method.
+    ///
+    /// Admission may fail when existing read leases pin cache capacity.
+    /// Hold newly warmed blocks until the batch is complete so lower-priority
+    /// entries cannot displace previously admitted, hotter experts.
+    pub fn prewarm_ranked(
+        &self,
+        ranked: &[ExpertKey],
+        requested_budget_bytes: u64,
+    ) -> Result<ExpertWarmupReport, ExpertBlobError> {
+        const MAX_WARM_KEYS: usize = 65_536;
+        if ranked.len() > MAX_WARM_KEYS {
+            return Err(ExpertBlobError::InvalidRoute(
+                "prewarm expert count exceeds the bounded request limit".into(),
+            ));
+        }
+        let capacity = self.cache.stats().capacity_bytes;
+        let budget = requested_budget_bytes.min(capacity);
+        let mut result = ExpertWarmupReport {
+            requested: ranked.len(),
+            ..ExpertWarmupReport::default()
+        };
+        let mut unique = std::collections::HashSet::new();
+        let mut plan = Vec::new();
+        let mut planned_bytes = 0u64;
+        // Validate *all* keys before starting any read so a malformed
+        // model-keyed history cannot cause partial disk I/O.
+        for &key in ranked {
+            if !unique.insert(key) {
+                result.duplicate_keys += 1;
+                continue;
+            }
+            let bytes = self.expert_byte_length(key.layer, key.expert_id)?;
+            if bytes > budget.saturating_sub(planned_bytes) {
+                result.skipped_budget += 1;
+                continue;
+            }
+            planned_bytes += bytes;
+            plan.push((key, bytes));
+        }
+        result.selected_bytes = planned_bytes;
+        let mut pinned: Vec<Arc<[u8]>> = Vec::with_capacity(plan.len());
+        for (key, bytes) in plan {
+            let was_cached = self.cache.peek_shared(key);
+            if let Some(handle) = was_cached {
+                result.already_resident += 1;
+                result.admitted += 1;
+                result.admitted_bytes += bytes;
+                pinned.push(handle);
+                continue;
+            }
+            // Speculative warmup must not register synthetic demand-cache
+            // hits or trigger adaptive ghost admission / eviction.
+            let expert = self.read_speculative_expert_shared(key)?;
+            if self.cache.admit_warm(key, Arc::clone(&expert)) {
+                result.admitted += 1;
+                result.admitted_bytes += bytes;
+                pinned.push(expert);
+            } else {
+                result.rejected_capacity += 1;
+            }
+        }
+        Ok(result)
+    }
+
     pub fn invalidate(&self, layer: u32, expert_id: u32) -> bool {
         self.cache.invalidate(ExpertKey { layer, expert_id })
     }
@@ -187,8 +368,42 @@ impl CachedExpertBlobReader {
         self.cache.clear()
     }
 
+    pub fn resize_cache(&self, capacity_bytes: u64) -> ResizeOutcome {
+        self.cache.resize(capacity_bytes)
+    }
+
     pub fn cache_stats(&self) -> ExpertCacheStats {
         self.cache.stats()
+    }
+
+    /// Validate an entire optional speculative batch before touching data,
+    /// deduplicate expert keys, and order reads by on-disk source offset.
+    /// This changes only prefetch I/O order—not model router selection.
+    pub fn order_experts_by_source(
+        &self, requested: &[ExpertKey],
+    ) -> Result<Vec<ExpertKey>, ExpertBlobError> {
+        const MAX_BATCH: usize = 4096;
+        if requested.len() > MAX_BATCH {
+            return Err(ExpertBlobError::InvalidRoute(
+                "prefetch batch exceeds 4096 expert keys".into()
+            ));
+        }
+        let source = self.lock_reader();
+        let mut seen = std::collections::HashSet::new();
+        let mut ranges = Vec::with_capacity(requested.len());
+        for &key in requested {
+            if seen.insert(key) {
+                let (offset, size) = source.expert_byte_range(key.layer, key.expert_id)?;
+                if size == 0 {
+                    return Err(ExpertBlobError::InvalidRoute(
+                        "zero-byte expert is not a valid prefetch candidate".into()
+                    ));
+                }
+                ranges.push((offset, key));
+            }
+        }
+        ranges.sort_by_key(|(offset, key)| (*offset, key.layer, key.expert_id));
+        Ok(ranges.into_iter().map(|(_, key)| key).collect())
     }
 
     /// Index-only expert size lookup; does not fetch expert payload.
@@ -233,6 +448,48 @@ mod tests {
             ],
         };
         (path, bytes, table)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn forked_expert_source_never_follows_replaced_model_path() {
+        let (path, original, table) = fixture();
+        let reader=CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap();
+        let mut fork=reader.fork_source_reader().unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&path,vec![255u8;original.len()]).unwrap();
+        assert_eq!(fork.read_expert(0,0).unwrap(),original[..8]);
+        assert_eq!(reader.read_with_fork(&mut fork,ExpertKey {
+            layer:0,expert_id:1
+        }).unwrap().as_ref(),&original[8..16]);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn parallel_fork_reads_preserve_source_bytes_and_cache_bounds() {
+        let (path, data, table) = fixture();
+        let reader = Arc::new(CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Adaptive
+        ).unwrap());
+        let mut tasks = Vec::new();
+        for id in 0..4u32 {
+            let cloned = Arc::clone(&reader);
+            let mut source = reader.fork_source_reader().unwrap();
+            tasks.push(std::thread::spawn(move || {
+                cloned.read_with_fork(&mut source, ExpertKey {
+                    layer: id / 2, expert_id: id % 2
+                }).unwrap()
+            }));
+        }
+        for (i, task) in tasks.into_iter().enumerate() {
+            let bytes = task.join().unwrap();
+            assert_eq!(bytes.as_ref(), &data[i*8..i*8+8]);
+        }
+        assert!(reader.cache_stats().used_bytes <= 16);
+        assert_eq!(reader.cache_stats().misses, 4);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -402,6 +659,15 @@ mod tests {
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         reader.write_access_trace_json(&trace_path).unwrap();
+        // Repeated exports must fail rather than silently overwrite evidence.
+        assert_eq!(reader.write_access_trace_json(&trace_path).unwrap_err().kind(),
+            std::io::ErrorKind::AlreadyExists);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&trace_path).unwrap()
+                .permissions().mode() & 0o777, 0o600);
+        }
         let exported: Vec<ExpertKey> = serde_json::from_slice(&std::fs::read(&trace_path).unwrap()).unwrap();
         assert_eq!(exported, snapshot.events);
         reader.enable_access_trace(0);
@@ -410,6 +676,146 @@ mod tests {
         assert_eq!(reader.access_trace_snapshot().max_events, 0);
         assert_eq!(reader.access_trace_snapshot().dropped_events, 0);
         std::fs::remove_file(trace_path).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn prewarm_ranked_deduplicates_and_respects_strict_cache_budget() {
+        let (path, data, table) = fixture();
+        let reader = CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap();
+        let a = ExpertKey { layer: 0, expert_id: 0 };
+        let b = ExpertKey { layer: 0, expert_id: 1 };
+        let c = ExpertKey { layer: 1, expert_id: 0 };
+        let result = reader.prewarm_ranked(&[a, a, b, c], 16).unwrap();
+        assert_eq!(result.requested, 4);
+        assert_eq!(result.duplicate_keys, 1);
+        assert_eq!(result.skipped_budget, 1);
+        assert_eq!(result.admitted, 2);
+        assert_eq!(result.selected_bytes, 16);
+        assert_eq!(result.admitted_bytes, 16);
+        // Passive residency inspection during prewarm is not a real cache hit.
+        assert_eq!(reader.cache_stats().hits, 0);
+        assert_eq!(reader.cache_stats().used_bytes, 16);
+        assert_eq!(reader.read_expert(0, 0).unwrap(), data[0..8]);
+        assert_eq!(reader.read_expert(0, 1).unwrap(), data[8..16]);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn prewarm_rejects_bad_key_before_any_disk_read() {
+        let (path, _, table) = fixture();
+        let reader = CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap();
+        let good = ExpertKey { layer: 0, expert_id: 0 };
+        let bad = ExpertKey { layer: 99, expert_id: 0 };
+        assert!(reader.prewarm_ranked(&[good, bad], 16).is_err());
+        assert_eq!(reader.cache_stats().misses, 0);
+        assert_eq!(reader.cache_stats().entries, 0);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn prewarm_does_not_evict_expert_held_by_computation() {
+        let (path, _, table) = fixture();
+        let reader = CachedExpertBlobReader::open(
+            &path, table, 8, ExpertCachePolicy::Lru
+        ).unwrap();
+        let held = reader.read_expert_shared(0, 0).unwrap();
+        let other = ExpertKey { layer: 0, expert_id: 1 };
+        let refused = reader.prewarm_ranked(&[other], 8).unwrap();
+        assert_eq!(refused.rejected_capacity, 1);
+        assert_eq!(reader.cache_stats().used_bytes, 8);
+        assert_eq!(reader.cache_stats().entries, 1);
+        assert!(!reader.invalidate(0, 0), "active lease must prevent invalidation");
+        drop(held);
+        // Speculative warmup never evicts a resident expert, even after its
+        // lease is released. Explicit invalidation makes room safely.
+        assert_eq!(reader.prewarm_ranked(&[other], 8).unwrap().admitted, 0);
+        assert!(reader.invalidate(0, 0));
+        let accepted = reader.prewarm_ranked(&[other], 8).unwrap();
+        assert_eq!(accepted.admitted, 1);
+        assert_eq!(reader.cache_stats().used_bytes, 8);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn wrong_speculation_cannot_poison_actual_demand_cache_heat() {
+        let (path, data, table) = fixture();
+        let reader = CachedExpertBlobReader::open(
+            &path, table, 8, ExpertCachePolicy::Adaptive
+        ).unwrap();
+        let hot = ExpertKey {layer:0,expert_id:0};
+        let wrong = ExpertKey {layer:0,expert_id:1};
+        assert_eq!(reader.read_expert_shared(0,0).unwrap().as_ref(), &data[..8]);
+        let before = reader.cache_stats();
+        let predicted = reader.read_speculative_expert_shared(wrong).unwrap();
+        assert_eq!(predicted.as_ref(), &data[8..16]);
+        assert_eq!(reader.cache_stats().hits, before.hits);
+        assert_eq!(reader.cache_stats().misses, before.misses);
+        assert_eq!(reader.cache_stats().used_bytes, before.used_bytes);
+        assert_eq!(reader.read_expert_shared(0,0).unwrap().as_ref(), &data[..8]);
+        reader.promote_authoritative_expert(wrong, predicted).unwrap();
+        assert!(reader.cache_stats().used_bytes <= 8);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn warming_from_history_preserves_hot_demand_expert_and_counters() {
+        let (path, _, table) = fixture();
+        let reader=CachedExpertBlobReader::open(
+            &path,table,8,ExpertCachePolicy::Adaptive
+        ).unwrap();
+        for _ in 0..6 {
+            assert_eq!(reader.read_expert(0,0).unwrap().len(),8);
+        }
+        let stats = reader.cache_stats();
+        let warm=reader.prewarm_ranked(&[
+            ExpertKey{layer:0,expert_id:1}
+        ],8).unwrap();
+        assert_eq!(warm.rejected_capacity,1);
+        assert_eq!(warm.admitted,0);
+        let after=reader.cache_stats();
+        assert_eq!(after.hits,stats.hits);
+        assert_eq!(after.misses,stats.misses);
+        assert_eq!(after.cold_rejections,stats.cold_rejections);
+        assert_eq!(reader.read_expert(0,0).unwrap().len(),8);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn speculative_promotion_rejects_wrong_verified_expert_bytes() {
+        let (path, _, table) = fixture();
+        let reader = CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap();
+        let key=ExpertKey {layer:0,expert_id:1};
+        assert!(reader.promote_authoritative_expert(key, Arc::from(vec![8u8; 3])).is_err());
+        assert_eq!(reader.cache_stats().entries,0);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn source_order_prefetch_deduplicates_and_prevalidates_before_io() {
+        let (path, _, table) = fixture();
+        let reader = CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap();
+        let key = |layer, expert_id| ExpertKey { layer, expert_id };
+        let plan = reader.order_experts_by_source(&[
+            key(1,1),key(0,1),key(0,0),key(0,1),key(1,0)
+        ]).unwrap();
+        assert_eq!(plan, vec![key(0,0),key(0,1),key(1,0),key(1,1)]);
+        assert_eq!(reader.cache_stats().misses,0);
+        assert!(reader.order_experts_by_source(&[
+            key(0,0), key(100,100)
+        ]).is_err());
+        assert_eq!(reader.cache_stats().entries,0);
+        assert!(reader.order_experts_by_source(
+            &vec![key(0,0);4097]
+        ).is_err());
         std::fs::remove_file(path).unwrap();
     }
 

@@ -347,6 +347,7 @@ pub async fn ui_models(State(state): State<ApiState>) -> Result<Json<Value>, Err
             "path": model.path,
             "size_bytes": model.size_bytes,
             "source": model.source,
+            "aliases": model.aliases,
             "valid_gguf": model.valid_gguf,
             "active": active
         })

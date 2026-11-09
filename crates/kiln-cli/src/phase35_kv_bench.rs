@@ -167,6 +167,89 @@ pub fn run(
     Ok(())
 }
 
+/// Real-model, single-context KV snapshot proof. Unlike the append-only
+/// benchmark, this restores a previously saved prefix and recomputes the same
+/// continuation to verify identical greedy selection. Latencies here are
+/// diagnostics only; a throughput claim requires a controlled baseline.
+pub fn run_snapshot(
+    model: String, prompt: String, continuation: String,
+    max_mib: usize, threads: Option<u32>, json_output: bool,
+) -> Result<(), String> {
+    if max_mib == 0 || max_mib > 256 {
+        return Err("--max-mib must be within 1..=256".into());
+    }
+    if prompt.is_empty() || continuation.is_empty() {
+        return Err("snapshot prompt and continuation must be nonempty".into());
+    }
+    let max_bytes = max_mib.checked_mul(1024 * 1024)
+        .ok_or("KV snapshot memory budget overflow")?;
+    let profile = SystemProfile::probe();
+    let threads = threads.unwrap_or(profile.n_threads.min(4)).max(1);
+    let mut dispatch = RuntimeDispatcher::new();
+    dispatch.register(Box::new(LlamaCppBackend::new()));
+    dispatch.dispatch(RuntimeOp::Load {
+        path: PathBuf::from(&model),
+        n_ctx: 2048, n_batch: 128, n_ubatch: 128, n_threads: threads,
+        lazy_moe_experts: false,
+    }).map_err(|e| format!("model load: {e}"))?;
+    let prefix = tokenize(&mut dispatch, &prompt)?;
+    let suffix = tokenize(&mut dispatch, &continuation)?;
+    if prefix.len() + suffix.len() >= 2048 {
+        return Err("KV snapshot input exceeds the fixed 2048-token context".into());
+    }
+    reset(&mut dispatch)?;
+    forward(&mut dispatch, prefix.clone())?;
+    let start = Instant::now();
+    let saved = match dispatch.dispatch(RuntimeOp::SaveKv { max_bytes })
+        .map_err(|e| format!("snapshot: {e}"))? {
+        RuntimeResult::KvSnapshot(snapshot) => snapshot,
+        _ => return Err("unexpected KV snapshot result".into()),
+    };
+    let snapshot_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let snapshot_bytes = saved.bytes();
+    let saved_token_positions = saved.token_positions();
+    let baseline = forward(&mut dispatch, suffix.clone())?;
+    let start = Instant::now();
+    dispatch.dispatch(RuntimeOp::RestoreKv { snapshot: saved })
+        .map_err(|e| format!("restore: {e}"))?;
+    let restore_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let resumed = forward(&mut dispatch, suffix)?;
+    if baseline.len() != resumed.len() {
+        return Err("resumed vocabulary/logit length mismatch".into());
+    }
+    let base_best = top_token(&baseline).ok_or("baseline logits invalid")?;
+    let resumed_best = top_token(&resumed).ok_or("restored logits invalid")?;
+    let max_logit_delta = baseline.iter().zip(&resumed)
+        .map(|(a, b)| (f64::from(*a) - f64::from(*b)).abs())
+        .fold(0.0f64, f64::max);
+    let parity = base_best == resumed_best && max_logit_delta <= 1e-4;
+    let report = serde_json::json!({
+        "measurement": "same_context_kv_snapshot_restore",
+        "model": model,
+        "prefix_tokens": prefix.len(),
+        "saved_token_positions": saved_token_positions,
+        "snapshot_bytes": snapshot_bytes,
+        "snapshot_ms": snapshot_ms,
+        "restore_ms": restore_ms,
+        "token_argmax_identical": base_best == resumed_best,
+        "max_absolute_logit_delta": max_logit_delta,
+        "parity_pass": parity,
+        "tier0_deployment_accepted": false,
+        "note": "In-memory same-context rollback only; not a cross-model or durable session file."
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?);
+    } else {
+        println!("KILN bounded KV snapshot and replay");
+        println!("  bytes: {snapshot_bytes}; snapshot: {snapshot_ms:.2} ms; restore: {restore_ms:.2} ms");
+        println!("  exact greedy parity and bounded logits: {parity}");
+    }
+    if !parity {
+        return Err("KV snapshot changed target-model greedy output or logits".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,6 +258,16 @@ mod tests {
         assert!(run(String::new(), String::new(), String::new(),
             String::new(), 0, None, None, None, false).is_err());
     }
+    #[test]
+    fn snapshot_validates_limits_without_loading_model() {
+        assert!(run_snapshot(String::new(), "hello".into(), "more".into(),
+            0, Some(2), false).is_err());
+        assert!(run_snapshot(String::new(), "hello".into(), "more".into(),
+            257, Some(2), false).is_err());
+        assert!(run_snapshot(String::new(), String::new(), "more".into(),
+            8, Some(2), false).is_err());
+    }
+
     #[test]
     fn deterministic_summary() {
         let x = summary(vec![3.0, 1.0, 2.0]);

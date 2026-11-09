@@ -51,14 +51,20 @@ impl SystemProfile {
     /// Read the profile from disk, or probe and write if absent.
     pub fn load_or_probe() -> Self {
         let path = profile_path();
+        // Never retain CPU/thread/memory assumptions across machine changes
+        // (e.g. restored home directory, container or VM resource changes).
+        // Preserve user-tuned execution values only while the probed hardware
+        // envelope is unchanged and settings remain bounded.
+        let fresh = Self::probe();
         if let Ok(text) = fs::read_to_string(&path) {
-            if let Some(p) = parse(&text) {
-                return p;
+            if let Some(saved) = parse(&text) {
+                if saved.cpu_cores == fresh.cpu_cores && saved.ram_gb == fresh.ram_gb {
+                    return saved;
+                }
             }
         }
-        let p = Self::probe();
-        let _ = p.save();
-        p
+        let _ = fresh.save();
+        fresh
     }
 
     pub fn save(&self) -> std::io::Result<()> {
@@ -85,15 +91,54 @@ pub fn profile_path() -> PathBuf {
     PathBuf::from("/tmp/kiln-system-profile.json")
 }
 
-fn read_ram_gb() -> Option<u32> {
-    let text = fs::read_to_string("/proc/meminfo").ok()?;
-    for line in text.lines() {
-        if let Some(rest) = line.strip_prefix("MemTotal:") {
-            let kb: u64 = rest.trim().split_whitespace().next()?.parse().ok()?;
-            return Some((kb / 1024 / 1024) as u32);
+/// A valid finite cgroup cap is never mistaken for the unlimited
+/// sentinel. Use this when classification is performed inside containers.
+fn finite_memory_limit(value: &str) -> Option<u64> {
+    let text = value.trim();
+    if text == "max" || text.is_empty() ||
+        !text.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let bytes = text.parse::<u64>().ok()?;
+    (bytes > 0 && bytes < (1u64 << 60)).then_some(bytes)
+}
+
+#[cfg(target_os = "linux")]
+fn effective_memory_limit() -> Option<u64> {
+    let mut cap: Option<u64> = None;
+    for path in [
+        "/sys/fs/cgroup/memory.max",
+        "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+    ] {
+        if let Ok(text) = fs::read_to_string(path) {
+            if let Some(bytes) = finite_memory_limit(&text) {
+                cap = Some(cap.map_or(bytes, |current| current.min(bytes)));
+            }
         }
     }
-    None
+    cap
+}
+#[cfg(not(target_os = "linux"))]
+fn effective_memory_limit() -> Option<u64> { None }
+
+fn effective_ram_gb(meminfo: &str, cap: Option<u64>) -> Option<u32> {
+    let line = meminfo.lines().find(|line| line.starts_with("MemTotal:"))?;
+    let fields: Vec<_> = line.split_whitespace().collect();
+    if fields.len() != 3 || fields[2] != "kB" {
+        return None;
+    }
+    let host_bytes = fields[1].parse::<u64>().ok()?.checked_mul(1024)?;
+    let bytes = cap.map_or(host_bytes, |limit| host_bytes.min(limit));
+    if bytes == 0 { return None; }
+    // Round up: a 512 MiB sandbox has a 1 GiB-class budget, not zero RAM.
+    // This value is for safe tier classification, not current MemAvailable.
+    let gib = 1024u64 * 1024 * 1024;
+    Some((bytes / gib + u64::from(bytes % gib != 0)).min(u32::MAX as u64) as u32)
+}
+
+fn read_ram_gb() -> Option<u32> {
+    let text = fs::read_to_string("/proc/meminfo").ok()?;
+    effective_ram_gb(&text, effective_memory_limit())
 }
 
 fn classify(cores: u32, ram_gb: u32) -> Tier {
@@ -125,7 +170,7 @@ fn now_iso8601() -> String {
 fn parse(text: &str) -> Option<SystemProfile> {
     // Minimal parser. One value per line, "key": value,.
     let mut p = SystemProfile::probe();
-    let mut found = 0;
+    let mut found = std::collections::HashSet::new();
     for line in text.lines() {
         let line = line.trim().trim_end_matches(',');
         if !line.contains(':') { continue; }
@@ -133,16 +178,25 @@ fn parse(text: &str) -> Option<SystemProfile> {
         let k = parts.next()?.trim().trim_matches('"').trim_matches('{').trim_matches('}');
         let v = parts.next()?.trim().trim_matches('"').trim_matches('{').trim_matches('}');
         match k {
-            "n_ctx" => { p.n_ctx = v.parse().ok()?; found += 1; }
-            "n_batch" => { p.n_batch = v.parse().ok()?; found += 1; }
-            "n_threads" => { p.n_threads = v.parse().ok()?; found += 1; }
-            "cpu_cores" => { p.cpu_cores = v.parse().ok()?; found += 1; }
-            "ram_gb" => { p.ram_gb = v.parse().ok()?; found += 1; }
-            "probed_at" => { p.probed_at = v.to_string(); found += 1; }
+            "n_ctx" => { if !found.insert("n_ctx") { return None; } p.n_ctx = v.parse().ok()?; }
+            "n_batch" => { if !found.insert("n_batch") { return None; } p.n_batch = v.parse().ok()?; }
+            "n_threads" => { if !found.insert("n_threads") { return None; } p.n_threads = v.parse().ok()?; }
+            "cpu_cores" => { if !found.insert("cpu_cores") { return None; } p.cpu_cores = v.parse().ok()?; }
+            "ram_gb" => { if !found.insert("ram_gb") { return None; } p.ram_gb = v.parse().ok()?; }
+            "probed_at" => { if !found.insert("probed_at") { return None; } p.probed_at = v.to_string(); }
             _ => {}
         }
     }
-    if found >= 4 { Some(p) } else { None }
+    let required = ["n_ctx", "n_batch", "n_threads", "cpu_cores", "ram_gb"];
+    if !required.iter().all(|name| found.contains(name)) ||
+        p.n_ctx < 128 || p.n_ctx > 131_072 ||
+        p.n_batch == 0 || p.n_batch > 4096 || p.n_batch > p.n_ctx ||
+        p.n_threads == 0 || p.cpu_cores == 0 || p.n_threads > p.cpu_cores ||
+        p.ram_gb == 0 || p.probed_at.is_empty() ||
+        !p.probed_at.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some(p)
 }
 
 #[cfg(test)]
@@ -159,11 +213,48 @@ mod tests {
     }
 
     #[test]
+    fn memory_classification_honors_container_limit() {
+        let host = "MemTotal: 33554432 kB\nMemAvailable: 102400 kB\n";
+        assert_eq!(effective_ram_gb(host, None), Some(32));
+        assert_eq!(effective_ram_gb(host, Some(1024 * 1024 * 1024)), Some(1));
+        assert_eq!(effective_ram_gb(host, Some(512 * 1024 * 1024)), Some(1));
+        assert_eq!(effective_ram_gb(host, Some(16 * 1024 * 1024 * 1024)), Some(16));
+        assert_eq!(effective_ram_gb(host, Some(0)), None);
+        assert_eq!(effective_ram_gb("MemTotal: 42 GB\n", None), None);
+        assert_eq!(finite_memory_limit("max"), None);
+        assert_eq!(finite_memory_limit("9223372036854771712"), None);
+        assert_eq!(finite_memory_limit("-1"), None);
+        assert_eq!(finite_memory_limit("536870912\n"), Some(536870912));
+    }
+
+    #[test]
+    fn container_scale_hardware_is_not_assigned_host_memory_tier() {
+        let ram = effective_ram_gb("MemTotal: 268435456 kB\n", Some(2 * 1024 * 1024 * 1024)).unwrap();
+        assert_eq!(ram, 2);
+        assert_eq!(classify(4, ram), Tier::Tier0);
+    }
+
+    #[test]
     fn tier0_params() {
         let (ctx, batch, threads) = params_for(Tier::Tier0, 4);
         assert_eq!(ctx, 4096);
         assert_eq!(batch, 512);
         assert_eq!(threads, 4);
+    }
+
+    #[test]
+    fn corrupted_profile_never_changes_runtime_resource_limits() {
+        let profile = SystemProfile::probe();
+        let good = format!(
+            "{{\n  \"n_ctx\": 4096,\n  \"n_batch\": 512,\n  \"n_threads\": 1,\n  \"cpu_cores\": {},\n  \"ram_gb\": {},\n  \"probed_at\": \"1234\"\n}}",
+            profile.cpu_cores, profile.ram_gb,
+        );
+        assert!(parse(&good).is_some());
+        assert!(parse(&good.replace("\"n_threads\": 1", "\"n_threads\": 0")).is_none());
+        assert!(parse(&good.replace("\"n_ctx\": 4096", "\"n_ctx\": 99999999")).is_none());
+        assert!(parse(&good.replace("\"n_batch\": 512", "\"n_batch\": 65536")).is_none());
+        assert!(parse(&good.replace("\"n_ctx\": 4096", "")).is_none());
+        assert!(parse(&good.replacen("\"cpu_cores\":", "\"cpu_cores\": 1,\n  \"cpu_cores\":", 1)).is_none());
     }
 
     #[test]

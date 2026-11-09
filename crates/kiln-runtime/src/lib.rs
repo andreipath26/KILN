@@ -4,7 +4,7 @@
 pub mod ffi;
 pub mod loader;
 
-pub use ffi::{LlamaContext, LlamaError};
+pub use ffi::{LlamaContext, LlamaError, KvSnapshot};
 pub use loader::{find_existing, Library, LoadError};
 pub mod profile;
 pub use profile::{SystemProfile, Tier};

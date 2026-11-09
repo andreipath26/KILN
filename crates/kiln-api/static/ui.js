@@ -236,6 +236,16 @@ function renderLocalModels(models) {
     meta.className = "model-entry-meta";
     meta.textContent = `${(model.size_bytes / 1_073_741_824).toFixed(2)} GiB · ${model.source}${model.active ? " · Active" : ""}`;
     main.append(title, meta);
+    const aliases = Array.isArray(model.aliases)
+      ? model.aliases.filter((name) => typeof name === "string" && name !== model.name)
+      : [];
+    if (aliases.length) {
+      const alternate = document.createElement("div");
+      alternate.className = "model-entry-meta";
+      const shown = aliases.slice(0, 6);
+      alternate.textContent = `Also installed as: ${shown.join(", ")}${aliases.length > shown.length ? ` (+${aliases.length - shown.length} more)` : ""}`;
+      main.append(alternate);
+    }
     const actions = document.createElement("div");
     actions.className = "model-entry-actions";
     const choose = document.createElement("button");

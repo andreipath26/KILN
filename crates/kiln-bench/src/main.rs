@@ -14,9 +14,9 @@ use std::collections::HashMap;
 use std::time::Instant;
 use std::path::PathBuf;
 
-use kiln_io::{write_expert_sidecar, verify_expert_sidecar, write_component_expert_sidecar, verify_component_expert_sidecar, CachedExpertBlobReader, FileRangeReader};
+use kiln_io::{write_expert_sidecar, verify_expert_sidecar, write_component_expert_sidecar, verify_component_expert_sidecar, verify_component_sidecar_against_source, CachedExpertBlobReader, FileRangeReader};
 use kiln_mem::{evaluate_grouped_router_holdout, RouterEvent, evaluate_predictor_holdout, ExpertCachePolicy, ExpertKey, ExpertPrefetcher, PrefetchStats};
-use kiln_models::{ExpertRange, ExpertTable, NamedExpertTensor, resolve_expert_tensors_in_gguf};
+use kiln_models::{ExpertRange, ExpertTable, NamedExpertTensor, FusedExpertTensorSelection, resolve_expert_tensors_in_gguf, resolve_fused_expert_tensors_in_gguf};
 
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -168,6 +168,74 @@ enum Commands {
         /// Create-new component boundary manifest.
         #[arg(long)]
         components_file: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect possible fused 3D tensor shapes (not an automatic expert-axis assertion).
+    ExpertInspectFused {
+        #[arg(long)]
+        source_gguf: PathBuf,
+        /// Emit machine-readable tensor names and full dimensions.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Pack individually addressable third-axis slabs of explicitly selected
+    /// fused 3-D GGUF MoE tensors; never infer expert axes or quantization.
+    ExpertPackFused {
+        /// Original GGUF, opened read-only.
+        #[arg(long)]
+        source_gguf: PathBuf,
+        /// JSON list of {layer,tensor_name,expert_count}. Axis 2 is explicit.
+        #[arg(long)]
+        selections_file: PathBuf,
+        /// New aligned sidecar; never overwrite.
+        #[arg(long)]
+        blob_file: PathBuf,
+        /// New ExpertTable index.
+        #[arg(long)]
+        index_file: PathBuf,
+        /// New per-expert CRC32 integrity manifest.
+        #[arg(long)]
+        integrity_file: PathBuf,
+        /// New per-expert component-slice manifest.
+        #[arg(long)]
+        components_file: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export a verified, size-limited read-only external expert slab map
+    /// consumed by the experimental CPU graph's selected-expert streaming path.
+    ExpertExportStreamIndex {
+        #[arg(long)]
+        blob_file: PathBuf,
+        #[arg(long)]
+        index_file: PathBuf,
+        #[arg(long)]
+        integrity_file: PathBuf,
+        #[arg(long)]
+        components_file: PathBuf,
+        /// Create-new TSV index; never overwrite.
+        #[arg(long)]
+        output_file: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Map explicitly declared fused expert slabs directly inside the
+    /// original GGUF, avoiding any duplicate expert sidecar on disk.
+    ExpertExportGgufStreamIndex {
+        #[arg(long)]
+        source_gguf: PathBuf,
+        /// Explicit JSON [{layer,tensor_name,expert_count}], unless --auto-verified.
+        #[arg(long, required_unless_present = "auto_verified")]
+        selections_file: Option<PathBuf>,
+        /// Discover only uniform 3-projection MoE layouts whose GGUF
+        /// architecture metadata proves expert_count and block_count.
+        /// Any unfamiliar/partial MoE format is rejected instead of guessed.
+        #[arg(long, conflicts_with = "selections_file")]
+        auto_verified: bool,
+        /// Create-new validated offset TSV. The untouched GGUF is the data file.
+        #[arg(long)]
+        output_file: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -914,6 +982,51 @@ fn run_expert_cache(
 
 const MAX_EXPERT_INDEX_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_EXPERT_TRACE_BYTES: u64 = 128 * 1024 * 1024;
+
+/// Emit one compact graph-readable lookup for either validated source-GGUF
+/// fused slices or packed sidecar slices. Neither mode duplicates any weights
+/// in the lookup; full verified storage boundaries must be supplied by caller.
+fn write_external_expert_lookup(
+    output_file: &std::path::Path,
+    components: impl IntoIterator<Item = (String, u32, u64, u64)>,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let mut lines = String::from("KILN-MOE-STREAM-1\n");
+    let mut keys = std::collections::HashSet::new();
+    for (component_name, expert_id, offset, length) in components {
+        let suffix = format!("#expert:{expert_id}");
+        let name = component_name.strip_suffix(&suffix)
+            .ok_or("component is not a validated explicit fused expert slab")?;
+        if name.is_empty() || name.len() >= 64 ||
+            !name.bytes().all(|c| c.is_ascii_alphanumeric() ||
+                matches!(c, b'.' | b'_' | b'-')) {
+            return Err("fused tensor name is not a safe GGML tensor identity".into());
+        }
+        if length == 0 || offset.checked_add(length).is_none() {
+            return Err("external expert slab has empty or overflowing range".into());
+        }
+        if !keys.insert((name.to_owned(), expert_id)) {
+            return Err("duplicate named expert slab".into());
+        }
+        let line = format!("{name}\t{expert_id}\t{offset}\t{length}\n");
+        if lines.len().checked_add(line.len()).is_none_or(|n| n > 64*1024*1024) {
+            return Err("stream index exceeds 64 MiB".into());
+        }
+        lines.push_str(&line);
+    }
+    if keys.is_empty() {
+        return Err("no fused expert slabs".into());
+    }
+    let mut output = std::fs::OpenOptions::new().create_new(true).write(true)
+        .open(output_file)?;
+    use std::io::Write as _;
+    if let Err(error) = output.write_all(lines.as_bytes())
+        .and_then(|_| output.sync_all()) {
+        drop(output);
+        let _ = std::fs::remove_file(output_file);
+        return Err(Box::new(error));
+    }
+    Ok(keys.len())
+}
 
 fn read_bounded_input(
     path: &std::path::Path,
@@ -1761,6 +1874,156 @@ async fn main() {
                 }
                 Err(e) => {
                     eprintln!("named GGUF expert pack failed: {e}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::ExpertInspectFused { source_gguf, json } => {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let model = kiln_models::GgufFile::open(&source_gguf)?;
+                let mut candidates: Vec<_> = model.tensors.iter()
+                    .filter(|tensor| tensor.shape.len() == 3 && tensor.shape[2] > 1)
+                    .map(|tensor| serde_json::json!({
+                        "tensor_name":tensor.name,
+                        "shape":tensor.shape,
+                        "dtype":format!("{:?}",tensor.dtype),
+                        "possible_expert_count_if_axis2":tensor.shape[2],
+                        "axis2_expert_identity_verified":false
+                    }))
+                    .collect();
+                candidates.sort_by(|a,b| a["tensor_name"].as_str().cmp(&b["tensor_name"].as_str()));
+                Ok(candidates)
+            })();
+            match result {
+                Ok(candidates) if json => println!("{}", serde_json::json!({
+                    "source_gguf":source_gguf,
+                    "three_dimensional_tensors":candidates,
+                    "note":"These are candidates, not identified experts. You must independently confirm that shape[2] is the expert axis before using expert-pack-fused."
+                })),
+                Ok(candidates) => {
+                    println!("Possible GGUF 3D fused weight tensors (expert axis NOT automatically verified)");
+                    for tensor in candidates {
+                        println!("  {}  {:?}  {}", tensor["tensor_name"].as_str().unwrap_or("unknown"),
+                            tensor["shape"],tensor["dtype"].as_str().unwrap_or("unknown"));
+                    }
+                }
+                Err(error) => {
+                    eprintln!("fused GGUF inspection failed: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::ExpertPackFused { source_gguf, selections_file, blob_file,
+            index_file, integrity_file, components_file, json } => {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let choices: Vec<FusedExpertTensorSelection> = serde_json::from_slice(
+                    &read_bounded_input(&selections_file, MAX_EXPERT_INDEX_BYTES, "GGUF fused expert selections")?
+                )?;
+                let map = resolve_fused_expert_tensors_in_gguf(&source_gguf, &choices)?;
+                let (integrity, _components) = write_component_expert_sidecar(
+                    &source_gguf, map.clone(), &blob_file, &index_file, &integrity_file, &components_file
+                )?;
+                let (table, verified) = verify_component_expert_sidecar(
+                    &blob_file, &index_file, &integrity_file, &components_file
+                )?;
+                let matched = verify_component_sidecar_against_source(
+                    &source_gguf, &map, &blob_file, &index_file, &integrity_file, &components_file
+                )?;
+                if matched != verified.components.len() {
+                    return Err("fused expert source-byte parity component count mismatch".into());
+                }
+                Ok((table, integrity, verified))
+            })();
+            match result {
+                Ok((table, integrity, verified)) if json => {
+                    println!("{}", serde_json::json!({
+                        "status":"fused_gguf_expert_slabs_crc32_verified",
+                        "experts":table.ranges.len(),
+                        "components":verified.components.len(),
+                        "source_bytes":integrity.source_size_bytes,
+                        "sidecar_bytes":table.blob_size,
+                        "exact_source_bytes_verified":true,
+                        "note":"Explicit third-axis expert slabs; original byte parity verified, source GGUF intact; storage packing only, not graph streaming"
+                    }));
+                }
+                Ok((table, _integrity, verified)) => {
+                    println!("KILN fused GGUF expert slabs packed and CRC32 verified");
+                    println!("  Expert groups: {}", table.ranges.len());
+                    println!("  Tensor slices: {}", verified.components.len());
+                    println!("  Sidecar bytes: {}", table.blob_size);
+                    println!("  Original GGUF unchanged; inference graph remains unmodified");
+                }
+                Err(error) => {
+                    eprintln!("fused GGUF expert pack failed: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::ExpertExportStreamIndex {
+            blob_file, index_file, integrity_file, components_file, output_file, json
+        } => {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let (_table, manifest) = verify_component_expert_sidecar(
+                    &blob_file, &index_file, &integrity_file, &components_file
+                )?;
+                write_external_expert_lookup(&output_file, manifest.components
+                    .into_iter().map(|item| (
+                        item.tensor_name, item.expert_id, item.byte_offset, item.byte_length
+                    )))
+            })();
+            match result {
+                Ok(entries) if json => println!("{}", serde_json::json!({
+                    "status":"validated_external_expert_stream_index_written",
+                    "entries":entries,
+                    "output":output_file,
+                    "note":"Sidecar CRC32 and component coverage verified; this index does not itself prove inference streamed"
+                })),
+                Ok(entries) => println!(
+                    "Exported {entries} CRC-verified fused expert slab locations to {}",
+                    output_file.display()
+                ),
+                Err(error) => {
+                    eprintln!("fused expert stream index failed: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::ExpertExportGgufStreamIndex {
+            source_gguf, selections_file, auto_verified, output_file, json
+        } => {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let model = kiln_models::GgufFile::open(&source_gguf)?;
+                let choices: Vec<FusedExpertTensorSelection> = if auto_verified {
+                    kiln_models::discover_complete_fused_moe_selections(&model)?
+                } else {
+                    let file = selections_file.as_deref()
+                        .ok_or("supply --selections-file or --auto-verified")?;
+                    serde_json::from_slice(&read_bounded_input(
+                        file, MAX_EXPERT_INDEX_BYTES, "explicit fused expert selections"
+                    )?)?
+                };
+                let map = kiln_models::resolve_fused_expert_tensor_components(
+                    &model.tensors, model.data_offset, model.file_size(), &choices
+                )?;
+                write_external_expert_lookup(&output_file, map.components.into_iter().map(|item| (
+                    item.tensor_name,item.expert_id,item.source_byte_offset,item.byte_length
+                )))
+            })();
+            match result {
+                Ok(entries) if json => println!("{}", serde_json::json!({
+                    "status":"original_gguf_external_expert_offsets_verified",
+                    "entries":entries,"output":output_file,
+                    "unchanged_model_file":source_gguf,
+                    "requires_duplicate_sidecar":false,
+                    "layout_selection":if auto_verified { "metadata_verified_complete" } else { "explicit" },
+                    "note":"GGUF third-axis fused layout and byte ranges validated; actual graph compute parity is a separate gate"
+                })),
+                Ok(entries) => println!(
+                    "Exported {entries} expert slab offsets in untouched GGUF {} to {}",
+                    source_gguf.display(), output_file.display()
+                ),
+                Err(error) => {
+                    eprintln!("GGUF direct expert lookup export failed: {error}");
                     std::process::exit(2);
                 }
             }
