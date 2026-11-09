@@ -127,6 +127,20 @@ fn verify_stream_audit(contents: &str, expected_names: &HashSet<String>) -> Resu
             cached > loaded || pread == 0 && cached == 0 {
             return Err(format!("native expert {name} was not fully served externally"));
         }
+        // A single native MUL_MAT_ID tensor has constant slab size for all
+        // selected expert IDs. Require every claimed delivered operand to be
+        // explained by either an external pread or exactly one hot-cache hit.
+        // This makes malformed/inflated audit counters fail closed rather
+        // than counting them as proof of streamed CPU computation.
+        if delivered % loaded != 0 {
+            return Err(format!("native expert {name} reported fractional slab bytes"));
+        }
+        let slab_bytes = delivered / loaded;
+        let cached_bytes = slab_bytes.checked_mul(cached)
+            .ok_or("native hot-cache bytes overflow")?;
+        if pread.checked_add(cached_bytes) != Some(delivered) {
+            return Err(format!("native expert {name} cache/read accounting does not match served bytes"));
+        }
         // Native GGML appends one audit record per MUL_MAT_ID execution,
         // not one record per tensor. Repeated projection names are therefore
         // legitimate across tokens and batches. Validate every occurrence,
@@ -327,6 +341,18 @@ mod tests {
         assert!(verify_stream_audit(&rows.lines().take(2).collect::<Vec<_>>().join("\n"), &expected).is_err());
         assert!(verify_stream_audit(&rows.replace("\t2\t2\t1024\t1024\t0", "\t2\t1\t1024\t1024\t0"), &expected).is_err());
         assert!(verify_stream_audit(&rows.replace("\t0\t2", "\t0\t0"), &expected).is_err());
+        assert!(verify_stream_audit(
+            &rows.replace("\t2\t2\t1024\t1024\t0", "\t2\t2\t1025\t1024\t0"),
+            &expected,
+        ).is_err());
+        assert!(verify_stream_audit(
+            &rows.replace("\t2\t2\t1024\t1024\t0", "\t2\t2\t1024\t512\t0"),
+            &expected,
+        ).is_err());
+        assert!(verify_stream_audit(
+            &rows.replace("\t2\t2\t1024\t0\t2", "\t2\t2\t1024\t1\t2"),
+            &expected,
+        ).is_err());
         // An all-cached audit cannot prove a cold child ever fetched a slab.
         assert!(verify_stream_audit(
             &rows.replace("\t1024\t1024\t0", "\t1024\t0\t2"),
