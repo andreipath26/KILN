@@ -567,6 +567,20 @@ jobs:
           print("Portable one-binary release generates identical real-model greedy tokens")
           PY
 
+      - name: Archive portable one-binary KILN Linux release candidate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiln-linux-one-binary-experimental
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/kiln-portable-release/*.tar.gz
+            ${{ runner.temp }}/kiln-portable-release/*.json
+            ${{ runner.temp }}/kiln-portable-release/*.sha256
+            ${{ runner.temp }}/real-moe-release-inference.json
+            ${{ runner.temp }}/kiln-package-build.log
+
       - name: Prepare real activation and recovery candidates
         run: |
           MODEL="$RUNNER_TEMP/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf"
