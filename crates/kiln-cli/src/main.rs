@@ -818,7 +818,12 @@ async fn main() {
                     }
                     Err(error) => { eprintln!("run auto: {error}"); std::process::exit(2); }
                 }
-            } else { model };
+            } else {
+                match model_library::resolve_model_identifier(&model) {
+                    Ok(path) => path.display().to_string(),
+                    Err(error) => { eprintln!("run: {error}"); std::process::exit(2); }
+                }
+            };
             if let Err(error) = run_interactive(
                 &selected_model, max_tokens, keep_context, native_greedy,
                 spec_type.as_deref() == Some("ngram-mod"),

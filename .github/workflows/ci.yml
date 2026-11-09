@@ -60,7 +60,7 @@ jobs:
         run: |
           python3 -m unittest scripts.test_summarize_phase35 -v
           python3 -m unittest scripts.test_capture_phase35_ollama -v
-          bash -n scripts/run_phase35_suite.sh scripts/run_tier0_dense_matrix.sh scripts/profile_phase35_hotpath.sh scripts/run_tier0_gate5a.sh scripts/capture_moe_router_phase5a.sh
+          bash -n scripts/run_phase35_suite.sh scripts/run_tier0_dense_matrix.sh scripts/profile_phase35_hotpath.sh scripts/run_tier0_gate5a.sh scripts/capture_moe_router_phase5a.sh scripts/run_cpu_moe_stream_experiment.sh
 
       - name: Run workspace tests
         run: cargo test --workspace --all-targets
@@ -250,6 +250,21 @@ jobs:
           )
           print("Real CPU MoE matmul used actual pread sidecar weights with exact token parity")
           PY
+          KILN_STREAM_TEST_TOKENS=8 KILN_CPU_THREADS=2 \
+            bash scripts/run_cpu_moe_stream_experiment.sh "$MODEL" \
+            "$RUNNER_TEMP/real-moe-fused-selections.json" \
+            "$RUNNER_TEMP/real-moe-stream-script-proof" \
+            > "$RUNNER_TEMP/real-moe-stream-script-result.json"
+          python3 - "$RUNNER_TEMP/real-moe-stream-script-proof/proof.json" <<'PY'
+          import json
+          import sys
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert report["baseline_external_tokens_identical"]
+          assert report["sidecar_matmul_tensors_covered"] == report["explicit_tensors"]
+          assert report["external_bytes_read"] > 0
+          assert report["tier0_deployment_accepted"] is False
+          print("Reproducible hardware runner passed external inference parity gate")
+          PY
           target/debug/kiln-bench expert-io \
             --file "$RUNNER_TEMP/real-moe-fused.bin" \
             --index-file "$RUNNER_TEMP/real-moe-fused.index.json" \
@@ -305,6 +320,9 @@ jobs:
             ${{ runner.temp }}/real-moe-stream-index-result.json
             ${{ runner.temp }}/real-moe-stream-audit.tsv
             ${{ runner.temp }}/real-moe-external-compute.json
+            ${{ runner.temp }}/real-moe-stream-script-result.json
+            ${{ runner.temp }}/real-moe-stream-script-proof/*.json
+            ${{ runner.temp }}/real-moe-stream-script-proof/*.tsv
             ${{ runner.temp }}/kiln-model-plan.json
 
       - name: Smoke-test Phase 3.5 real-model benchmark commands

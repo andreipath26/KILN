@@ -17,6 +17,28 @@ pub fn resolve_auto_model() -> Result<PathBuf, String> {
     }
 }
 
+/// Resolve a readable model file OR an unambiguous discovered GGUF/Ollama
+/// model label. Never execute Ollama or duplicate its content-addressed blobs.
+pub fn resolve_model_identifier(input: &str) -> Result<PathBuf, String> {
+    let candidate = PathBuf::from(input);
+    if candidate.is_file() {
+        return Ok(candidate);
+    }
+    let models = library::discover_models(&[]);
+    let matching = models.iter().filter(|model| model.name.eq_ignore_ascii_case(input))
+        .collect::<Vec<_>>();
+    match matching.as_slice() {
+        [model] => Ok(PathBuf::from(&model.path)),
+        [] => Err(format!(
+            "model {input:?} was not found as a readable GGUF path or discovered model name; use `kiln list` to see installed models"
+        )),
+        many => Err(format!(
+            "model label {input:?} is ambiguous ({} files); pass an exact GGUF path",
+            many.len()
+        )),
+    }
+}
+
 pub fn list_models(extra_roots: &[PathBuf], json: bool) -> Result<(), String> {
     let models = library::discover_models(extra_roots);
     if json {
@@ -53,3 +75,25 @@ pub fn pull_hugging_face(repo: &str, file: &str) -> Result<PathBuf, String> {
     library::pull_hugging_face(repo, file)
 }
 
+
+#[cfg(test)]
+mod model_identifier_tests {
+    use super::*;
+    use kiln_models::library::LocalModel;
+    fn fixture(name: &str, path: &str) -> LocalModel {
+        LocalModel {
+            name: name.into(), path: path.into(), size_bytes: 4096,
+            source: "Ollama manifest".into(), valid_gguf: true,
+        }
+    }
+    #[test]
+    fn rejects_ambiguous_names_instead_of_choosing_an_arbitrary_blob() {
+        let models = [fixture("model:latest","/tmp/model-a"), fixture("MODEL:latest","/tmp/model-b")];
+        let matches = models.iter().filter(|model| model.name.eq_ignore_ascii_case("model:latest"))
+            .collect::<Vec<_>>();
+        assert_eq!(matches.len(), 2);
+        let different = models.iter().filter(|model| model.name.eq_ignore_ascii_case("other:latest"))
+            .count();
+        assert_eq!(different, 0);
+    }
+}
