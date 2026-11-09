@@ -132,6 +132,19 @@ fn verify_stream_audit(contents: &str, expected_names: &HashSet<String>) -> Resu
     Ok((bytes, pread_bytes, hits))
 }
 
+/// Reject swapped/replaced model files between offset validation and
+/// external read completion, including a same-length replacement. This
+/// cannot replace actual cryptographic weight verification on every read.
+#[cfg(unix)]
+fn same_file_identity(before: &std::fs::Metadata, after: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    before.dev() == after.dev() && before.ino() == after.ino()
+}
+#[cfg(not(unix))]
+fn same_file_identity(_before: &std::fs::Metadata, _after: &std::fs::Metadata) -> bool {
+    true
+}
+
 struct TemporaryAudit {
     path: PathBuf,
 }
@@ -181,6 +194,11 @@ pub fn run(
     };
     let path = std::fs::canonicalize(&found)
         .map_err(|error| format!("model path cannot be resolved: {error}"))?;
+    let source_before = std::fs::metadata(&path)
+        .map_err(|e| format!("cannot stat source GGUF: {e}"))?;
+    if !source_before.is_file() {
+        return Err("source GGUF must be a regular file".into());
+    }
     let model_data = GgufFile::open(&path).map_err(|e| e.to_string())?;
     let choices = discover_complete_fused_moe_selections(&model_data)
         .map_err(|e| format!(
@@ -229,6 +247,13 @@ pub fn run(
         .map_err(|e| format!("native MoE streaming audit unreadable: {e}"))?.len();
     if audit_bytes > 16 * 1024 * 1024 {
         return Err("native stream audit exceeded the 16 MiB safety cap".into());
+    }
+    let source_after = std::fs::metadata(&path)
+        .map_err(|e| format!("source GGUF disappeared during streaming: {e}"))?;
+    if source_before.len() != source_after.len()
+        || source_before.modified().ok() != source_after.modified().ok()
+        || !same_file_identity(&source_before, &source_after) {
+        return Err("source GGUF file changed during streamed inference; discard results".into());
     }
     let recorded = std::fs::read_to_string(&audit.path)
         .map_err(|e| format!("could not verify native MoE graph read audit: {e}"))?;
