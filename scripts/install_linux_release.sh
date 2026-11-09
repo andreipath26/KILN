@@ -56,10 +56,10 @@ if target.exists() or target.is_symlink():
     raise SystemExit("kiln already exists; refusing to replace the installed binary")
 with tarfile.open(archive, "r:gz") as package:
     members = package.getmembers()
-    if {m.name for m in members} != {"kiln", "LICENSE", "THIRD_PARTY_NOTICES.md"}:
-        raise SystemExit("unexpected KILN release archive contents")
+    if len(members) != 3 or {m.name for m in members} != {"kiln", "LICENSE", "THIRD_PARTY_NOTICES.md"}:
+        raise SystemExit("unexpected or duplicated KILN archive contents")
     binary_member = package.getmember("kiln")
-    if not binary_member.isfile() or binary_member.size <= 0:
+    if not binary_member.isfile() or not (0 < binary_member.size <= 2 * 1024**3):
         raise SystemExit("KILN binary is not a valid regular archive member")
     data = package.extractfile(binary_member)
     if data is None:
