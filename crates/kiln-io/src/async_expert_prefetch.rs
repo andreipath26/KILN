@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, atomic::{AtomicU64, Ordering}, mpsc};
 use std::thread::{self, JoinHandle};
 use kiln_mem::ExpertKey;
-use crate::CachedExpertBlobReader;
+use crate::{CachedExpertBlobReader, ExpertBlobError};
 #[cfg(target_os = "linux")]
 use crate::LinuxUringExpertReader;
 
@@ -256,6 +256,27 @@ impl AsyncExpertPrefetch {
         SubmitResult::Submitted
     }
 
+    /// Submit an entire bounded batch in storage order, using the verified
+    /// index to deduplicate and validate before scheduling any reads.
+    /// A duplicate is reported as rejected but never occupies another slot.
+    /// The actual model router still controls the order of committed experts.
+    pub fn submit_batch(
+        &mut self, epoch: u64, keys: &[ExpertKey],
+    ) -> Result<(usize, usize), ExpertBlobError> {
+        let ordered = self.reader.order_experts_by_source(keys)?;
+        let duplicates = keys.len() - ordered.len();
+        let mut submitted = 0usize;
+        let mut rejected = duplicates;
+        for key in ordered {
+            if self.submit(epoch, key) == SubmitResult::Submitted {
+                submitted += 1;
+            } else {
+                rejected += 1;
+            }
+        }
+        Ok((submitted, rejected))
+    }
+
     /// Nonblocking completion drain. A stale result is omitted rather than
     /// exposed for a new router epoch. The returned Arc handle is now owned
     /// by the caller; the pending budget is released.
@@ -301,6 +322,46 @@ mod tests {
     use kiln_mem::ExpertCachePolicy;
     use kiln_models::{ExpertTable, ExpertRange};
     fn key(id:u32)->ExpertKey{ExpertKey{layer:0,expert_id:id}}
+
+    #[test]
+    fn prefetch_batch_is_deduplicated_and_does_not_read_bad_keys() {
+        let root=std::env::temp_dir().join(format!(
+            "kiln-source-order-{}-{:?}",std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path=root.join("experts.bin");
+        let bytes:Vec<u8>=(0..64u8).collect();
+        std::fs::write(&path,&bytes).unwrap();
+        let table=ExpertTable{blob_version:1,blob_size:64,ranges:(0..4).map(|id| {
+            ExpertRange{layer:0,expert_id:id,byte_offset:id as u64*16,byte_length:16}
+        }).collect()};
+        let reader=Arc::new(CachedExpertBlobReader::open(
+            &path,table,64,ExpertCachePolicy::Lru
+        ).unwrap());
+        let mut io=AsyncExpertPrefetch::new_parallel(
+            Arc::clone(&reader), 2, 4, 64
+        ).unwrap();
+        let key=|id|ExpertKey{layer:0,expert_id:id};
+        io.begin_epoch(1).unwrap();
+        assert!(io.submit_batch(1,&[key(3),key(99)]).is_err());
+        assert_eq!(reader.cache_stats().misses,0);
+        assert_eq!(io.stats().pending_requests,0);
+        assert_eq!(io.submit_batch(1,&[key(3),key(0),key(3),key(2)]).unwrap(),(3,1));
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
+        let mut complete=Vec::new();
+        while complete.len()<3 {
+            complete.extend(io.poll_ready());
+            assert!(std::time::Instant::now()<deadline,"batch prefetch stalled");
+            std::thread::yield_now();
+        }
+        let got:std::collections::HashSet<_>=complete.iter().map(|r| r.key).collect();
+        assert_eq!(got,std::collections::HashSet::from([key(0),key(2),key(3)]));
+        assert_eq!(io.stats().pending_bytes,0);
+        drop(io);
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
 
     #[test]
     fn parallel_pool_reads_four_distinct_experts_without_losing_budget() {

@@ -372,6 +372,36 @@ impl CachedExpertBlobReader {
         self.cache.stats()
     }
 
+    /// Validate an entire optional speculative batch before touching data,
+    /// deduplicate expert keys, and order reads by on-disk source offset.
+    /// This changes only prefetch I/O order—not model router selection.
+    pub fn order_experts_by_source(
+        &self, requested: &[ExpertKey],
+    ) -> Result<Vec<ExpertKey>, ExpertBlobError> {
+        const MAX_BATCH: usize = 4096;
+        if requested.len() > MAX_BATCH {
+            return Err(ExpertBlobError::InvalidRoute(
+                "prefetch batch exceeds 4096 expert keys".into()
+            ));
+        }
+        let source = self.lock_reader();
+        let mut seen = std::collections::HashSet::new();
+        let mut ranges = Vec::with_capacity(requested.len());
+        for &key in requested {
+            if seen.insert(key) {
+                let (offset, size) = source.expert_byte_range(key.layer, key.expert_id)?;
+                if size == 0 {
+                    return Err(ExpertBlobError::InvalidRoute(
+                        "zero-byte expert is not a valid prefetch candidate".into()
+                    ));
+                }
+                ranges.push((offset, key));
+            }
+        }
+        ranges.sort_by_key(|(offset, key)| (*offset, key.layer, key.expert_id));
+        Ok(ranges.into_iter().map(|(_, key)| key).collect())
+    }
+
     /// Index-only expert size lookup; does not fetch expert payload.
     pub fn expert_byte_length(&self, layer: u32, expert_id: u32)
         -> Result<u64, ExpertBlobError> {
@@ -732,6 +762,297 @@ mod tests {
         let key=ExpertKey {layer:0,expert_id:1};
         assert!(reader.promote_authoritative_expert(key, Arc::from(vec![8u8; 3])).is_err());
         assert_eq!(reader.cache_stats().entries,0);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn source_order_prefetch_deduplicates_and_prevalidates_before_io() {
+        let (path, _, table) = fixture();
+        let reader = CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap();
+        let key = |layer, expert_id| ExpertKey { layer, expert_id };
+        let plan = reader.order_experts_by_source(&[
+            key(1,1),key(0,1),key(0,0),key(0,1),key(1,0)
+        ]).unwrap();
+        assert_eq!(plan, vec![key(0,0),key(0,1),key(1,0),key(1,1)]);
+        assert_eq!(reader.cache_stats().misses,0);
+        assert!(reader.order_experts_by_source(&[
+            key(0,0), key(100,100)
+        ]).is_err());
+        assert_eq!(reader.cache_stats().entries,0);
+        assert!(reader.order_experts_by_source(
+            &vec![key(0,0);4097]
+        ).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn parallel_fork_reads_preserve_source_bytes_and_cache_bounds() {
+        let (path, data, table) = fixture();
+        let reader = Arc::new(CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Adaptive
+        ).unwrap());
+        let mut tasks = Vec::new();
+        for id in 0..4u32 {
+            let cloned = Arc::clone(&reader);
+            let mut source = reader.fork_source_reader().unwrap();
+            tasks.push(std::thread::spawn(move || {
+                cloned.read_with_fork(&mut source, ExpertKey {
+                    layer: id / 2, expert_id: id % 2
+                }).unwrap()
+            }));
+        }
+        for (i, task) in tasks.into_iter().enumerate() {
+            let bytes = task.join().unwrap();
+            assert_eq!(bytes.as_ref(), &data[i*8..i*8+8]);
+        }
+        assert!(reader.cache_stats().used_bytes <= 16);
+        assert_eq!(reader.cache_stats().misses, 4);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn cold_then_warm_read_uses_cache_and_accounts_bytes() {
+        let (path, bytes, table) = fixture();
+        let reader = CachedExpertBlobReader::open(&path, table, 8, ExpertCachePolicy::Lru).unwrap();
+        assert_eq!(reader.read_expert(0, 1).unwrap(), bytes[8..16]);
+        assert_eq!(reader.read_expert(0, 1).unwrap(), bytes[8..16]);
+        let stats = reader.cache_stats();
+        assert_eq!(stats.entries, 1);
+        assert_eq!(stats.used_bytes, 8);
+        assert_eq!(stats.misses, 1);
+        assert_eq!(stats.hits, 1);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn shared_expert_cache_hits_return_same_backing_allocation() {
+        let (path, bytes, table) = fixture();
+        let reader = CachedExpertBlobReader::open(&path, table, 8, ExpertCachePolicy::Lru).unwrap();
+        let first = reader.read_expert_shared(0, 1).unwrap();
+        let second = reader.read_expert_shared(0, 1).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(first.as_ref(), &bytes[8..16]);
+        assert_eq!(reader.cache_stats().hits, 1);
+        assert_eq!(reader.cache_stats().misses, 1);
+        assert_eq!(reader.cache_stats().used_bytes, 8);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn reuse_caller_buffer_without_allocating_owned_result() {
+        let (path, bytes, table) = fixture();
+        let reader = CachedExpertBlobReader::open(&path, table, 8, ExpertCachePolicy::Lru).unwrap();
+        let mut buffer = [0u8; 8];
+        assert!(matches!(
+            reader.read_expert_into(0, 1, &mut [0u8; 4]),
+            Err(ExpertBlobError::BufferLengthMismatch { expected: 8, actual: 4 })
+        ));
+        assert_eq!(reader.cache_stats().hits, 0);
+        assert_eq!(reader.cache_stats().misses, 0);
+        reader.read_expert_into(0, 1, &mut buffer).unwrap();
+        assert_eq!(buffer.as_slice(), &bytes[8..16]);
+        buffer.fill(0);
+        reader.read_expert_into(0, 1, &mut buffer).unwrap();
+        assert_eq!(buffer.as_slice(), &bytes[8..16]);
+        assert_eq!(reader.cache_stats().hits, 1);
+        assert_eq!(reader.cache_stats().misses, 1);
+        assert!(matches!(
+            reader.read_expert_into(0, 1, &mut [0u8; 4]),
+            Err(ExpertBlobError::BufferLengthMismatch { expected: 8, actual: 4 })
+        ));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn external_shared_reader_outlives_eviction_without_use_after_free() {
+        let (path, bytes, table) = fixture();
+        let reader = CachedExpertBlobReader::open(&path, table, 8, ExpertCachePolicy::Lru).unwrap();
+        let held = reader.read_expert_shared(0, 0).unwrap();
+        let next = reader.read_expert_shared(1, 0).unwrap();
+        assert_eq!(next.as_ref(), &bytes[16..24]);
+        assert_eq!(held.as_ref(), &bytes[0..8]);
+        assert_eq!(reader.cache_stats().used_bytes, 8);
+        assert!(!Arc::ptr_eq(&held, &next));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn oversized_expert_is_returned_but_not_cached() {
+        let (path, bytes, table) = fixture();
+        let reader = CachedExpertBlobReader::open(&path, table, 4, ExpertCachePolicy::Lru).unwrap();
+        assert_eq!(reader.read_expert(0, 0).unwrap(), bytes[0..8]);
+        assert_eq!(reader.read_expert(0, 0).unwrap(), bytes[0..8]);
+        assert_eq!(reader.cache_stats().used_bytes, 0);
+        assert_eq!(reader.cache_stats().misses, 2);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn concurrent_same_key_reads_return_correct_bytes_and_stay_bounded() {
+        let (path, bytes, table) = fixture();
+        let reader = Arc::new(CachedExpertBlobReader::open(&path, table, 16, ExpertCachePolicy::Lru).unwrap());
+        let expected = bytes[16..24].to_vec();
+        let mut workers = Vec::new();
+        for _ in 0..8 {
+            let reader = Arc::clone(&reader);
+            let expected = expected.clone();
+            workers.push(thread::spawn(move || {
+                assert_eq!(reader.read_expert(1, 0).unwrap(), expected);
+            }));
+        }
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        let stats = reader.cache_stats();
+        assert_eq!(stats.entries, 1);
+        assert_eq!(stats.used_bytes, 8);
+        assert_eq!(stats.hits, 7);
+        assert_eq!(stats.misses, 1);
+        assert!(stats.used_bytes <= stats.capacity_bytes);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn concurrent_shared_misses_coalesce_to_one_block_allocation() {
+        let (path, bytes, table) = fixture();
+        let reader = Arc::new(CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap());
+        let mut workers = Vec::new();
+        for _ in 0..8 {
+            let reader = Arc::clone(&reader);
+            workers.push(thread::spawn(move || reader.read_expert_shared(1, 0).unwrap()));
+        }
+        let handles: Vec<_> = workers.into_iter().map(|worker| worker.join().unwrap()).collect();
+        for handle in &handles {
+            assert!(Arc::ptr_eq(handle, &handles[0]));
+            assert_eq!(handle.as_ref(), &bytes[16..24]);
+        }
+        let stats = reader.cache_stats();
+        assert_eq!(stats.misses, 1);
+        assert_eq!(stats.hits, 7);
+        assert_eq!(stats.used_bytes, 8);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn opens_index_file_directly_and_uses_the_same_cache_path() {
+        let (path, bytes, table) = fixture();
+        let index_path = std::env::temp_dir().join(format!(
+            "kiln-cached-index-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(&index_path, serde_json::to_vec(&table).unwrap()).unwrap();
+        let reader = CachedExpertBlobReader::open_indexed(
+            &path, &index_path, 16, ExpertCachePolicy::Lru
+        ).unwrap();
+        assert_eq!(reader.read_expert(1, 0).unwrap(), bytes[16..24]);
+        assert_eq!(reader.read_expert(1, 0).unwrap(), bytes[16..24]);
+        assert_eq!(reader.cache_stats().hits, 1);
+        assert_eq!(reader.cache_stats().misses, 1);
+        std::fs::remove_file(index_path).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn bounded_access_trace_records_successful_reads_and_exports_json() {
+        let (path, _, table) = fixture();
+        let reader = CachedExpertBlobReader::open(&path, table, 16, ExpertCachePolicy::Lru).unwrap();
+        reader.enable_access_trace(2);
+        reader.read_expert(0, 0).unwrap();
+        reader.read_expert(1, 0).unwrap();
+        reader.read_expert(0, 0).unwrap();
+        let snapshot = reader.access_trace_snapshot();
+        assert_eq!(snapshot.events, vec![
+            ExpertKey { layer: 0, expert_id: 0 },
+            ExpertKey { layer: 1, expert_id: 0 },
+        ]);
+        assert_eq!(snapshot.max_events, 2);
+        assert_eq!(snapshot.dropped_events, 1);
+
+        let trace_path = std::env::temp_dir().join(format!(
+            "kiln-access-trace-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        reader.write_access_trace_json(&trace_path).unwrap();
+        // Repeated exports must fail rather than silently overwrite evidence.
+        assert_eq!(reader.write_access_trace_json(&trace_path).unwrap_err().kind(),
+            std::io::ErrorKind::AlreadyExists);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&trace_path).unwrap()
+                .permissions().mode() & 0o777, 0o600);
+        }
+        let exported: Vec<ExpertKey> = serde_json::from_slice(&std::fs::read(&trace_path).unwrap()).unwrap();
+        assert_eq!(exported, snapshot.events);
+        reader.enable_access_trace(0);
+        reader.read_expert(0, 1).unwrap();
+        assert!(reader.access_trace_snapshot().events.is_empty());
+        assert_eq!(reader.access_trace_snapshot().max_events, 0);
+        assert_eq!(reader.access_trace_snapshot().dropped_events, 0);
+        std::fs::remove_file(trace_path).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn prewarm_ranked_deduplicates_and_respects_strict_cache_budget() {
+        let (path, data, table) = fixture();
+        let reader = CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap();
+        let a = ExpertKey { layer: 0, expert_id: 0 };
+        let b = ExpertKey { layer: 0, expert_id: 1 };
+        let c = ExpertKey { layer: 1, expert_id: 0 };
+        let result = reader.prewarm_ranked(&[a, a, b, c], 16).unwrap();
+        assert_eq!(result.requested, 4);
+        assert_eq!(result.duplicate_keys, 1);
+        assert_eq!(result.skipped_budget, 1);
+        assert_eq!(result.admitted, 2);
+        assert_eq!(result.selected_bytes, 16);
+        assert_eq!(result.admitted_bytes, 16);
+        // Passive residency inspection during prewarm is not a real cache hit.
+        assert_eq!(reader.cache_stats().hits, 0);
+        assert_eq!(reader.cache_stats().used_bytes, 16);
+        assert_eq!(reader.read_expert(0, 0).unwrap(), data[0..8]);
+        assert_eq!(reader.read_expert(0, 1).unwrap(), data[8..16]);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn prewarm_rejects_bad_key_before_any_disk_read() {
+        let (path, _, table) = fixture();
+        let reader = CachedExpertBlobReader::open(
+            &path, table, 16, ExpertCachePolicy::Lru
+        ).unwrap();
+        let good = ExpertKey { layer: 0, expert_id: 0 };
+        let bad = ExpertKey { layer: 99, expert_id: 0 };
+        assert!(reader.prewarm_ranked(&[good, bad], 16).is_err());
+        assert_eq!(reader.cache_stats().misses, 0);
+        assert_eq!(reader.cache_stats().entries, 0);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn prewarm_does_not_evict_expert_held_by_computation() {
+        let (path, _, table) = fixture();
+        let reader = CachedExpertBlobReader::open(
+            &path, table, 8, ExpertCachePolicy::Adaptive
+        ).unwrap();
+        let held = reader.read_expert_shared(0, 0).unwrap();
+        let other = ExpertKey { layer: 0, expert_id: 1 };
+        let refused = reader.prewarm_ranked(&[other], 8).unwrap();
+        assert_eq!(refused.rejected_pinned, 1);
+        assert_eq!(reader.cache_stats().used_bytes, 8);
+        assert_eq!(reader.cache_stats().entries, 1);
+        drop(held);
+        let accepted = reader.prewarm_ranked(&[other], 8).unwrap();
+        assert_eq!(accepted.admitted, 1);
+        assert_eq!(reader.cache_stats().used_bytes, 8);
         std::fs::remove_file(path).unwrap();
     }
 
