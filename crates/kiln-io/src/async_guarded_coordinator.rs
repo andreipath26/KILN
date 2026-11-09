@@ -98,7 +98,17 @@ impl AsyncGuardedExpertCoordinator {
         &mut self, epoch: u64, actual: &[ExpertKey],
     ) -> Result<RoutedExpertLoad, ExpertBlobError> {
         self.poll_and_stage();
-        let committed = self.guard.commit(epoch, actual)
+        // Real batched MoE graphs may route multiple token rows to one
+        // physical expert. Never issue repeated disk reads or reject those
+        // legal duplicate selections at the Commit Guard boundary.
+        let mut unique = Vec::with_capacity(actual.len());
+        let mut seen = std::collections::HashSet::new();
+        for &key in actual {
+            if seen.insert(key) {
+                unique.push(key);
+            }
+        }
+        let committed = self.guard.commit(epoch, &unique)
             .map_err(|err| ExpertBlobError::InvalidRoute(err.into()))?;
         let predicted_hits = committed.accepted.len();
         let authoritative_reads = committed.missing.len();
@@ -109,12 +119,12 @@ impl AsyncGuardedExpertCoordinator {
         }
         let mut experts = Vec::with_capacity(actual.len());
         for &key in actual {
-            let bytes = ready.remove(&key).ok_or_else(|| {
+            let bytes = ready.get(&key).ok_or_else(|| {
                 ExpertBlobError::InvalidRoute(
                     "authoritative expert block unavailable after commit".into(),
                 )
             })?;
-            experts.push((key, bytes));
+            experts.push((key, Arc::clone(bytes)));
         }
         Ok(RoutedExpertLoad {
             experts, predicted_hits, authoritative_reads,
@@ -130,6 +140,43 @@ mod tests {
     use super::*;
     use kiln_mem::ExpertCachePolicy;
     use kiln_models::{ExpertTable, ExpertRange};
+
+    #[test]
+    fn actual_batched_router_duplicates_share_one_verified_expert_allocation() {
+        let root=std::env::temp_dir().join(format!(
+            "kiln-async-duplicate-{}-{:?}",
+            std::process::id(),std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source=root.join("source.bin");
+        let bytes:Vec<u8>=(0..64u8).collect();
+        std::fs::write(&source,&bytes).unwrap();
+        let table=ExpertTable {blob_version:1,blob_size:64,ranges:vec![
+            ExpertRange{layer:0,expert_id:0,byte_offset:0,byte_length:16},
+            ExpertRange{layer:0,expert_id:1,byte_offset:16,byte_length:16},
+        ]};
+        let reader=Arc::new(CachedExpertBlobReader::open(
+            &source,table,32,ExpertCachePolicy::Lru,
+        ).unwrap());
+        let mut coordinator=AsyncGuardedExpertCoordinator::new(
+            reader,2,32,32,2,
+        );
+        let a=ExpertKey{layer:0,expert_id:0};
+        let b=ExpertKey{layer:0,expert_id:1};
+        coordinator.begin_epoch(1).unwrap();
+        let result=coordinator.load_actual(1,&[a,b,a,b,a]).unwrap();
+        assert_eq!(result.predicted_hits,0);
+        assert_eq!(result.authoritative_reads,2);
+        assert_eq!(result.experts.len(),5);
+        assert_eq!(result.experts[0].1.as_ref(),&bytes[..16]);
+        assert_eq!(result.experts[1].1.as_ref(),&bytes[16..32]);
+        assert!(Arc::ptr_eq(&result.experts[0].1,&result.experts[2].1));
+        assert!(Arc::ptr_eq(&result.experts[0].1,&result.experts[4].1));
+        assert!(Arc::ptr_eq(&result.experts[1].1,&result.experts[3].1));
+        drop(coordinator);
+        std::fs::remove_file(source).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
 
     #[test]
     fn async_prefetch_cannot_override_actual_router_experts() {
