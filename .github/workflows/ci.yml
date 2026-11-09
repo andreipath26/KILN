@@ -191,19 +191,23 @@ jobs:
           print("Model preflight accurately identifies opt-in actual expert graph mode, not deployment readiness")
           PY
           printf 'Hello from the KILN smoke test.\n/exit\n' | \
-            KILN_MOE_STREAM_AUDIT="$RUNNER_TEMP/moe-cli-stream-audit.tsv" \
             timeout 120 target/debug/kiln stream "$MODEL" --max-tokens 6 \
-              --cache-mib 8 --parallel-reads > "$RUNNER_TEMP/moe-cli-stream.txt"
-          python3 - "$RUNNER_TEMP/moe-cli-stream.txt" "$RUNNER_TEMP/moe-cli-stream-audit.tsv" <<'PY'
+              --cache-mib 8 --parallel-reads > "$RUNNER_TEMP/moe-cli-stream.txt" \
+              2> "$RUNNER_TEMP/moe-cli-stream-evidence.txt"
+          python3 - "$RUNNER_TEMP/moe-cli-stream.txt" "$RUNNER_TEMP/moe-cli-stream-evidence.txt" <<'PY'
           import pathlib
+          import re
           import sys
           output = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
-          rows = [row.split("\t") for row in pathlib.Path(sys.argv[2]).read_text().splitlines()]
+          audit = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
           assert "KILN interactive session" in output and "kiln>" in output
-          assert rows and all(len(row) == 6 and int(row[2]) == int(row[1])
-                              for row in rows if int(row[1]) > 0)
-          assert any(int(row[3]) > 0 for row in rows)
-          print("One-binary kiln stream interactive runner actually computed with original GGUF experts")
+          matched = re.search(
+              r"KILN external expert graph verified: (\d+) tensors, (\d+) operand bytes, "
+              r"(\d+) pread bytes .*?, (\d+) hot expert cache hits", audit)
+          assert matched, "interactive runner did not verify all external expert projections"
+          count, operands, reads, hits = map(int, matched.groups())
+          assert count > 0 and operands > 0 and 0 <= reads <= operands and hits >= 0
+          print("One-binary kiln stream verified every expected original-GGUF external expert projection")
           PY
           KILN_MOE_ROUTER_TRACE="$RUNNER_TEMP/real-moe-router.tsv" \
             target/debug/kiln bench "$MODEL" --native-greedy \
@@ -458,6 +462,8 @@ jobs:
             ${{ runner.temp }}/real-moe-router.tsv
             ${{ runner.temp }}/real-moe-router.json
             ${{ runner.temp }}/real-moe-inference.json
+            ${{ runner.temp }}/moe-cli-stream.txt
+            ${{ runner.temp }}/moe-cli-stream-evidence.txt
             ${{ runner.temp }}/real-moe-page-advice.json
             ${{ runner.temp }}/real-moe-lazy-ab.json
             ${{ runner.temp }}/moe-fused-candidates.json
