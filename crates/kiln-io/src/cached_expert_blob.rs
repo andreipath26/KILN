@@ -729,7 +729,12 @@ mod tests {
         assert_eq!(refused.rejected_capacity, 1);
         assert_eq!(reader.cache_stats().used_bytes, 8);
         assert_eq!(reader.cache_stats().entries, 1);
+        assert!(!reader.invalidate(0, 0), "active lease must prevent invalidation");
         drop(held);
+        // Speculative warmup never evicts a resident expert, even after its
+        // lease is released. Explicit invalidation makes room safely.
+        assert_eq!(reader.prewarm_ranked(&[other], 8).unwrap().admitted, 0);
+        assert!(reader.invalidate(0, 0));
         let accepted = reader.prewarm_ranked(&[other], 8).unwrap();
         assert_eq!(accepted.admitted, 1);
         assert_eq!(reader.cache_stats().used_bytes, 8);
