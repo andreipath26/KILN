@@ -526,6 +526,10 @@ jobs:
             ${{ runner.temp }}/kiln-installed-stream-help.txt
             ${{ runner.temp }}/kiln-installed-api.log
             ${{ runner.temp }}/kiln-installed-api-version.json
+            ${{ runner.temp }}/kiln-installed-real-moe-stream.txt
+            ${{ runner.temp }}/kiln-installed-real-moe-stream-evidence.txt
+            ${{ runner.temp }}/kiln-installed-quality.json
+            ${{ runner.temp }}/kiln-installed-quality-verdict.json
             ${{ runner.temp }}/kiln-portable-release/*.json
             ${{ runner.temp }}/kiln-portable-release/*.sha256
             ${{ runner.temp }}/real-moe-page-advice.json
@@ -670,6 +674,31 @@ jobs:
             exit 1
           fi
           test -s "$RUNNER_TEMP/kiln-installed-api-version.json"
+          MODEL="$RUNNER_TEMP/kiln-models/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
+          printf 'Run the installed experimental CPU MoE stream.\n/exit\n' | \
+            timeout 120 "$RUNNER_TEMP/kiln-installed/kiln" stream "$MODEL" \
+              --max-tokens 6 --cache-mib 8 --parallel-reads \
+              > "$RUNNER_TEMP/kiln-installed-real-moe-stream.txt" \
+              2> "$RUNNER_TEMP/kiln-installed-real-moe-stream-evidence.txt"
+          grep -F 'KILN interactive session' "$RUNNER_TEMP/kiln-installed-real-moe-stream.txt"
+          grep -F 'experimental CPU MoE' "$RUNNER_TEMP/kiln-installed-real-moe-stream-evidence.txt"
+          "$RUNNER_TEMP/kiln-installed/kiln" eval-ppl "$MODEL" \
+            --text-file "$RUNNER_TEMP/quality-fixture.txt" \
+            --max-tokens 16 --window-tokens 128 --threads 2 --json \
+            > "$RUNNER_TEMP/kiln-installed-quality.json"
+          python3 scripts/compare_quality_parity.py \
+            --reference "$RUNNER_TEMP/quality-reference.json" \
+            --candidate "$RUNNER_TEMP/kiln-installed-quality.json" \
+            --max-relative-ppl-loss 0.01 \
+            --out "$RUNNER_TEMP/kiln-installed-quality-verdict.json"
+          python3 - "$RUNNER_TEMP/kiln-installed-quality-verdict.json" <<'PY'
+          import json
+          import sys
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert report["status"] == "pass"
+          assert report["tier0_deployment_accepted"] is False
+          print("Installed portable binary streamed actual MoE inference and preserved reference-model perplexity")
+          PY
           if bash scripts/install_linux_release.sh "$ARCHIVE" "$RUNNER_TEMP/kiln-installed"; then
             echo "Installer unexpectedly overwrote an existing binary" >&2
             exit 1
