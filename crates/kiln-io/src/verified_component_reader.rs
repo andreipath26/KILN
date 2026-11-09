@@ -268,8 +268,14 @@ mod tests {
         assert_eq!(reader.cache_stats().misses,before.misses);
         let gate=reader.read_component(0,1,"gate").unwrap();
         assert_eq!(gate.as_bytes(),&bytes[150..175]);
-        assert_eq!(down.as_bytes(),&bytes[40..60]); // survives eviction
-        assert_eq!(reader.cache_stats().used_bytes,25);
+        assert_eq!(down.as_bytes(),&bytes[40..60]); // active view pins original expert
+        // A live view must not lose its residency accounting. The new gate
+        // is usable even when admission rejects it because all slots are pinned.
+        assert_eq!(reader.cache_stats().used_bytes,50);
+        drop(group);
+        drop(down);
+        drop(up);
+        drop(gate);
         assert!(matches!(reader.read_component(0,1,"unknown"),
             Err(ComponentReadError::NotFound { .. })));
         for file in [&source,&blob,&index,&integrity,&map] {
