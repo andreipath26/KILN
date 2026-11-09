@@ -204,11 +204,15 @@ jobs:
           print("Model preflight accurately identifies opt-in actual expert graph mode, not deployment readiness")
           PY
           mkdir -m 0700 "$RUNNER_TEMP/moe-stream-isolated-temp"
-          printf 'Hello from the KILN smoke test.\n/exit\n' | \
+          if ! printf 'Hello from the KILN smoke test.\n/exit\n' | \
             TMPDIR="$RUNNER_TEMP/moe-stream-isolated-temp" \
             timeout 120 target/debug/kiln stream "$MODEL" --max-tokens 6 \
               --cache-mib 8 --parallel-reads > "$RUNNER_TEMP/moe-cli-stream.txt" \
-              2> "$RUNNER_TEMP/moe-cli-stream-evidence.txt"
+              2> "$RUNNER_TEMP/moe-cli-stream-evidence.txt"; then
+            echo "Interactive streaming failed; bounded native diagnostic:" >&2
+            tail -c 8192 "$RUNNER_TEMP/moe-cli-stream-evidence.txt" >&2 || true
+            exit 1
+          fi
           if find "$RUNNER_TEMP/moe-stream-isolated-temp" -mindepth 1 -print -quit | grep -q .; then
             echo "Experimental MoE stream left private session index or audit files behind" >&2
             exit 1
