@@ -91,15 +91,54 @@ pub fn profile_path() -> PathBuf {
     PathBuf::from("/tmp/kiln-system-profile.json")
 }
 
-fn read_ram_gb() -> Option<u32> {
-    let text = fs::read_to_string("/proc/meminfo").ok()?;
-    for line in text.lines() {
-        if let Some(rest) = line.strip_prefix("MemTotal:") {
-            let kb: u64 = rest.trim().split_whitespace().next()?.parse().ok()?;
-            return Some((kb / 1024 / 1024) as u32);
+/// A valid finite cgroup cap is never mistaken for the unlimited
+/// sentinel. Use this when classification is performed inside containers.
+fn finite_memory_limit(value: &str) -> Option<u64> {
+    let text = value.trim();
+    if text == "max" || text.is_empty() ||
+        !text.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let bytes = text.parse::<u64>().ok()?;
+    (bytes > 0 && bytes < (1u64 << 60)).then_some(bytes)
+}
+
+#[cfg(target_os = "linux")]
+fn effective_memory_limit() -> Option<u64> {
+    let mut cap: Option<u64> = None;
+    for path in [
+        "/sys/fs/cgroup/memory.max",
+        "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+    ] {
+        if let Ok(text) = fs::read_to_string(path) {
+            if let Some(bytes) = finite_memory_limit(&text) {
+                cap = Some(cap.map_or(bytes, |current| current.min(bytes)));
+            }
         }
     }
-    None
+    cap
+}
+#[cfg(not(target_os = "linux"))]
+fn effective_memory_limit() -> Option<u64> { None }
+
+fn effective_ram_gb(meminfo: &str, cap: Option<u64>) -> Option<u32> {
+    let line = meminfo.lines().find(|line| line.starts_with("MemTotal:"))?;
+    let fields: Vec<_> = line.split_whitespace().collect();
+    if fields.len() != 3 || fields[2] != "kB" {
+        return None;
+    }
+    let host_bytes = fields[1].parse::<u64>().ok()?.checked_mul(1024)?;
+    let bytes = cap.map_or(host_bytes, |limit| host_bytes.min(limit));
+    if bytes == 0 { return None; }
+    // Round up: a 512 MiB sandbox has a 1 GiB-class budget, not zero RAM.
+    // This value is for safe tier classification, not current MemAvailable.
+    let gib = 1024u64 * 1024 * 1024;
+    Some((bytes / gib + u64::from(bytes % gib != 0)).min(u32::MAX as u64) as u32)
+}
+
+fn read_ram_gb() -> Option<u32> {
+    let text = fs::read_to_string("/proc/meminfo").ok()?;
+    effective_ram_gb(&text, effective_memory_limit())
 }
 
 fn classify(cores: u32, ram_gb: u32) -> Tier {
@@ -171,6 +210,28 @@ mod tests {
         assert!(p.n_ctx >= 1024);
         assert!(p.n_threads >= 1);
         assert!(p.n_threads <= p.cpu_cores);
+    }
+
+    #[test]
+    fn memory_classification_honors_container_limit() {
+        let host = "MemTotal: 33554432 kB\nMemAvailable: 102400 kB\n";
+        assert_eq!(effective_ram_gb(host, None), Some(32));
+        assert_eq!(effective_ram_gb(host, Some(1024 * 1024 * 1024)), Some(1));
+        assert_eq!(effective_ram_gb(host, Some(512 * 1024 * 1024)), Some(1));
+        assert_eq!(effective_ram_gb(host, Some(16 * 1024 * 1024 * 1024)), Some(16));
+        assert_eq!(effective_ram_gb(host, Some(0)), None);
+        assert_eq!(effective_ram_gb("MemTotal: 42 GB\n", None), None);
+        assert_eq!(finite_memory_limit("max"), None);
+        assert_eq!(finite_memory_limit("9223372036854771712"), None);
+        assert_eq!(finite_memory_limit("-1"), None);
+        assert_eq!(finite_memory_limit("536870912\n"), Some(536870912));
+    }
+
+    #[test]
+    fn container_scale_hardware_is_not_assigned_host_memory_tier() {
+        let ram = effective_ram_gb("MemTotal: 268435456 kB\n", Some(2 * 1024 * 1024 * 1024)).unwrap();
+        assert_eq!(ram, 2);
+        assert_eq!(classify(4, ram), Tier::Tier0);
     }
 
     #[test]

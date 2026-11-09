@@ -181,10 +181,12 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
         .unwrap_or_else(|_| path.to_path_buf()).display().to_string());
     report["gguf_tensor_count"] = json!(model_data.tensor_count());
     report["architecture"] = json!(model_data.metadata_str("general.architecture"));
-    let recommended_threads = effective_cpu_quota()
+    let quota = effective_cpu_quota();
+    let recommended_threads = quota
         .map_or(profile.n_threads, |cap| profile.n_threads.min(cap)).max(1);
     report["cpu_threads_suggested"] = json!(recommended_threads);
-    report["cpu"]["cgroup_cpu_quota_threads"] = json!(effective_cpu_quota());
+    report["cpu"]["cgroup_cpu_quota_threads"] = json!(quota);
+    report["memory"]["effective_system_ram_gb"] = json!(profile.ram_gb);
     report["profile_tier"] = json!(format!("{:?}", profile.tier));
     report["recommendations"]["cpu_moe_selected_expert_external_compute_experimental"] =
         json!(experimental_cpu_external_streaming);
