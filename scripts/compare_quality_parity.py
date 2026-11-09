@@ -11,7 +11,8 @@ import math
 from pathlib import Path
 
 REQUIRED_EQUAL = (
-    "protocol", "token_fingerprint_fnv1a64", "evaluated_token_count",
+    "protocol", "token_fingerprint_fnv1a64", "token_ids_sha256_le_i32",
+    "evaluated_token_count",
     "scored_target_tokens", "window_tokens",
 )
 

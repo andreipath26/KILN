@@ -5,6 +5,7 @@ class QualityParityTests(unittest.TestCase):
     def sample(self, value):
         return {"protocol":"kiln-reset-window-next-token-nll-v1",
                 "token_fingerprint_fnv1a64":"0011223344556677",
+                "token_ids_sha256_le_i32":"a"*64,
                 "evaluated_token_count":1000,
                 "scored_target_tokens":999,
                 "window_tokens":512,"perplexity":value}
@@ -18,6 +19,10 @@ class QualityParityTests(unittest.TestCase):
         ref=self.sample(10)
         cand=self.sample(9)
         cand["token_fingerprint_fnv1a64"]="ffff"
+        with self.assertRaises(ValueError):
+            assess(ref,cand,0.01)
+        cand=self.sample(9)
+        cand["token_ids_sha256_le_i32"]="b"*64
         with self.assertRaises(ValueError):
             assess(ref,cand,0.01)
         cand=self.sample(9)

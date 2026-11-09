@@ -6,6 +6,7 @@ use std::path::Path;
 use std::time::Instant;
 use kiln_runtime::{LlamaContext, SystemProfile};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 const MAX_CORPUS_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_EVAL_TOKENS: usize = 65_536;
@@ -93,6 +94,13 @@ pub fn run(
     }
     tokens.truncate(max_tokens);
     let fingerprint = token_fingerprint(&tokens);
+    // Record cryptographic corpus token identity, not only a compact FNV
+    // diagnostic, before allowing FP16-vs-candidate likelihood comparisons.
+    let mut digest = Sha256::new();
+    for token in &tokens {
+        digest.update(token.to_le_bytes());
+    }
+    let token_sha256 = format!("{:x}", digest.finalize());
     let mut total_nll = 0.0f64;
     let mut scored = 0usize;
     let mut windows = 0usize;
@@ -125,6 +133,7 @@ pub fn run(
             .unwrap_or_else(|_| text_file.to_path_buf()),
         "model_path": std::fs::canonicalize(&path).unwrap_or(path),
         "token_fingerprint_fnv1a64": fingerprint,
+        "token_ids_sha256_le_i32": token_sha256,
         "evaluated_token_count": tokens.len(),
         "scored_target_tokens": scored,
         "window_tokens": window_tokens,
