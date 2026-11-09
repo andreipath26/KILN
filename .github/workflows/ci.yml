@@ -481,6 +481,8 @@ jobs:
             ${{ runner.temp }}/kiln-install-proof.txt
             ${{ runner.temp }}/kiln-installed-help.txt
             ${{ runner.temp }}/kiln-installed-stream-help.txt
+            ${{ runner.temp }}/kiln-installed-api.log
+            ${{ runner.temp }}/kiln-installed-api-version.json
             ${{ runner.temp }}/kiln-portable-release/*.json
             ${{ runner.temp }}/kiln-portable-release/*.sha256
             ${{ runner.temp }}/real-moe-page-advice.json
@@ -588,6 +590,27 @@ jobs:
             > "$RUNNER_TEMP/kiln-install-proof.txt"
           "$RUNNER_TEMP/kiln-installed/kiln" --help > "$RUNNER_TEMP/kiln-installed-help.txt"
           "$RUNNER_TEMP/kiln-installed/kiln" stream --help > "$RUNNER_TEMP/kiln-installed-stream-help.txt"
+          KILN_MODELS_DIR="$RUNNER_TEMP/kiln-models" \
+            "$RUNNER_TEMP/kiln-installed/kiln" serve --host 127.0.0.1 --port 11436 \
+            > "$RUNNER_TEMP/kiln-installed-api.log" 2>&1 &
+          INSTALLED_PID=$!
+          READY=0
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:11436/api/version \
+              > "$RUNNER_TEMP/kiln-installed-api-version.json"; then
+              READY=1
+              break
+            fi
+            sleep 1
+          done
+          kill "$INSTALLED_PID" || true
+          wait "$INSTALLED_PID" || true
+          if [ "$READY" -ne 1 ]; then
+            cat "$RUNNER_TEMP/kiln-installed-api.log"
+            echo "Installed portable KILN server did not become healthy" >&2
+            exit 1
+          fi
+          test -s "$RUNNER_TEMP/kiln-installed-api-version.json"
           if bash scripts/install_linux_release.sh "$ARCHIVE" "$RUNNER_TEMP/kiln-installed"; then
             echo "Installer unexpectedly overwrote an existing binary" >&2
             exit 1
