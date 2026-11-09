@@ -140,6 +140,120 @@ pub fn resolve_expert_tensor_components(
     })
 }
 
+/// A GGUF fused-expert tensor explicitly declared to use contiguous
+/// expert slices on the THIRD GGUF dimension: [row_width, row_count, experts].
+/// Never infer an expert axis from a tensor name or metadata alone.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct FusedExpertTensorSelection {
+    pub layer: u32,
+    pub tensor_name: String,
+    pub expert_count: u32,
+}
+
+/// Resolve byte-exact contiguous per-expert slabs of declared 3-D fused
+/// tensors. This is a storage transform only: no inference kernel is changed.
+/// Unsupported formats and ambiguous axes are rejected before reading bytes.
+pub fn resolve_fused_expert_tensor_components(
+    tensors: &[GgufTensorInfo],
+    data_offset: u64,
+    source_size: u64,
+    selections: &[FusedExpertTensorSelection],
+) -> Result<GgufExpertSourceMap, ExpertMapError> {
+    if selections.is_empty() || selections.len() > 100_000 {
+        return Err(invalid("fused selection count must be 1..=100,000"));
+    }
+    let by_name: std::collections::HashMap<_, _> = tensors.iter()
+        .map(|tensor| (tensor.name.as_str(), tensor)).collect();
+    if by_name.len() != tensors.len() {
+        return Err(invalid("source GGUF contains duplicate tensor names"));
+    }
+    let mut seen = HashSet::new();
+    let mut components = Vec::new();
+    for selection in selections {
+        if !seen.insert(selection.tensor_name.as_str()) {
+            return Err(invalid(format!("duplicate fused tensor {}", selection.tensor_name)));
+        }
+        if selection.expert_count == 0 ||
+            components.len().checked_add(selection.expert_count as usize)
+                .is_none_or(|count| count > 1_000_000) {
+            return Err(invalid("fused selection count or total expert components out of bounds"));
+        }
+        let tensor = by_name.get(selection.tensor_name.as_str())
+            .ok_or_else(|| invalid(format!("source GGUF lacks fused tensor {}", selection.tensor_name)))?;
+        if tensor.shape.len() != 3 || tensor.shape[2] != u64::from(selection.expert_count) {
+            return Err(invalid(format!(
+                "fused tensor {} must have exact [row_width, rows, {}] dimensions",
+                selection.tensor_name, selection.expert_count
+            )));
+        }
+        let slice_info = GgufTensorInfo {
+            name: tensor.name.clone(),
+            shape: tensor.shape[..2].to_vec(),
+            dtype: tensor.dtype,
+            offset: tensor.offset,
+        };
+        let slab_bytes = checked_tensor_bytes(&slice_info)
+            .filter(|bytes| *bytes > 0)
+            .ok_or_else(|| invalid(format!("unsupported fused tensor layout {}", selection.tensor_name)))?;
+        let full_bytes = slab_bytes.checked_mul(u64::from(selection.expert_count))
+            .ok_or_else(|| invalid("fused tensor size overflow"))?;
+        if checked_tensor_bytes(tensor) != Some(full_bytes) {
+            return Err(invalid("fused expert slabs do not match total encoded tensor bytes"));
+        }
+        let tensor_start = data_offset.checked_add(tensor.offset)
+            .ok_or_else(|| invalid("fused tensor offset overflow"))?;
+        let tensor_end = tensor_start.checked_add(full_bytes)
+            .ok_or_else(|| invalid("fused tensor range overflow"))?;
+        if tensor_end > source_size {
+            return Err(invalid(format!("fused tensor {} exceeds source bounds", tensor.name)));
+        }
+        for expert_id in 0..selection.expert_count {
+            let offset = tensor_start.checked_add(slab_bytes * u64::from(expert_id))
+                .ok_or_else(|| invalid("expert offset overflow"))?;
+            components.push(ExpertTensorComponent {
+                layer: selection.layer,
+                expert_id,
+                // Make each slab's component identity explicit; it is a slice of
+                // the original tensor rather than a standalone GGUF tensor.
+                tensor_name: format!("{}#expert:{}", tensor.name, expert_id),
+                source_byte_offset: offset,
+                byte_length: slab_bytes,
+            });
+        }
+    }
+    let mut by_offset: Vec<_> = components.iter().collect();
+    by_offset.sort_unstable_by_key(|item| item.source_byte_offset);
+    for pair in by_offset.windows(2) {
+        if pair[0].source_byte_offset + pair[0].byte_length > pair[1].source_byte_offset {
+            return Err(invalid("fused expert source ranges overlap"));
+        }
+    }
+    components.sort_unstable_by(|a,b|
+        (a.layer,a.expert_id,a.tensor_name.as_str())
+            .cmp(&(b.layer,b.expert_id,b.tensor_name.as_str())));
+    for pair in components.windows(2) {
+        if (pair[0].layer,pair[0].expert_id,pair[0].tensor_name.as_str()) ==
+            (pair[1].layer,pair[1].expert_id,pair[1].tensor_name.as_str()) {
+            return Err(invalid("duplicate fused expert component key"));
+        }
+    }
+    Ok(GgufExpertSourceMap {
+        format_version: 1, source_size_bytes: source_size, components,
+    })
+}
+
+/// Read-only GGUF-to-fused-slab map. The model remains intact on disk.
+pub fn resolve_fused_expert_tensors_in_gguf(
+    path: &Path,
+    selections: &[FusedExpertTensorSelection],
+) -> Result<GgufExpertSourceMap, ExpertMapError> {
+    let model = GgufFile::open(path)?;
+    resolve_fused_expert_tensor_components(
+        &model.tensors, model.data_offset, model.file_size(), selections
+    )
+}
+
 /// This mmap-based GGUF index access does not allocate a second full model
 /// buffer, but the OS can still page model bytes into RAM during parsing.
 pub fn resolve_expert_tensors_in_gguf(
@@ -159,6 +273,42 @@ mod tests {
             name:name.to_owned(),offset,shape:shape.to_vec(),dtype
         }
     }
+    #[test]
+    fn fused_q4k_experts_have_exact_nonoverlapping_quantized_slabs() {
+        let tensors = vec![
+            tensor("blk.0.ffn_up_exps",0,&[256,3,4],GgufType::Q4_K),
+            tensor("blk.0.ffn_down_exps",4096,&[256,2,4],GgufType::Q4_K),
+        ];
+        let choices = [
+            FusedExpertTensorSelection {layer:0,tensor_name:"blk.0.ffn_up_exps".into(),expert_count:4},
+            FusedExpertTensorSelection {layer:0,tensor_name:"blk.0.ffn_down_exps".into(),expert_count:4},
+        ];
+        let result=resolve_fused_expert_tensor_components(&tensors,1024,8192,&choices).unwrap();
+        assert_eq!(result.components.len(),8);
+        let e1:Vec<_>=result.components.iter().filter(|x| x.expert_id==1).collect();
+        assert_eq!(e1.len(),2);
+        assert_eq!(e1[0].byte_length,288);
+        assert_eq!(e1[0].source_byte_offset,1024+4096+288);
+        assert_eq!(e1[1].byte_length,432);
+        assert_eq!(e1[1].source_byte_offset,1024+432);
+    }
+
+    #[test]
+    fn fused_mapper_rejects_ambiguous_axis_partial_quant_rows_and_duplicates() {
+        let t = tensor("fused",0,&[256,2,4],GgufType::Q4_K);
+        let select=FusedExpertTensorSelection {
+            layer:0,tensor_name:"fused".into(),expert_count:4,
+        };
+        assert!(resolve_fused_expert_tensor_components(&[t.clone()],0,4096,&[select.clone()]).is_ok());
+        assert!(resolve_fused_expert_tensor_components(&[t.clone()],0,4096,&[select.clone(),select.clone()]).is_err());
+        assert!(resolve_fused_expert_tensor_components(&[t.clone()],0,4096,&[FusedExpertTensorSelection {
+            expert_count:3, ..select.clone()
+        }]).is_err());
+        assert!(resolve_fused_expert_tensor_components(&[tensor("fused",0,&[257,2,4],GgufType::Q4_K)],0,4096,&[select.clone()]).is_err());
+        assert!(resolve_fused_expert_tensor_components(&[tensor("fused",0,&[256,8],GgufType::Q4_K)],0,4096,&[select.clone()]).is_err());
+        assert!(resolve_fused_expert_tensor_components(&[t],0,1,&[select]).is_err());
+    }
+
     #[test]
     fn resolves_exact_tq1_and_q4k_source_ranges_without_repacking() {
         let tensors=vec![
