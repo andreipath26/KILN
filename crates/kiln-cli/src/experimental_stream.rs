@@ -218,6 +218,7 @@ pub fn run(
     lazy_moe_experts: bool,
     cache_mib: u32,
     parallel_reads: bool,
+    stdio_json: bool,
 ) -> Result<(), String> {
     if !cfg!(target_os = "linux") {
         return Err("native on-demand CPU expert streaming currently requires Linux".into());
@@ -259,10 +260,14 @@ pub fn run(
         choices.len(), cache_mib, parallel_reads,
     );
     let mut command = Command::new(binary);
-    command.arg("run").arg(&path)
-        .arg("--native-greedy")
-        .arg("--max-tokens").arg(max_tokens.to_string())
-        .env("KILN_MOE_STREAM_BLOB", &path)
+    if stdio_json {
+        command.arg("worker").arg(&path);
+    } else {
+        command.arg("run").arg(&path)
+            .arg("--native-greedy")
+            .arg("--max-tokens").arg(max_tokens.to_string());
+    }
+    command.env("KILN_MOE_STREAM_BLOB", &path)
         .env("KILN_MOE_STREAM_INDEX", &temp.path)
         .env("KILN_MOE_STREAM_AUDIT", &audit.path)
         .env("KILN_MOE_STREAM_CACHE_MIB", cache_mib.to_string())
