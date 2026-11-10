@@ -352,8 +352,10 @@ pub async fn ui_models(State(state): State<ApiState>) -> Result<Json<Value>, Err
         let path = PathBuf::from(&model.path);
         let active = active_path.as_ref().is_some_and(|active| std::fs::canonicalize(&path).ok().as_ref() == Some(active));
         let load_error = kiln_models::library::normalize_gguf_load_path(&path).err();
+        let repair_missing = kiln_models::library::missing_split_shards_for_download(&path);
         json!({
             "load_error": load_error,
+            "repair_missing": repair_missing,
             "name": model.name,
             "path": model.path,
             "size_bytes": model.size_bytes,
