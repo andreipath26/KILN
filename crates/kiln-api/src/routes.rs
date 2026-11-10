@@ -102,9 +102,18 @@ fn infer_with_chunks(
         ));
     }
 
-    session.dispatcher.dispatch(RuntimeOp::Reset)
+    let model_name = session.model_name.clone();
+    if let Some(worker) = session.stream_worker.as_mut() {
+        let output = worker.infer(prompt, max_tokens, on_chunk)
+            .map_err(|e| (StatusCode::BAD_GATEWAY, format!("native MoE streaming failed: {e}")))?;
+        return Ok((model_name, output));
+    }
+    let dispatcher = session.dispatcher.as_mut().ok_or_else(|| (
+        StatusCode::INTERNAL_SERVER_ERROR, "model session has no backend".into()
+    ))?;
+    dispatcher.dispatch(RuntimeOp::Reset)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("session reset failed: {}", e)))?;
-    let prompt_tokens = match session.dispatcher.dispatch(RuntimeOp::Tokenize {
+    let prompt_tokens = match dispatcher.dispatch(RuntimeOp::Tokenize {
         text: prompt.to_string(),
     }).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("tokenization failed: {}", e)))? {
         RuntimeResult::Tokens(tokens) => tokens,
@@ -114,13 +123,13 @@ fn infer_with_chunks(
         return Err((StatusCode::BAD_REQUEST, "prompt tokenized to no tokens".into()));
     }
 
-    let mut logits = match session.dispatcher.dispatch(RuntimeOp::Forward { tokens: prompt_tokens })
+    let mut logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: prompt_tokens })
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("prompt evaluation failed: {}", e)))? {
         RuntimeResult::Logits(logits) => logits,
         _ => return Err((StatusCode::INTERNAL_SERVER_ERROR, "runtime returned an unexpected prompt result".into())),
     };
 
-    let eos = match session.dispatcher.dispatch(RuntimeOp::EosToken)
+    let eos = match dispatcher.dispatch(RuntimeOp::EosToken)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("EOS lookup failed: {}", e)))? {
         RuntimeResult::Int(token) => token,
         _ => return Err((StatusCode::INTERNAL_SERVER_ERROR, "runtime returned an unexpected EOS-token result".into())),
@@ -135,7 +144,7 @@ fn infer_with_chunks(
         if token == eos {
             break;
         }
-        match session.dispatcher.dispatch(RuntimeOp::TokenToStr { token })
+        match dispatcher.dispatch(RuntimeOp::TokenToStr { token })
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("token decoding failed: {}", e)))? {
             RuntimeResult::Bytes(bytes) => output.extend_from_slice(&bytes),
             RuntimeResult::Str(text) => output.extend_from_slice(text.as_bytes()),
@@ -163,7 +172,7 @@ fn infer_with_chunks(
 
         // No need to evaluate another token after the final requested output token.
         if step + 1 < max_tokens {
-            logits = match session.dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
+            logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("decode step failed: {}", e)))? {
                 RuntimeResult::Logits(logits) => logits,
                 _ => return Err((StatusCode::INTERNAL_SERVER_ERROR, "runtime returned an unexpected decode result".into())),
@@ -450,6 +459,7 @@ pub async fn ui_capabilities(State(state): State<ApiState>) -> Json<Value> {
     let active_model = state.runtime.lock().ok().and_then(|runtime| {
         runtime.as_ref().map(|session| json!({
             "name": session.model_name,
+            "mode": if session.streaming { "experimental_cpu_moe_stream" } else { "standard" },
         }))
     });
 
@@ -512,8 +522,8 @@ pub async fn ui_capabilities(State(state): State<ApiState>) -> Json<Value> {
             {
                 "id": "memory.moe_streaming",
                 "label": "MoE expert streaming",
-                "status": "not_integrated",
-                "detail": "The end-to-end streaming runtime and its live metrics are not exposed by this API."
+                "status": "limited",
+                "detail": "On Linux, compatible single-file MoE models larger than available system RAM use an isolated experimental CPU expert-streaming worker. Unsupported/split layouts fail closed; speed and physical SSD/RSS guarantees are not established."
             },
             {
                 "id": "workload.diffusion",
