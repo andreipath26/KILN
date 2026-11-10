@@ -194,6 +194,11 @@ function renderSession(model, bootstrap) {
     ["Model", model?.name || "None loaded"],
     ["Model size", model ? `${(model.size / 1_073_741_824).toFixed(2)} GiB` : "—"],
     ["Session config", model ? "Active in KILN runtime" : "Not configured"],
+    ["Inference mode", model ? (
+      bootstrap?.active_model?.mode === "experimental_cpu_moe_stream"
+        ? "Experimental CPU expert streaming (large model)"
+        : "Standard / mmap model loading"
+    ) : "—"],
   ];
   for (const [label, value] of rows) {
     const row = document.createElement("div");
