@@ -20,6 +20,7 @@ mod phase35_kv_bench;
 mod phase35_spec_bench;
 mod model_plan;
 mod experimental_stream;
+mod self_update;
 mod quality_eval;
 
 /// Linux process RSS snapshot in KiB. VmHWM is the process high-water mark
@@ -157,6 +158,12 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Fetch the latest stable GitHub release and update a user-installed Linux binary.
+    Update {
+        /// Check for an update without installing it.
+        #[arg(long)]
+        check: bool,
+    },
     /// Start the Ollama-compatible REST API server.
     Serve {
         /// Port to bind to. Default 11435.
@@ -452,6 +459,12 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Update { check } => {
+            if let Err(error) = self_update::run(check) {
+                eprintln!("update error: {error}");
+                std::process::exit(1);
+            }
+        }
         Commands::Serve { port, host } => {
             if let Err(e) = serve(&host, port).await {
                 eprintln!("server error: {}", e);
