@@ -270,6 +270,41 @@ pub fn normalize_gguf_load_path(path: &Path) -> Result<PathBuf, String> {
     Ok(first.ok_or("the first GGUF shard is missing")?)
 }
 
+/// For KILN-owned Hugging Face downloads, offer SHA-256-verified recovery
+/// of missing shards without touching or re-downloading existing GGUF files.
+#[derive(Debug, Clone, Serialize)]
+pub struct MissingSplitShard {
+    pub repository: String,
+    pub file: String,
+}
+pub fn missing_split_shards_for_download(path: &Path) -> Vec<MissingSplitShard> {
+    let Some((prefix, _, count)) = split_gguf_parts(path) else { return Vec::new(); };
+    let Ok(root) = model_dir() else { return Vec::new(); };
+    let root = fs::canonicalize(root).ok();
+    let Some(root) = root else { return Vec::new(); };
+    let Ok(relative) = path.strip_prefix(&root) else { return Vec::new(); };
+    let mut parts = relative.components();
+    let Some(std::path::Component::Normal(repo_dir)) = parts.next() else { return Vec::new(); };
+    let Some(repo_dir) = repo_dir.to_str() else { return Vec::new(); };
+    let Some((owner, name)) = repo_dir.split_once("--") else { return Vec::new(); };
+    let repo = format!("{owner}/{name}");
+    if !valid_repo_id(&repo) { return Vec::new(); }
+    let Some(base) = prefix.file_name().and_then(|v| v.to_str()) else { return Vec::new(); };
+    let Some(parent) = path.parent() else { return Vec::new(); };
+    let mut missing = Vec::new();
+    for number in 1..=count {
+        let filename = format!("{base}-{number:05}-of-{count:05}.gguf");
+        let candidate = parent.join(&filename);
+        if candidate.is_file() { continue; }
+        let Ok(in_repo) = candidate.strip_prefix(root.join(repo_dir)) else { continue; };
+        let file = in_repo.to_string_lossy().replace('\\', "/");
+        if valid_repo_file(&file) {
+            missing.push(MissingSplitShard { repository: repo.clone(), file });
+        }
+    }
+    missing
+}
+
 pub fn discover_models(extra_roots: &[PathBuf]) -> Vec<LocalModel> {
     let mut roots = standard_roots();
     roots.extend(extra_roots.iter().cloned());
@@ -784,6 +819,14 @@ mod tests {
         let top_level = json!({"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"});
         assert_eq!(sha256_from_metadata(&oid).as_deref(), Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
         assert_eq!(sha256_from_metadata(&top_level).as_deref(), Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+    }
+
+    #[test]
+    fn incomplete_split_reports_exact_missing_shard_but_not_arbitrary_model_file() {
+        use super::{split_gguf_parts,normalize_gguf_load_path};
+        let incomplete=std::path::Path::new("/tmp/test-model-00002-of-00002.gguf");
+        assert_eq!(split_gguf_parts(incomplete).unwrap().2,2);
+        assert!(normalize_gguf_load_path(incomplete).unwrap_err().contains("00001-of-00002"));
     }
 
     #[test]
