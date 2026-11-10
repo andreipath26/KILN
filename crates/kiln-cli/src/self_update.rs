@@ -203,7 +203,8 @@ mod tests {
         assert!(select(&release, "x86_64").is_ok());
         assert!(select(&release, "armv7").is_err());
         let mut duplicate = release;
-        duplicate.assets.push(Asset { name: duplicate.assets[0].name.clone(),
+        let same_name = duplicate.assets[0].name.clone();
+        duplicate.assets.push(Asset { name: same_name,
             browser_download_url: String::new(), size: 10 });
         assert!(select(&duplicate, "x86_64").is_err());
     }
