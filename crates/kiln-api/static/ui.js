@@ -266,8 +266,18 @@ function renderLocalModels(models) {
     choose.textContent = model.active ? "Active model" : "Use model";
     choose.disabled = Boolean(model.load_error) || model.active || state.modelActionBusy || state.busy;
     if (model.load_error) choose.title = model.load_error;
-    choose.addEventListener("click", () => void activateLocalModel(model.path));
+    choose.addEventListener("click", () => void activateLocalModel(model.path, "auto"));
     actions.append(choose);
+    if (!model.active && !model.load_error) {
+      const stream = document.createElement("button");
+      stream.type = "button";
+      stream.className = "button button-secondary";
+      stream.textContent = "Try streaming";
+      stream.title = "Experimental Linux CPU on-demand expert reads; compatible single-file fused MoE GGUF only";
+      stream.disabled = state.modelActionBusy || state.busy;
+      stream.addEventListener("click", () => void activateLocalModel(model.path, "stream"));
+      actions.append(stream);
+    }
     row.append(main, actions);
     list.append(row);
   }
@@ -332,14 +342,14 @@ async function loadLocalModels() {
   renderLocalModels(payload.models || []);
 }
 
-async function activateLocalModel(path) {
+async function activateLocalModel(path, mode = "auto") {
   if (state.modelActionBusy) return;
   state.modelActionBusy = true;
   setModelActionState(true, "Loading selected model…");
   try {
     const response = await fetch("/api/ui/models/activate", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ path }),
+      body: JSON.stringify({ path, mode }),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || "Model activation failed.");
