@@ -6,10 +6,13 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use crate::stream_worker::StreamWorker;
 use kiln_runtime::{LlamaCppBackend, RuntimeDispatcher, RuntimeOp, RuntimeResult, SystemProfile};
 
 pub(crate) struct RuntimeSession {
-    pub dispatcher: RuntimeDispatcher,
+    pub dispatcher: Option<RuntimeDispatcher>,
+    pub stream_worker: Option<StreamWorker>,
+    pub streaming: bool,
     pub model_name: String,
     pub model_path: PathBuf,
     pub eos_token: i32,
@@ -95,6 +98,26 @@ fn load_session(path: PathBuf) -> Result<RuntimeSession, String> {
     }
 
         let profile = SystemProfile::load_or_probe();
+        let stream_threshold = u64::from(profile.ram_gb).saturating_mul(1_073_741_824);
+        let is_split = kiln_models::library::split_gguf_parts(&path).is_some();
+        let total_size = if let Some((prefix, _, count)) = kiln_models::library::split_gguf_parts(&path) {
+            let base = prefix.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            (1..=count).filter_map(|n| std::fs::metadata(
+                prefix.with_file_name(format!("{base}-{n:05}-of-{count:05}.gguf"))
+            ).ok().map(|m| m.len())).sum::<u64>()
+        } else { metadata.len() };
+        if stream_threshold > 0 && total_size > stream_threshold && !is_split {
+            let worker = StreamWorker::start(&path).map_err(|e| format!(
+                "oversized model ({:.1} GiB) needs native expert streaming, but it cannot be loaded in this experimental mode: {e}",
+                total_size as f64 / 1_073_741_824.0
+            ))?;
+            let model_name = path.file_stem().and_then(|s| s.to_str())
+                .unwrap_or("model").to_owned();
+            return Ok(RuntimeSession {
+                dispatcher: None, stream_worker: Some(worker), streaming: true,
+                model_name, model_path: path, eos_token: -1,
+            });
+        }
         let mut dispatcher = RuntimeDispatcher::new();
         dispatcher.register(Box::new(LlamaCppBackend::new()));
         dispatcher.dispatch(RuntimeOp::Load {
@@ -103,7 +126,7 @@ fn load_session(path: PathBuf) -> Result<RuntimeSession, String> {
             n_batch: profile.n_batch,
             n_ubatch: profile.n_batch.min(512),
             n_threads: profile.n_threads,
-            lazy_moe_experts: false,
+            lazy_moe_experts: total_size > stream_threshold && stream_threshold > 0,
         }).map_err(|e| format!("failed to load configured model {}: {}", path.display(), e))?;
 
         let eos_token = match dispatcher.dispatch(RuntimeOp::EosToken)
@@ -127,7 +150,9 @@ fn load_session(path: PathBuf) -> Result<RuntimeSession, String> {
         );
 
         Ok(RuntimeSession {
-                dispatcher,
+                dispatcher: Some(dispatcher),
+                stream_worker: None,
+                streaming: false,
                 model_name,
                 model_path: path,
                 eos_token,
