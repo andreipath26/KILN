@@ -246,13 +246,21 @@ function renderLocalModels(models) {
       alternate.textContent = `Also installed as: ${shown.join(", ")}${aliases.length > shown.length ? ` (+${aliases.length - shown.length} more)` : ""}`;
       main.append(alternate);
     }
+    if (model.load_error) {
+      const warning = document.createElement("div");
+      warning.className = "model-entry-meta";
+      warning.setAttribute("role", "status");
+      warning.textContent = model.load_error;
+      main.append(warning);
+    }
     const actions = document.createElement("div");
     actions.className = "model-entry-actions";
     const choose = document.createElement("button");
     choose.type = "button";
     choose.className = model.active ? "button button-quiet" : "button button-secondary";
     choose.textContent = model.active ? "Active model" : "Use model";
-    choose.disabled = model.active || state.modelActionBusy || state.busy;
+    choose.disabled = Boolean(model.load_error) || model.active || state.modelActionBusy || state.busy;
+    if (model.load_error) choose.title = model.load_error;
     choose.addEventListener("click", () => void activateLocalModel(model.path));
     actions.append(choose);
     row.append(main, actions);
