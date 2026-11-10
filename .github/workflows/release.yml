@@ -1,0 +1,51 @@
+name: Linux release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-linux-x86_64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tagged source and pinned native submodule
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Require a tagged main commit
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor HEAD origin/main
+          case "$GITHUB_REF" in refs/tags/v*) ;; *) echo 'Publish from version tags only' >&2; exit 1;; esac
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run workspace tests on the release source
+        run: |
+          cmake -S vendor/llama.cpp -B vendor/llama.cpp/build \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_TOOLS=OFF \
+            -DLLAMA_BUILD_COMMON=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_SERVER=OFF -DLLAMA_BUILD_APP=OFF
+          cmake --build vendor/llama.cpp/build --config Release --parallel 2
+          cargo test --locked --workspace --all-targets
+
+      - name: Build portable Linux release assets
+        run: bash scripts/build_linux_release.sh
+
+      - name: Publish versioned release and matching updater assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/kiln-linux-*.tar.gz dist/kiln-linux-*.json \
+            dist/kiln-linux-*.sha256 dist/kiln-linux-*.bin \
+            dist/kiln-linux-*.bin.sha256 \
+            --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
