@@ -7,6 +7,7 @@ pub mod types;
 pub mod routes;
 pub mod server;
 pub mod runtime;
+mod stream_worker;
 
 pub use types::{
     GenerateRequest, GenerateResponse, ChatRequest, ChatResponse,
