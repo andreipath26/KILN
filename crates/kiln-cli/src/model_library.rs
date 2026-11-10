@@ -7,7 +7,7 @@ use kiln_models::library;
 pub fn resolve_auto_model() -> Result<PathBuf, String> {
     let models = library::discover_models(&[]);
     match models.as_slice() {
-        [model] => Ok(PathBuf::from(&model.path)),
+        [model] => library::normalize_gguf_load_path(std::path::Path::new(&model.path)),
         [] => Err("no readable local GGUF was found; use `kiln search <query>` and `kiln pull <owner/repo> --file <file.gguf>`, or pass a model path".into()),
         many => {
             let choices = many.iter().map(|model| format!("  {} ({:.2} GiB)\n    {}", model.name,
@@ -22,7 +22,7 @@ pub fn resolve_auto_model() -> Result<PathBuf, String> {
 pub fn resolve_model_identifier(input: &str) -> Result<PathBuf, String> {
     let candidate = PathBuf::from(input);
     if candidate.is_file() {
-        return Ok(candidate);
+        return library::normalize_gguf_load_path(&candidate);
     }
     let models = library::discover_models(&[]);
     resolve_named_model(&models, input)
