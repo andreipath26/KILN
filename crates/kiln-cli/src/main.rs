@@ -20,6 +20,7 @@ mod phase35_kv_bench;
 mod phase35_spec_bench;
 mod model_plan;
 mod experimental_stream;
+mod stream_stdio;
 mod self_update;
 mod quality_eval;
 
@@ -193,10 +194,19 @@ enum Commands {
         #[arg(long)]
         lazy_moe_experts: bool,
     },
+    /// Private persistent worker for the UI; launched through validated stream mode.
+    #[command(hide = true)]
+    Worker {
+        model: String,
+        #[arg(long)]
+        lazy_moe_experts: bool,
+    },
     /// Opt-in experimental one-model-file CPU MoE streaming chat. Produces
     /// a temporary verified index for compatible fused GGUF models and uses
     /// the same KILN binary in a separate isolated inference process.
     Stream {
+        #[arg(long, hide = true)]
+        stdio_json: bool,
         /// Existing model path, unambiguous installed GGUF/Ollama tag or 'auto'.
         model: String,
         #[arg(long, default_value_t = 128)]
@@ -459,6 +469,12 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Worker { model, lazy_moe_experts } => {
+            if let Err(error) = stream_stdio::run(&model, lazy_moe_experts) {
+                eprintln!("stream worker: {error}");
+                std::process::exit(1);
+            }
+        }
         Commands::Update { check } => {
             if let Err(error) = self_update::run(check) {
                 eprintln!("update error: {error}");
@@ -975,11 +991,11 @@ async fn main() {
             }
         },
         Commands::Stream {
-            model, max_tokens, keep_context, lazy_moe_experts, cache_mib, parallel_reads
+            model, max_tokens, keep_context, lazy_moe_experts, cache_mib, parallel_reads, stdio_json
         } => {
             if let Err(error) = experimental_stream::run(
                 &model, max_tokens, keep_context, lazy_moe_experts,
-                cache_mib, parallel_reads,
+                cache_mib, parallel_reads, stdio_json,
             ) {
                 eprintln!("experimental MoE stream: {error}");
                 std::process::exit(2);

@@ -230,6 +230,81 @@ fn ollama_names_for_roots(roots: &[PathBuf]) -> std::collections::HashMap<PathBu
     result
 }
 
+
+/// Parse conventional gguf split naming: MODEL-00001-of-00002.gguf.
+/// This is only a filesystem completeness check, not a claim that every
+/// llama.cpp architecture can load the selected GGUF tensor format.
+pub fn split_gguf_parts(path: &Path) -> Option<(PathBuf, u32, u32)> {
+    let name = path.file_name()?.to_str()?;
+    let stem = name.strip_suffix(".gguf")?;
+    let (prefix_and_number, count) = stem.rsplit_once("-of-")?;
+    if count.len() != 5 || !count.bytes().all(|b| b.is_ascii_digit()) { return None; }
+    let (prefix, index) = prefix_and_number.rsplit_once('-')?;
+    if index.len() != 5 || !index.bytes().all(|b| b.is_ascii_digit()) { return None; }
+    let index: u32 = index.parse().ok()?;
+    let count: u32 = count.parse().ok()?;
+    if count < 2 || count > 1024 || index == 0 || index > count { return None; }
+    Some((path.with_file_name(prefix), index, count))
+}
+
+/// Ensure all named shards exist before loading; llama.cpp expects the first
+/// shard as the entrypoint. File existence and GGUF structure are both checked.
+pub fn normalize_gguf_load_path(path: &Path) -> Result<PathBuf, String> {
+    let Some((prefix, _index, count)) = split_gguf_parts(path) else {
+        return Ok(path.to_path_buf());
+    };
+    let base = prefix.file_name().and_then(|s| s.to_str())
+        .ok_or("split GGUF filename is not UTF-8")?;
+    let parent = prefix.parent().ok_or("missing split GGUF directory")?;
+    let mut missing = Vec::new();
+    let mut first = None;
+    for number in 1..=count {
+        let candidate = parent.join(format!("{base}-{number:05}-of-{count:05}.gguf"));
+        if !candidate.is_file() {
+            missing.push(candidate.file_name().unwrap().to_string_lossy().into_owned());
+        } else if number == 1 { first = Some(candidate); }
+    }
+    if !missing.is_empty() {
+        return Err(format!("Incomplete split GGUF: missing {}. Download every shard of the model into the same folder; existing files will not be deleted.",missing.join(", ")));
+    }
+    Ok(first.ok_or("the first GGUF shard is missing")?)
+}
+
+/// For KILN-owned Hugging Face downloads, offer SHA-256-verified recovery
+/// of missing shards without touching or re-downloading existing GGUF files.
+#[derive(Debug, Clone, Serialize)]
+pub struct MissingSplitShard {
+    pub repository: String,
+    pub file: String,
+}
+pub fn missing_split_shards_for_download(path: &Path) -> Vec<MissingSplitShard> {
+    let Some((prefix, _, count)) = split_gguf_parts(path) else { return Vec::new(); };
+    let Ok(root) = model_dir() else { return Vec::new(); };
+    let root = fs::canonicalize(root).ok();
+    let Some(root) = root else { return Vec::new(); };
+    let Ok(relative) = path.strip_prefix(&root) else { return Vec::new(); };
+    let mut parts = relative.components();
+    let Some(std::path::Component::Normal(repo_dir)) = parts.next() else { return Vec::new(); };
+    let Some(repo_dir) = repo_dir.to_str() else { return Vec::new(); };
+    let Some((owner, name)) = repo_dir.split_once("--") else { return Vec::new(); };
+    let repo = format!("{owner}/{name}");
+    if !valid_repo_id(&repo) { return Vec::new(); }
+    let Some(base) = prefix.file_name().and_then(|v| v.to_str()) else { return Vec::new(); };
+    let Some(parent) = path.parent() else { return Vec::new(); };
+    let mut missing = Vec::new();
+    for number in 1..=count {
+        let filename = format!("{base}-{number:05}-of-{count:05}.gguf");
+        let candidate = parent.join(&filename);
+        if candidate.is_file() { continue; }
+        let Ok(in_repo) = candidate.strip_prefix(root.join(repo_dir)) else { continue; };
+        let file = in_repo.to_string_lossy().replace('\\', "/");
+        if valid_repo_file(&file) {
+            missing.push(MissingSplitShard { repository: repo.clone(), file });
+        }
+    }
+    missing
+}
+
 pub fn discover_models(extra_roots: &[PathBuf]) -> Vec<LocalModel> {
     let mut roots = standard_roots();
     roots.extend(extra_roots.iter().cloned());
@@ -276,10 +351,24 @@ pub fn discover_models(extra_roots: &[PathBuf]) -> Vec<LocalModel> {
             .cloned()
             .unwrap_or_else(|| path.file_name().and_then(|x| x.to_str())
                 .unwrap_or("model.gguf").to_owned());
+        // Keep an incomplete split visible so the UI can explain the error,
+        // but never present the second (or later) shard as independently runnable.
+        let normalized = normalize_gguf_load_path(&path);
+        if let Ok(first) = &normalized {
+            if first != &path { continue; }
+        }
+        let total_bytes = if let Some((prefix, _, count)) = split_gguf_parts(&path) {
+            let base = prefix.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            let parent = prefix.parent().unwrap_or(Path::new(""));
+            (1..=count).filter_map(|part| {
+                fs::metadata(parent.join(format!("{base}-{part:05}-of-{count:05}.gguf")))
+                    .ok().map(|m| m.len())
+            }).sum()
+        } else { metadata.len() };
         models.push(LocalModel {
             name,
             path: path.display().to_string(),
-            size_bytes: metadata.len(),
+            size_bytes: total_bytes,
             source: if ollama_names.contains_key(&path) { "Ollama manifest".into() }
                 else if hf_aliases.contains_key(&path) { "Hugging Face snapshot".into() }
                 else { root_label(&path) },
@@ -731,5 +820,32 @@ mod tests {
         assert_eq!(sha256_from_metadata(&oid).as_deref(), Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
         assert_eq!(sha256_from_metadata(&top_level).as_deref(), Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
     }
+
+    #[test]
+    fn incomplete_split_reports_exact_missing_shard_but_not_arbitrary_model_file() {
+        use super::{split_gguf_parts,normalize_gguf_load_path};
+        let incomplete=std::path::Path::new("/tmp/test-model-00002-of-00002.gguf");
+        assert_eq!(split_gguf_parts(incomplete).unwrap().2,2);
+        assert!(normalize_gguf_load_path(incomplete).unwrap_err().contains("00001-of-00002"));
+    }
+
+    #[test]
+    fn split_gguf_detection_and_safe_first_shard_resolution() {
+        use super::{split_gguf_parts,normalize_gguf_load_path};
+        let root=std::env::temp_dir().join(format!("kiln-split-{}-{:?}",std::process::id(),std::thread::current().id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let first=root.join("sample-00001-of-00002.gguf");
+        let second=root.join("sample-00002-of-00002.gguf");
+        std::fs::write(&second,b"GGUF").unwrap();
+        assert_eq!(split_gguf_parts(&second).unwrap().1,2);
+        let err=normalize_gguf_load_path(&second).unwrap_err();
+        assert!(err.contains("00001-of-00002.gguf"));
+        std::fs::write(&first,b"GGUF").unwrap();
+        assert_eq!(normalize_gguf_load_path(&second).unwrap(),first);
+        assert!(normalize_gguf_load_path(&root.join("ordinary.gguf")).is_ok());
+        assert!(split_gguf_parts(&root.join("bad-99999-of-00002.gguf")).is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
 }
 

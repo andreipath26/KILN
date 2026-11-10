@@ -814,6 +814,57 @@ jobs:
           cat "$RUNNER_TEMP/kiln-api.log"
           exit 1
 
+      - name: Smoke-test local UI native MoE streaming activation and real generation
+        env:
+          KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
+        run: |
+          MODEL="$KILN_MODELS_DIR/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
+          python3 - "$MODEL" "$RUNNER_TEMP/moe-activate.json" <<'PY'
+          import json,sys,pathlib
+          pathlib.Path(sys.argv[2]).write_text(json.dumps({"path":sys.argv[1],"mode":"stream"}))
+          PY
+          curl --fail-with-body --silent --show-error --max-time 120 \
+            -H 'content-type: application/json' \
+            --data-binary "@$RUNNER_TEMP/moe-activate.json" \
+            http://127.0.0.1:11435/api/ui/models/activate \
+            > "$RUNNER_TEMP/moe-ui-activate-response.json"
+          python3 - "$RUNNER_TEMP/moe-ui-activate-response.json" "$RUNNER_TEMP/moe-ui-generate-request.json" <<'PY'
+          import json,sys,pathlib
+          active=json.load(open(sys.argv[1]))
+          assert active["active"] is True
+          pathlib.Path(sys.argv[2]).write_text(json.dumps({
+              "model":active["model"],"prompt":"Hello from KILN UI streaming",
+              "stream":False,"options":{"num_predict":6}
+          }))
+          PY
+          curl --fail-with-body --silent --show-error --max-time 120 \
+            -H 'content-type: application/json' \
+            --data-binary "@$RUNNER_TEMP/moe-ui-generate-request.json" \
+            http://127.0.0.1:11435/api/generate \
+            > "$RUNNER_TEMP/moe-ui-generate-response.json"
+          curl --fail --silent http://127.0.0.1:11435/api/ui/capabilities \
+            > "$RUNNER_TEMP/moe-ui-activated-capabilities.json"
+          python3 - "$RUNNER_TEMP/moe-ui-generate-response.json" "$RUNNER_TEMP/moe-ui-activated-capabilities.json" <<'PY'
+          import json,sys
+          generated=json.load(open(sys.argv[1]))
+          capabilities=json.load(open(sys.argv[2]))
+          assert generated["done"] is True
+          assert isinstance(generated["response"],str)
+          assert capabilities["active_model"]["mode"]=="experimental_cpu_moe_stream"
+          print("Real-model JSONL UI activation and native CPU expert streaming passed")
+          PY
+          # Restore the original small model for subsequent UI regression checks.
+          SMALL="$KILN_MODELS_DIR/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf"
+          python3 - "$SMALL" "$RUNNER_TEMP/small-reactivate.json" <<'PY'
+          import json,sys,pathlib
+          pathlib.Path(sys.argv[2]).write_text(json.dumps({"path":sys.argv[1],"mode":"auto"}))
+          PY
+          curl --fail-with-body --silent --show-error --max-time 120 \
+            -H 'content-type: application/json' \
+            --data-binary "@$RUNNER_TEMP/small-reactivate.json" \
+            http://127.0.0.1:11435/api/ui/models/activate \
+            > "$RUNNER_TEMP/small-reactivate-response.json"
+
       - name: Verify UI model inventory exposes every Ollama manifest alias without importing weights
         run: |
           curl --fail --silent http://127.0.0.1:11435/api/ui/models \

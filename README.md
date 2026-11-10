@@ -55,6 +55,14 @@ KILN_MODEL_PATH=/path/to/model.gguf cargo run -p kiln-cli -- serve
 
 Open **http://127.0.0.1:11435/**. The UI supports local model inventory, public GGUF search/download, model activation and chat. The API is loopback-only; authenticated remote access and automatic heterogeneous hardware placement are not shipped.
 
+## Oversized models in the local web UI
+
+When you select **Use model**, KILN checks the total file size against the system RAM profile. On Linux, an oversized **compatible single-file fused MoE GGUF** is launched through the experimental native on-demand expert streaming engine, with the model kept in a separate worker process for chat and generation. The Advanced tab identifies the active inference mode. An explicit **Try streaming** option is available for smaller compatible MoE files as well. Streaming remains experimental and is not proof of usable speed, bounded physical RAM, or support for every GGUF architecture.
+
+**Split GGUFs** with conventional names such as `model-00001-of-00002.gguf` must have **all shards in the same directory**. KILN detects missing parts, shows which filenames are absent, and avoids attempting to activate an incomplete set. With all shards present, KILN selects shard 1 as the entrypoint and tries the supported loader with lazy routed-expert mmap for models exceeding RAM. The native external expert streaming index still supports only compatible *single-file* fused layouts; split-model support for that separate kernel remains open. Do not delete or re-download an existing shard unless its integrity is in question.
+
+A successful GGUF metadata scan is not evidence that its architecture or quantization is supported by the native inference fork. Incompatible layouts or failed memory allocations remain explicit load errors rather than silent fallback claims.
+
 ## Experimental streamed MoE inference (Linux only)
 
 For a **compatible fused-expert MoE GGUF**, use the explicit opt-in command:

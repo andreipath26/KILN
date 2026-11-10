@@ -78,6 +78,8 @@ pub struct PullRequest {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ActivateModelRequest {
     pub path: String,
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 
 /// Request to pull one named GGUF artifact from a public Hub repository.
