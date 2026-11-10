@@ -123,7 +123,7 @@ impl Drop for Cleanup {
     fn drop(&mut self) { let _ = fs::remove_file(&self.0); }
 }
 
-fn install(target: &Path, data: &[u8]) -> Result<(), String> {
+fn install(target: &Path, data: &[u8]) -> Result<PathBuf, String> {
     let dir = target.parent().ok_or("invalid KILN install path")?;
     let temporary = dir.join(format!(".kiln-update-{}", std::process::id()));
     let _cleanup = Cleanup(temporary.clone());
@@ -131,15 +131,18 @@ fn install(target: &Path, data: &[u8]) -> Result<(), String> {
     let ok = Command::new(&temporary).arg("--help").output()
         .map_err(|e| format!("downloaded binary cannot launch: {e}"))?;
     if !ok.status.success() { return Err("new KILN failed its startup smoke test".into()); }
-    let backup = dir.join("kiln.previous");
-    if backup.exists() { return Err("kiln.previous already exists; move it before updating again".into()); }
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?.as_nanos();
+    let backup = dir.join(format!("kiln.previous.{nonce}"));
+    if backup.exists() { return Err("update backup already exists".into()); }
     fs::rename(target, &backup).map_err(|e| format!("cannot preserve existing KILN: {e}"))?;
     if let Err(e) = fs::rename(&temporary, target) {
         let rollback = fs::rename(&backup, target);
         return Err(format!("installation failed: {e}; rollback: {rollback:?}"));
     }
     let _ = File::open(dir).and_then(|f| f.sync_all());
-    Ok(())
+    Ok(backup)
 }
 
 /// Check GitHub's latest *published stable* release; if different from the
@@ -184,9 +187,9 @@ pub fn run(check_only: bool) -> Result<(), String> {
     if actual != manifest.binary_sha256 {
         return Err("release binary SHA-256 does not match the manifest".into());
     }
-    install(&target, &payload)?;
+    let backup = install(&target, &payload)?;
     println!("Updated KILN at {}. Previous binary: {}",
-        target.display(), target.with_file_name("kiln.previous").display());
+        target.display(), backup.display());
     Ok(())
 }
 
