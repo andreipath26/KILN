@@ -47,5 +47,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             dist/kiln-linux-*.tar.gz dist/kiln-linux-*.json \
             dist/kiln-linux-*.sha256 dist/kiln-linux-*.bin \
-            dist/kiln-linux-*.bin.sha256 \
             --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
