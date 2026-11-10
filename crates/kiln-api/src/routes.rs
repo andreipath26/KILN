@@ -342,7 +342,9 @@ pub async fn ui_models(State(state): State<ApiState>) -> Result<Json<Value>, Err
     let models: Vec<Value> = models.into_iter().map(|model| {
         let path = PathBuf::from(&model.path);
         let active = active_path.as_ref().is_some_and(|active| std::fs::canonicalize(&path).ok().as_ref() == Some(active));
+        let load_error = kiln_models::library::normalize_gguf_load_path(&path).err();
         json!({
+            "load_error": load_error,
             "name": model.name,
             "path": model.path,
             "size_bytes": model.size_bytes,
@@ -423,13 +425,17 @@ pub async fn ui_model_activate(
     let path = PathBuf::from(request.path);
     let canonical = std::fs::canonicalize(&path)
         .map_err(|_| error_response((StatusCode::NOT_FOUND, "model path is not readable".into())))?;
+    // Fail before allocation when a split model is incomplete; always enter
+    // llama.cpp through shard 1 rather than whichever shard the UI clicked.
+    let entrypoint = kiln_models::library::normalize_gguf_load_path(&canonical)
+        .map_err(|e| error_response((StatusCode::UNPROCESSABLE_ENTITY, e)))?;
     let models = tokio::task::spawn_blocking(|| kiln_models::library::discover_models(&[]))
         .await
         .map_err(|e| error_response((StatusCode::INTERNAL_SERVER_ERROR, format!("model scan failed: {e}"))))?;
     if !models.iter().any(|model| std::fs::canonicalize(&model.path).ok().as_ref() == Some(&canonical)) {
         return Err(error_response((StatusCode::FORBIDDEN, "model must be a structurally valid GGUF in a discovered model location".into())));
     }
-    let activated = tokio::task::spawn_blocking(move || state.activate(canonical))
+    let activated = tokio::task::spawn_blocking(move || state.activate(entrypoint))
         .await
         .map_err(|e| error_response((StatusCode::INTERNAL_SERVER_ERROR, format!("model activation task failed: {e}"))))?
         .map_err(|e| error_response((StatusCode::UNPROCESSABLE_ENTITY, e)))?;
