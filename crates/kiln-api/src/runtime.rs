@@ -47,6 +47,7 @@ impl ApiState {
             return Err(format!("KILN_MODEL_PATH {} is not a file", path.display()));
         }
 
+        let path = kiln_models::library::normalize_gguf_load_path(&path)?;
         let session = load_session(path)?;
 
         Ok(Self {
