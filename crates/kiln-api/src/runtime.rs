@@ -48,7 +48,7 @@ impl ApiState {
         }
 
         let path = kiln_models::library::normalize_gguf_load_path(&path)?;
-        let session = load_session(path)?;
+        let session = load_session(path, false)?;
 
         Ok(Self {
             runtime: Arc::new(Mutex::new(Some(session))),
@@ -59,7 +59,7 @@ impl ApiState {
 
     /// Replace the active model without ever leaving a partially initialized
     /// session visible. If loading the new model fails, restore the prior one.
-    pub fn activate(&self, path: PathBuf) -> Result<String, String> {
+    pub fn activate(&self, path: PathBuf, force_stream: bool) -> Result<String, String> {
         let _activation = self.activation_lock.lock()
             .map_err(|_| "model activation lock is poisoned".to_string())?;
         let previous = {
@@ -68,7 +68,7 @@ impl ApiState {
             runtime.take().map(|session| (session.model_path.clone(), session.model_name.clone()))
         };
 
-        match load_session(path.clone()) {
+        match load_session(path.clone(), force_stream) {
             Ok(session) => {
                 let name = session.model_name.clone();
                 *self.runtime.lock().map_err(|_| "runtime state lock is poisoned".to_string())? = Some(session);
@@ -76,7 +76,7 @@ impl ApiState {
             }
             Err(load_error) => {
                 if let Some((previous_path, previous_name)) = previous {
-                    match load_session(previous_path) {
+                    match load_session(previous_path, false) {
                         Ok(session) => {
                             *self.runtime.lock().map_err(|_| "runtime state lock is poisoned".to_string())? = Some(session);
                             Err(format!("model activation failed: {load_error}; restored previous model '{previous_name}'"))
@@ -91,7 +91,7 @@ impl ApiState {
     }
 }
 
-fn load_session(path: PathBuf) -> Result<RuntimeSession, String> {
+fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, String> {
     let metadata = std::fs::metadata(&path)
         .map_err(|e| format!("model path {} is not readable: {}", path.display(), e))?;
     if !metadata.is_file() {
@@ -107,7 +107,10 @@ fn load_session(path: PathBuf) -> Result<RuntimeSession, String> {
                 prefix.with_file_name(format!("{base}-{n:05}-of-{count:05}.gguf"))
             ).ok().map(|m| m.len())).sum::<u64>()
         } else { metadata.len() };
-        if stream_threshold > 0 && total_size > stream_threshold && !is_split {
+        if force_stream && is_split {
+            return Err("native single-file MoE streaming does not yet support split GGUFs; use the automatic lazy mapped loader when all shards are present".into());
+        }
+        if force_stream || (stream_threshold > 0 && total_size > stream_threshold && !is_split) {
             let worker = StreamWorker::start(&path).map_err(|e| format!(
                 "oversized model ({:.1} GiB) needs native expert streaming, but it cannot be loaded in this experimental mode: {e}",
                 total_size as f64 / 1_073_741_824.0
