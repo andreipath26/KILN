@@ -30,7 +30,9 @@ name="kiln-linux-${arch}-${commit:0:12}"
 archive="$DEST/$name.tar.gz"
 manifest="$DEST/$name.json"
 digest="$DEST/$name.sha256"
-for file in "$archive" "$manifest" "$digest"; do
+standalone="$DEST/$name.bin"
+standalone_digest="$DEST/$name.bin.sha256"
+for file in "$archive" "$manifest" "$digest" "$standalone" "$standalone_digest"; do
   [[ ! -e "$file" ]] || { echo "Artifact exists: $file" >&2; exit 2; }
 done
 # Do not bake -march=native of the builder into the KILN binary.
@@ -84,5 +86,8 @@ PY
 tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$epoch" \
   -czf "$archive" -C "$stage" kiln LICENSE THIRD_PARTY_NOTICES.md
 sha256sum "$archive" > "$digest"
+install -m 0755 "$binary" "$standalone"
+sha256sum "$standalone" > "$standalone_digest"
 printf 'Archive: %s\nManifest: %s\nSHA256: %s\n' "$archive" "$manifest" "$digest"
+printf "Standalone binary: %s\\nStandalone checksum: %s\\n" "$standalone" "$standalone_digest"
 echo "This artifact is not a Tier 0 performance or quality acceptance result."

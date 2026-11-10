@@ -712,6 +712,7 @@ dependencies = [
  "kiln-hal",
  "kiln-models",
  "kiln-runtime",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",
