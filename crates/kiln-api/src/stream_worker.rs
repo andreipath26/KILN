@@ -84,11 +84,9 @@ impl Drop for StreamWorker {
         // Closing the pipe lets the real worker leave its input loop and
         // release the native model; its parent then verifies the read audit.
         self.input.take();
-        if self.child.try_wait().ok().flatten().is_none() {
-            // The wrapper may still be exiting after EOF. It is a child of
-            // this API process; do not leave it alive indefinitely.
-            let _ = self.child.kill();
-        }
+        // After EOF, the nested worker exits and the stream launcher
+        // finishes its native audit. Waiting avoids orphaning the compute
+        // worker while another model is activated.
         let _ = self.child.wait();
     }
 }
