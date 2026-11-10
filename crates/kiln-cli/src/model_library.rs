@@ -34,7 +34,7 @@ fn resolve_named_model(models: &[library::LocalModel], input: &str) -> Result<Pa
             || model.aliases.iter().any(|name| name.eq_ignore_ascii_case(input))
     }).collect::<Vec<_>>();
     match matching.as_slice() {
-        [model] => Ok(PathBuf::from(&model.path)),
+        [model] => library::normalize_gguf_load_path(std::path::Path::new(&model.path)),
         [] => Err(format!(
             "model {input:?} was not found as a readable GGUF path or discovered model name; use `kiln list` to see installed models"
         )),
