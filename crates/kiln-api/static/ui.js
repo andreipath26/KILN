@@ -268,6 +268,21 @@ function renderLocalModels(models) {
     if (model.load_error) choose.title = model.load_error;
     choose.addEventListener("click", () => void activateLocalModel(model.path, "auto"));
     actions.append(choose);
+    // KILN-owned Hugging Face model downloads know their source repository.
+    // Repair only absent split files; the existing large shard is never
+    // downloaded again or overwritten.
+    if (model.load_error && Array.isArray(model.repair_missing)) {
+      for (const item of model.repair_missing.slice(0, 4)) {
+        const repair = document.createElement("button");
+        repair.type = "button";
+        repair.className = "button button-secondary";
+        repair.textContent = "Download missing shard";
+        repair.title = item.file;
+        repair.disabled = state.modelActionBusy || state.busy;
+        repair.addEventListener("click", () => void downloadArtifact(item.repository, item.file));
+        actions.append(repair);
+      }
+    }
     if (!model.active && !model.load_error) {
       const stream = document.createElement("button");
       stream.type = "button";
