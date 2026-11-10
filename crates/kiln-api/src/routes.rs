@@ -444,7 +444,12 @@ pub async fn ui_model_activate(
     if !models.iter().any(|model| std::fs::canonicalize(&model.path).ok().as_ref() == Some(&canonical)) {
         return Err(error_response((StatusCode::FORBIDDEN, "model must be a structurally valid GGUF in a discovered model location".into())));
     }
-    let activated = tokio::task::spawn_blocking(move || state.activate(entrypoint))
+    let force_stream = match request.mode.as_deref() {
+        None | Some("auto") => false,
+        Some("stream") => true,
+        _ => return Err(error_response((StatusCode::BAD_REQUEST, "model mode must be auto or stream".into()))),
+    };
+    let activated = tokio::task::spawn_blocking(move || state.activate(entrypoint, force_stream))
         .await
         .map_err(|e| error_response((StatusCode::INTERNAL_SERVER_ERROR, format!("model activation task failed: {e}"))))?
         .map_err(|e| error_response((StatusCode::UNPROCESSABLE_ENTITY, e)))?;
