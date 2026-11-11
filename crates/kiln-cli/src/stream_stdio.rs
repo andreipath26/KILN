@@ -1,6 +1,21 @@
 //! Structured, private JSONL worker for the local API's streamed MoE child.
 //! The parent `kiln stream` validates the GGUF and creates the stream index.
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
+
+const MAX_REQUEST_LINE: usize = 262_144;
+
+fn next_request_line<R: BufRead>(reader: &mut R) -> Result<Option<String>, String> {
+    let mut bytes = Vec::new();
+    let count = reader.take((MAX_REQUEST_LINE as u64) + 1)
+        .read_until(b'\n', &mut bytes).map_err(|e| format!("stream IPC input error: {e}"))?;
+    if count == 0 { return Ok(None); }
+    if count > MAX_REQUEST_LINE || bytes.last() != Some(&b'\n') {
+        return Err("stream IPC message exceeds 256 KiB or is truncated".into());
+    }
+    String::from_utf8(bytes).map(Some)
+        .map_err(|_| "stream IPC request is not valid UTF-8".into())
+}
+
 
 use kiln_runtime::{LlamaCppBackend, RuntimeDispatcher, RuntimeOp, RuntimeResult, SystemProfile};
 
@@ -26,9 +41,9 @@ pub fn run(model: &str, lazy_moe_experts: bool) -> Result<(), String> {
         _ => return Err("native worker returned invalid EOS token".into()),
     };
     emit(serde_json::json!({"event":"ready"}))?;
-    for line in io::stdin().lock().lines() {
-        let line = line.map_err(|e| e.to_string())?;
-        if line.len() > 262_144 { return Err("stream IPC message too large".into()); }
+    let stdin = io::stdin();
+    let mut input = stdin.lock();
+    while let Some(line) = next_request_line(&mut input)? {
         let req: serde_json::Value = serde_json::from_str(&line)
             .map_err(|e| format!("invalid IPC JSON: {e}"))?;
         let prompt = req.get("prompt").and_then(|x| x.as_str())
@@ -79,4 +94,21 @@ pub fn run(model: &str, lazy_moe_experts: bool) -> Result<(), String> {
     }
     dispatcher.dispatch(RuntimeOp::Unload).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::*;
+    use std::io::{BufReader, Cursor};
+
+    #[test]
+    fn request_limit_is_enforced_before_allocating_the_entire_line() {
+        let mut valid = BufReader::new(Cursor::new(b"{\"prompt\":\"hello\"}\n".to_vec()));
+        assert_eq!(next_request_line(&mut valid).unwrap().unwrap(), "{\"prompt\":\"hello\"}\n");
+        assert!(next_request_line(&mut valid).unwrap().is_none());
+        let mut truncated = BufReader::new(Cursor::new(b"{}".to_vec()));
+        assert!(next_request_line(&mut truncated).is_err());
+        let mut large = BufReader::new(Cursor::new(vec![b'a'; MAX_REQUEST_LINE + 500]));
+        assert!(next_request_line(&mut large).is_err());
+    }
 }
