@@ -81,6 +81,10 @@ kiln pull OWNER/REPOSITORY --file "model-00001-of-00002.gguf" --all-shards
 
 Use a nested repository file path when appropriate. The command checks that all numbered parts and their trusted digests exist in the public repository before starting transfers, and it verifies each installed file. **This is download completeness, not inference compatibility**: some architectures and quantizers remain unsupported, and KILN still requires native multi-shard expert compute validation before calling large split-model streaming production-ready.
 
+## Real-model streamed-session recovery gate
+
+The Linux CI smoke test now keeps one actual native MoE model loaded while exercising two HTTP 400 paths: an over-context prompt that fits the raw IPC request bound, and a control-character prompt whose escaped JSONL frame exceeds the native worker limit. It then sends a short generation request to the same native session and verifies that the streaming mode remains active. The response and recovery evidence are archived after the full smoke sequence. Passing this gate verifies protocol/session recovery for a small test GGUF only; it is not a large-model Tier 0 speed, memory, SSD I/O, or WikiText-2 quality result.
+
 ## Phase 5 CI evidence preservation
 
 The GitHub Actions real-model evidence archive runs **after** the complete model, split-GGUF, native-worker, portable-release, and browser smoke sequence (including API shutdown). The archive step uses `always()` so failed tests still preserve whatever evidence was produced. A failed artifact upload remains a visible CI failure and must be investigated; an uploaded artifact is not proof that every test or Tier 0 performance target passed.
