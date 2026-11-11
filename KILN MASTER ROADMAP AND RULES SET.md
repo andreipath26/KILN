@@ -710,3 +710,9 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Replace lossy terminal token decoding in the native streaming JSONL worker with bounded incremental UTF-8 assembly. Split multi-byte sequences remain intact; invalid or incomplete output now fails closed rather than emitting replacement characters that alter generated text.
 - Require explicit JSONL `max_tokens` values to be positive integers in 1..=4096 rather than silently falling back to 128 on malformed types. Tighten parent IPC response ordering: even an empty `chunk` before `reject` is a protocol error, not a recoverable client rejection.
 - Add unit and Unix simulated-worker regressions covering split UTF-8, bad/truncated output, rejected token limits, malformed events, zero-length chunk ordering and local encoded-request preflight. This is correctness hardening only; target-hardware performance, RSS, external I/O and quality acceptance remain unverified pending CI and Tier 0 evidence.
+
+
+### 2026-11-11 — Native streamed worker real-model recovery regression
+
+- Extended the live Linux CI small-MoE activation flow to exercise an encoded JSONL frame size rejection and a tokenized over-context preflight rejection, both HTTP 400 while native worker remains loaded, followed by successful generation and unchanged streaming mode. The over-context request is deliberately below the 128 KiB raw prompt cap so the test reaches tokenization/context checking rather than only checking the input byte limit.
+- Archive rejection JSON and post-recovery output/capabilities with the existing real-model evidence. Successful small-model recovery is not evidence of memory-bounded Qwen3-30B-A3B inference or Tier 0 throughput, cache, SSD traffic, accuracy and reliability gates.
