@@ -84,11 +84,9 @@ impl ApiState {
             let runtime = self.runtime.lock()
                 .map_err(|_| "runtime state lock is poisoned".to_string())?;
             if let Some(active) = runtime.as_ref() {
-                if reuse_existing_session(
-                    &active.model_path,
-                    &normalized_path,
-                    active.streaming,
-                    force_stream
+                let current_canonical = std::fs::canonicalize(&active.model_path).ok();
+                if current_canonical.as_deref().is_some_and(|current|
+                    reuse_existing_session(current, &normalized_path, active.streaming, force_stream)
                 ) {
                     return Ok(active.model_name.clone());
                 }
@@ -102,7 +100,10 @@ impl ApiState {
             ))
         };
 
-        match load_session(normalized_path, force_stream) {
+        // The original named GGUF shard path must remain intact here:
+        // canonicalizing a symlink to a content-addressed HF blob may erase
+        // its conventional split-GGUF suffix before shard detection.
+        match load_session(path, force_stream) {
             Ok(session) => {
                 let name = session.model_name.clone();
                 *self.runtime.lock().map_err(|_| "runtime state lock is poisoned".to_string())? = Some(session);
@@ -193,8 +194,6 @@ fn should_stream_single_file(
 }
 
 fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, String> {
-    let path = std::fs::canonicalize(&path)
-        .map_err(|e| format!("cannot resolve model path {}: {e}",path.display()))?;
     let metadata = std::fs::metadata(&path)
         .map_err(|e| format!("model path {} is not readable: {}", path.display(), e))?;
     if !metadata.is_file() {
