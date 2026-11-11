@@ -728,3 +728,9 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 ### 2026-11-11 — Correct native UTF-8 prefix/suffix streaming boundary
 
 - Follow-up correctness review of the incremental UTF-8 decoder found that a token piece containing complete ASCII/UTF-8 text followed by an incomplete multi-byte suffix could exceed the pending-buffer limit and fail despite valid output. The decoder now emits its complete prefix immediately and retains only the trailing incomplete codepoint (max three bytes); malformed bytes and truncated final output still fail closed. Added multi-byte token boundary and invalid-tail regressions. No model weights or Tier 0 acceptance claims changed.
+
+
+### 2026-11-11 — Parallel fast CI feedback, native gates retained
+
+- Split fast Python unit tests for MoE cache, quality assessment, Tier 0 feasibility, router/trace conversion, and Phase 3.5 evidence capture, plus shell syntax checks, from the heavyweight native test job into an independent `fast-checks` job. Add JavaScript syntax checks for web UI and browser smoke scripts.
+- Both jobs run in parallel; the heavyweight job still builds pinned llama.cpp, runs the Rust workspace, actual MoE and dense GGUF tests, portable release, and browser smoke gates. The fast checks are no longer duplicated in that heavyweight job; all checks remain required for green CI. This is feedback efficiency only, not a claim that Phase 5 Tier 0 deployment targets have passed.
