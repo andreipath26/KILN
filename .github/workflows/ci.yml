@@ -213,20 +213,11 @@ jobs:
             curl --fail --silent --show-error --location --head \
               --retry 4 --retry-all-errors --retry-delay 10 --max-time 180 \
               "$URI" > "$HEADERS"
-            DIGEST="$(python3 - "$HEADERS" <<'PY'
-          import re,sys
-          headers=open(sys.argv[1],encoding="latin-1").read()
-          values=[]
-          for line in headers.splitlines():
-              if line.lower().startswith("x-linked-etag:"):
-                  value=line.partition(":")[2].strip().strip('"')
-                  if len(value)==64 and all(c in "0123456789abcdefABCDEF" for c in value):
-                      values.append(value)
-          if not values:
-              raise SystemExit("official model response did not include a SHA-256 LFS blob ETag")
-          print(values[-1].lower())
-          PY
-            )"
+            DIGEST="$(tr -d '\r"' < "$HEADERS" | grep -i '^x-linked-etag:' | tail -n 1 | awk '{print $2}')"
+            if ! [[ "$DIGEST" =~ ^[[:xdigit:]]{64}$ ]]; then
+              echo "Official source did not return a valid 64-hex-character LFS SHA-256 ETag" >&2
+              exit 1
+            fi
             TEMP="$RUNNER_TEMP/kiln-moe-verified-download.part"
             trap 'rm -f "$TEMP"' EXIT
             curl --fail --silent --show-error --location --retry 4 --retry-all-errors \
