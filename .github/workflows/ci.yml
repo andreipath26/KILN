@@ -727,11 +727,11 @@ jobs:
           print((count+1)//2)
           PY
           )"
-          mkdir -p "$RUNNER_TEMP/kiln-split-test"
+          mkdir -p "$KILN_MODELS_DIR/native-split-ci"
           vendor/llama.cpp/build/bin/llama-gguf-split \
             --split-max-tensors "$MAX_TENSORS" "$ORIGINAL" \
-            "$RUNNER_TEMP/kiln-split-test/real-moe.gguf"
-          FIRST="$(find "$RUNNER_TEMP/kiln-split-test" -maxdepth 1 -type f \
+            "$KILN_MODELS_DIR/native-split-ci/real-moe.gguf"
+          FIRST="$(find "$KILN_MODELS_DIR/native-split-ci" -maxdepth 1 -type f \
             -name '*-00001-of-*.gguf' -print -quit)"
           test -n "$FIRST"
           target/debug/kiln plan "$FIRST" --json > "$RUNNER_TEMP/split-moe-plan.json"
@@ -987,6 +987,59 @@ jobs:
             --data-binary "@$RUNNER_TEMP/small-reactivate.json" \
             http://127.0.0.1:11435/api/ui/models/activate \
             > "$RUNNER_TEMP/small-reactivate-response.json"
+
+      - name: Smoke-test native multi-shard MoE in local web UI
+        env:
+          KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
+        run: |
+          set -euo pipefail
+          FIRST="$(find "$KILN_MODELS_DIR/native-split-ci" -maxdepth 1 -name '*-00001-of-*.gguf' -print -quit)"
+          test -s "$FIRST"
+          python3 - "$FIRST" "$RUNNER_TEMP/ui-split-activate.json" <<'PY'
+          import pathlib,json,sys
+          pathlib.Path(sys.argv[2]).write_text(json.dumps({"path":sys.argv[1],"mode":"stream"}))
+          PY
+          curl --fail-with-body --silent --show-error --max-time 180 \
+            -H 'content-type: application/json' \
+            --data-binary "@$RUNNER_TEMP/ui-split-activate.json" \
+            http://127.0.0.1:11435/api/ui/models/activate \
+            > "$RUNNER_TEMP/ui-split-active.json"
+          python3 - "$RUNNER_TEMP/ui-split-active.json" "$RUNNER_TEMP/ui-split-generate.json" <<'PY'
+          import pathlib,json,sys
+          active=json.load(open(sys.argv[1]))
+          assert active["active"] is True
+          pathlib.Path(sys.argv[2]).write_text(json.dumps({
+            "model":active["model"],"prompt":"A small test prompt.",
+            "stream":False,"options":{"num_predict":8}
+          }))
+          PY
+          curl --fail-with-body --silent --show-error --max-time 180 \
+            -H 'content-type: application/json' \
+            --data-binary "@$RUNNER_TEMP/ui-split-generate.json" \
+            http://127.0.0.1:11435/api/generate \
+            > "$RUNNER_TEMP/ui-split-answer.json"
+          curl --fail --silent http://127.0.0.1:11435/api/ui/capabilities \
+            > "$RUNNER_TEMP/ui-split-caps.json"
+          python3 - "$RUNNER_TEMP/ui-split-answer.json" "$RUNNER_TEMP/ui-split-caps.json" <<'PY'
+          import json,sys
+          generated=json.load(open(sys.argv[1]))
+          capabilities=json.load(open(sys.argv[2]))
+          assert generated["done"] is True
+          assert isinstance(generated["response"],str)
+          assert capabilities["active_model"]["mode"]=="experimental_cpu_moe_stream"
+          print("Native multi-shard MoE UI activation and actual inference passed")
+          PY
+          # Return to the same small smoke model for later UI assertions.
+          SMALL="$KILN_MODELS_DIR/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf"
+          python3 - "$SMALL" "$RUNNER_TEMP/after-split-restore.json" <<'PY'
+          import json,pathlib,sys
+          pathlib.Path(sys.argv[2]).write_text(json.dumps({"path":sys.argv[1],"mode":"auto"}))
+          PY
+          curl --fail-with-body --silent --show-error --max-time 120 \
+            -H 'content-type: application/json' \
+            --data-binary "@$RUNNER_TEMP/after-split-restore.json" \
+            http://127.0.0.1:11435/api/ui/models/activate \
+            > "$RUNNER_TEMP/after-split-restored.json"
 
       - name: Verify UI model inventory exposes every Ollama manifest alias without importing weights
         run: |
