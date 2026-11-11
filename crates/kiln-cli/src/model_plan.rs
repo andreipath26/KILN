@@ -196,6 +196,7 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
         "total_file_bytes": index.total_file_bytes,
         "total_tensor_count": index.total_tensor_count,
         "expert_source_count": index.expert_sources.len(),
+        "verified_complete_fused_expert_slab_count": index.fused_expert_slabs.len(),
         "unsupported_expert_tensors": index.unsupported_expert_tensors,
         "shards": index.shards,
         "native_multi_source_streaming_ready": index.native_multi_source_streaming_ready,
