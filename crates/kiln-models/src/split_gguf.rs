@@ -175,6 +175,82 @@ mod tests {
         GgufTensorInfo{name:"blk.0.ffn_up_exps.weight".into(),dtype,shape,offset}
     }
 
+
+    fn push_string(data: &mut Vec<u8>, value: &str) {
+        data.extend_from_slice(&(value.len() as u64).to_le_bytes());
+        data.extend_from_slice(value.as_bytes());
+    }
+
+    fn tiny_split_shard(path: &Path, part: u32, tensor_name: &str, dtype: u32) {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"GGUF");
+        bytes.extend_from_slice(&3u32.to_le_bytes());
+        bytes.extend_from_slice(&1u64.to_le_bytes()); // one tensor
+        bytes.extend_from_slice(&3u64.to_le_bytes()); // three metadata keys
+        push_string(&mut bytes, "general.architecture");
+        bytes.extend_from_slice(&8u32.to_le_bytes()); // string
+        push_string(&mut bytes, "tiny-moe");
+        push_string(&mut bytes, "split.no");
+        bytes.extend_from_slice(&4u32.to_le_bytes()); // uint32
+        bytes.extend_from_slice(&(part-1).to_le_bytes());
+        push_string(&mut bytes, "split.count");
+        bytes.extend_from_slice(&4u32.to_le_bytes());
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        push_string(&mut bytes, tensor_name);
+        bytes.extend_from_slice(&3u32.to_le_bytes()); // dimensions
+        for dim in [32u64, 2, 2] { bytes.extend_from_slice(&dim.to_le_bytes()); }
+        bytes.extend_from_slice(&dtype.to_le_bytes()); // F16 or unknown
+        bytes.extend_from_slice(&0u64.to_le_bytes());
+        while bytes.len() % 32 != 0 { bytes.push(0); }
+        bytes.extend_from_slice(&vec![0u8; 256]);
+        std::fs::write(path,bytes).unwrap();
+    }
+
+    #[test]
+    fn inventories_two_real_minimal_gguf_shards_without_merging_or_modifying() {
+        let unique=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .unwrap().as_nanos();
+        let dir=std::env::temp_dir().join(format!("kiln-split-source-{}-{unique}",std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let first=dir.join("tiny-00001-of-00002.gguf");
+        let second=dir.join("tiny-00002-of-00002.gguf");
+        tiny_split_shard(&first,1,"blk.0.ffn_up_exps.weight",1);
+        tiny_split_shard(&second,2,"blk.0.ffn_down_exps.weight",1);
+        let initial=std::fs::read(&first).unwrap();
+        let found=inspect_split_gguf(&second).unwrap().unwrap();
+        assert_eq!(found.entrypoint,first);
+        assert_eq!(found.shard_count,2);
+        assert_eq!(found.total_tensor_count,2);
+        assert_eq!(found.expert_sources.len(),2);
+        assert_eq!(found.expert_sources[0].shard_number,1);
+        assert_eq!(found.expert_sources[1].shard_number,2);
+        assert_eq!(found.expert_sources[1].byte_length,128);
+        assert!(!found.native_multi_source_streaming_ready);
+        assert_eq!(std::fs::read(&first).unwrap(),initial);
+        std::fs::remove_file(&second).unwrap();
+        assert!(inspect_split_gguf(&first).unwrap_err().contains("00002-of-00002"));
+        tiny_split_shard(&second,2,"blk.0.ffn_up_exps.weight",1);
+        assert!(inspect_split_gguf(&first).unwrap_err().contains("duplicate tensor"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn unknown_expert_quantizer_is_counted_but_not_accepted_for_source_mapping() {
+        let unique=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .unwrap().as_nanos();
+        let dir=std::env::temp_dir().join(format!("kiln-split-unknown-{}-{unique}",std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let first=dir.join("tiny-00001-of-00002.gguf");
+        let second=dir.join("tiny-00002-of-00002.gguf");
+        tiny_split_shard(&first,1,"blk.0.ffn_up_exps.weight",1);
+        tiny_split_shard(&second,2,"blk.0.ffn_down_exps.weight",12345);
+        let found=inspect_split_gguf(&first).unwrap().unwrap();
+        assert_eq!(found.expert_sources.len(),1);
+        assert_eq!(found.unsupported_expert_tensors.len(),1);
+        assert_eq!(found.shards[1].unsupported_expert_tensor_count,1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn checks_row_boundaries_and_overflow_before_expert_mapping() {
         let quant=tensor(GgufType::Q4_K,vec![256,4,8],0);
