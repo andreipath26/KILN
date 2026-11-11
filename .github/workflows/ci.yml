@@ -760,12 +760,20 @@ jobs:
           assert report["native_multi_source_streaming_ready"] is False
           print("Verified original-shard expert I/O completed without concatenation")
           PY
-          printf 'A small test prompt.\n/exit\n' | timeout 180 \
+          if ! printf 'A small test prompt.\n/exit\n' | timeout 180 \
             target/debug/kiln stream "$ORIGINAL" --max-tokens 8 --cache-mib 8 \
-              > "$RUNNER_TEMP/original-stream.txt" 2> "$RUNNER_TEMP/original-stream.log"
-          printf 'A small test prompt.\n/exit\n' | timeout 180 \
+              > "$RUNNER_TEMP/original-stream.txt" 2> "$RUNNER_TEMP/original-stream.log"; then
+            echo "Unsplit stream failed; native diagnostics:" >&2
+            tail -n 90 "$RUNNER_TEMP/original-stream.log" >&2
+            exit 1
+          fi
+          if ! printf 'A small test prompt.\n/exit\n' | timeout 180 \
             target/debug/kiln stream "$FIRST" --max-tokens 8 --cache-mib 8 \
-              > "$RUNNER_TEMP/split-stream.txt" 2> "$RUNNER_TEMP/split-stream.log"
+              > "$RUNNER_TEMP/split-stream.txt" 2> "$RUNNER_TEMP/split-stream.log"; then
+            echo "Split stream failed; native diagnostics:" >&2
+            tail -n 90 "$RUNNER_TEMP/split-stream.log" >&2
+            exit 1
+          fi
           python3 - "$RUNNER_TEMP/original-stream.txt" "$RUNNER_TEMP/split-stream.txt" \
               "$RUNNER_TEMP/original-stream.log" "$RUNNER_TEMP/split-stream.log" <<'PY'
           import pathlib,sys
