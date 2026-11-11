@@ -111,10 +111,25 @@ jobs:
         if: always()
         run: if [ -f "$RUNNER_TEMP/kiln-api.pid" ]; then kill "$(cat "$RUNNER_TEMP/kiln-api.pid")" || true; fi
 
+      - name: Restore verified public GGUF smoke model cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/kiln-models
+          key: kiln-real-gguf-smoke-v2-${{ runner.os }}
+
       - name: Download and verify a real smoke-test model
         env:
           KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
-        run: target/debug/kiln pull QuantFactory/SmolLM2-135M-Instruct-GGUF --file SmolLM2-135M-Instruct.Q4_K_M.gguf
+        run: |
+          MODEL="$KILN_MODELS_DIR/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf"
+          if test -s "$MODEL"; then echo "Using cached verified dense GGUF"; exit 0; fi
+          for attempt in 1 2 3 4 5; do
+            if target/debug/kiln pull QuantFactory/SmolLM2-135M-Instruct-GGUF \
+              --file SmolLM2-135M-Instruct.Q4_K_M.gguf; then exit 0; fi
+            echo "Hugging Face temporary failure; retry $attempt/5" >&2
+            sleep "$((attempt * 20))"
+          done
+          exit 1
 
       - name: Validate real GGUF zero-copy Ollama manifest discovery
         run: |
@@ -179,9 +194,15 @@ jobs:
         env:
           KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
         run: |
-          target/debug/kiln pull mradermacher/tiny-random-granite-moe-GGUF \
-            --file tiny-random-granite-moe.Q4_K_M.gguf
           MODEL="$KILN_MODELS_DIR/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
+          if ! test -s "$MODEL"; then
+            for attempt in 1 2 3 4 5; do
+              if target/debug/kiln pull mradermacher/tiny-random-granite-moe-GGUF \
+                --file tiny-random-granite-moe.Q4_K_M.gguf; then break; fi
+              echo "Hugging Face temporary failure; retry $attempt/5" >&2
+              sleep "$((attempt * 20))"
+            done
+          fi
           test -s "$MODEL"
           target/debug/kiln plan "$MODEL" --json > "$RUNNER_TEMP/moe-plan.json"
           KILN_MODELS_DIR="$KILN_MODELS_DIR" \
