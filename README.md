@@ -63,6 +63,10 @@ When you select **Use model**, KILN estimates a conservative resident-memory bud
 
 A successful GGUF metadata scan is not evidence that its architecture or quantization is supported by the native inference fork. Incompatible layouts or failed memory allocations remain explicit load errors rather than silent fallback claims.
 
+## GGUF tensor safety and oversized metadata
+
+GGUF tensor-size inspection uses checked, row-oriented encoded-byte arithmetic. Known quantization formats with malformed row dimensions, arithmetic overflow, or out-of-file tensor ranges are rejected instead of being treated as valid but unreadable weights. Unknown quantization types remain visible to discovery and diagnostics, but even unknown tensor offsets must belong to the source file. Parsing rejects out-of-range metadata offsets and data-section alignment overflow. This protects model inspection and expert-source mapping; it does **not** make an unsupported model architecture runnable.
+
 ## Split GGUF Phase 5 source mapping
 
 `kiln plan /path/to/model-00001-of-00002.gguf --json` validates **every** part of a split GGUF and reports the **combined** model size, per-shard tensor counts, and verified source byte ranges for recognized routed-expert tensors. It does not combine the original files or read all the model weights into RAM. Supported tensor types are checked for row alignment, byte-range overflow and source-file bounds, while unknown quantizers remain explicitly unsupported. Missing shards, inconsistent split metadata and duplicate tensor names fail closed.
