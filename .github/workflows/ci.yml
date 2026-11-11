@@ -729,6 +729,19 @@ jobs:
           assert details["experimental_native_multi_source_compute_supported"] is True
           print("Verified full-model expert projections from separate original GGUF shard sources")
           PY
+          cargo build --locked -p kiln-bench
+          target/debug/kiln-bench expert-io-split \
+            --source-gguf "$FIRST" --requests 64 --max-read-mib 128 --json \
+            > "$RUNNER_TEMP/split-expert-io.json"
+          python3 - "$RUNNER_TEMP/split-expert-io.json" <<'PY'
+          import json,sys
+          report=json.load(open(sys.argv[1]))
+          assert report["requests_completed"]>0
+          assert report["bytes_read_explicit"]>0
+          assert sum(report["source_shard_read_counts"])==report["requests_completed"]
+          assert report["native_multi_source_streaming_ready"] is False
+          print("Verified original-shard expert I/O completed without concatenation")
+          PY
           printf 'A small test prompt.\n/exit\n' | timeout 180 \
             target/debug/kiln stream "$ORIGINAL" --max-tokens 8 --cache-mib 8 \
               > "$RUNNER_TEMP/original-stream.txt" 2> "$RUNNER_TEMP/original-stream.log"
