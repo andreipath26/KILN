@@ -468,6 +468,7 @@ pub async fn ui_capabilities(State(state): State<ApiState>) -> Json<Value> {
         runtime.as_ref().map(|session| json!({
             "name": session.model_name,
             "mode": if session.streaming { "experimental_cpu_moe_stream" } else { "standard" },
+            "expert_cache_mib": session.stream_worker.as_ref().map(|worker| worker.cache_mib()),
         }))
     });
 
