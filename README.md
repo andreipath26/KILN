@@ -63,6 +63,18 @@ When you select **Use model**, KILN estimates a conservative resident-memory bud
 
 A successful GGUF metadata scan is not evidence that its architecture or quantization is supported by the native inference fork. Incompatible layouts or failed memory allocations remain explicit load errors rather than silent fallback claims.
 
+## Download complete split models and resume safely
+
+For public Hugging Face models supplied as numbered GGUF shards, the web UI offers **Download complete model (N shards)** when the repository lists every part. It downloads each original GGUF file separately with size and SHA-256 validation. If a transfer is cancelled, already completed shards remain intact, and the partial in-progress file is removed. A later attempt verifies and reuses existing shards rather than overwriting or downloading them again. Incomplete remote shard groups are not advertised as complete models.
+
+The CLI provides the same complete-file workflow:
+
+```sh
+kiln pull OWNER/REPOSITORY --file "model-00001-of-00002.gguf" --all-shards
+```
+
+Use a nested repository file path when appropriate. The command checks that all numbered parts and their trusted digests exist in the public repository before starting transfers, and it verifies each installed file. **This is download completeness, not inference compatibility**: some architectures and quantizers remain unsupported, and KILN still requires native multi-shard expert compute validation before calling large split-model streaming production-ready.
+
 ## Split GGUF Phase 5 source mapping
 
 `kiln plan /path/to/model-00001-of-00002.gguf --json` validates **every** part of a split GGUF and reports the **combined** model size, per-shard tensor counts, and verified source byte ranges for recognized routed-expert tensors. It does not combine the original files or read all the model weights into RAM. Supported tensor types are checked for row alignment, byte-range overflow and source-file bounds, while unknown quantizers remain explicitly unsupported. Missing shards, inconsistent split metadata and duplicate tensor names fail closed.
