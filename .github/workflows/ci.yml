@@ -903,7 +903,7 @@ jobs:
           model=json.loads(pathlib.Path(sys.argv[1]).read_text())["model"]
           root=pathlib.Path(sys.argv[2])
           cases={
-            "context":("one two three four five six seven eight nine ten " * 11000),
+            "context":("one two three four five six seven eight nine ten " * 1800),
             "escaped":("\u0000" * 60_000),
           }
           for kind,prompt in cases.items():
@@ -915,19 +915,19 @@ jobs:
               "options":{"num_predict":4}}))
           PY
           for kind in context escaped; do
-            code="$(curl --silent --show-error --max-time 120 \\
-              -o "$RUNNER_TEMP/moe-reject-$kind-response.json" -w '%{http_code}' \\
-              -H 'content-type: application/json' \\
-              --data-binary "@$RUNNER_TEMP/moe-reject-$kind-request.json" \\
+            code="$(curl --silent --show-error --max-time 120 \
+              -o "$RUNNER_TEMP/moe-reject-$kind-response.json" -w '%{http_code}' \
+              -H 'content-type: application/json' \
+              --data-binary "@$RUNNER_TEMP/moe-reject-$kind-request.json" \
               http://127.0.0.1:11435/api/generate)"
             test "$code" = 400 || { echo "Expected HTTP 400 for $kind, received $code"; exit 1; }
           done
-          curl --fail-with-body --silent --show-error --max-time 120 \\
-            -H 'content-type: application/json' \\
-            --data-binary "@$RUNNER_TEMP/moe-recovery-request.json" \\
-            http://127.0.0.1:11435/api/generate \\
+          curl --fail-with-body --silent --show-error --max-time 120 \
+            -H 'content-type: application/json' \
+            --data-binary "@$RUNNER_TEMP/moe-recovery-request.json" \
+            http://127.0.0.1:11435/api/generate \
             > "$RUNNER_TEMP/moe-recovery-response.json"
-          curl --fail --silent http://127.0.0.1:11435/api/ui/capabilities \\
+          curl --fail --silent http://127.0.0.1:11435/api/ui/capabilities \
             > "$RUNNER_TEMP/moe-recovery-capabilities.json"
           python3 - "$RUNNER_TEMP" <<'PY'
           import json,pathlib,sys
