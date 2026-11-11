@@ -305,7 +305,7 @@ function renderLocalModels(models) {
 // Group exact conventional GGUF shard names within one remote repository.
 // Never mix quantizations, subdirectories or similarly named model families.
 function splitArtifactGroup(artifacts, selected) {
-  const match = /^(.+)-(\\d{5})-of-(\\d{5})\\.gguf$/i.exec(selected);
+  const match = /^(.+)-(\d{5})-of-(\d{5})\.gguf$/i.exec(selected);
   if (!match) return [selected];
   const count = Number(match[3]);
   if (!Number.isSafeInteger(count) || count < 2 || count > 1024) return [selected];
@@ -466,7 +466,8 @@ async function downloadArtifact(repository, file, requestedFiles = [file]) {
     setModelActionState(false, `Verified ${installedCount}/${files.length} files for ${modelLabel}. Select the complete model from local models.`);
   } catch (error) {
     const message = error.name === "AbortError"
-      ? `Download canceled after ${installedCount}/${files.length} verified files. Completed shards were preserved; the partial download was removed.`
+      ? (files.length === 1 ? "Download canceled; the partial file was removed."
+        : `Download canceled after ${installedCount}/${files.length} verified files. Completed shards were preserved; the partial download was removed.`)
       : `Download stopped after ${installedCount}/${files.length} verified files: ${error.message || "unknown error"}. Completed shards were preserved.`;
     await loadLocalModels().catch(() => {});
     setModelActionState(false, message);
