@@ -18,6 +18,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  fast-checks:
+    name: Fast scripts and UI syntax
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source without native submodules
+        uses: actions/checkout@v4
+
+      - name: Validate client-side JavaScript syntax
+        run: |
+          node --check crates/kiln-api/static/ui.js
+          node --check tools/ui-e2e/run.cjs
+          node --check tools/ui-e2e/real-smoke.cjs
+
+      - name: Test synthetic MoE cache simulator
+        run: python3 -m unittest scripts.test_synthetic_moe_cache_bench -v
+
+      - name: Unit-test controlled candidate-vs-FP16 quality parity assessor
+        run: python3 -m unittest scripts.test_compare_quality_parity -v
+
+      - name: Test Tier 0 feasibility report assessor
+        run: |
+          python3 -m unittest scripts.test_assess_tier0_gate5a -v
+          python3 -m unittest scripts.test_compare_lazy_moe -v
+          python3 -m unittest scripts.test_convert_moe_router_trace -v
+          python3 -m unittest scripts.test_route_usage_history -v
+
+      - name: Test Phase 3.5 evidence summary and capture scripts
+        run: |
+          python3 -m unittest scripts.test_summarize_phase35 -v
+          python3 -m unittest scripts.test_capture_phase35_ollama -v
+          bash -n scripts/run_phase35_suite.sh scripts/run_tier0_dense_matrix.sh scripts/profile_phase35_hotpath.sh scripts/run_tier0_gate5a.sh scripts/capture_moe_router_phase5a.sh scripts/run_cpu_moe_stream_experiment.sh scripts/build_linux_release.sh scripts/install_linux_release.sh
+
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -53,25 +86,6 @@ jobs:
       - name: Check formatting (advisory until baseline formatting debt is resolved)
         continue-on-error: true
         run: cargo fmt --all -- --check
-
-      - name: Test synthetic MoE cache simulator
-        run: python3 -m unittest scripts.test_synthetic_moe_cache_bench -v
-
-      - name: Unit-test controlled candidate-vs-FP16 quality parity assessor
-        run: python3 -m unittest scripts.test_compare_quality_parity -v
-
-      - name: Test Tier 0 feasibility report assessor
-        run: |
-          python3 -m unittest scripts.test_assess_tier0_gate5a -v
-          python3 -m unittest scripts.test_compare_lazy_moe -v
-          python3 -m unittest scripts.test_convert_moe_router_trace -v
-          python3 -m unittest scripts.test_route_usage_history -v
-
-      - name: Test Phase 3.5 evidence summary and capture scripts
-        run: |
-          python3 -m unittest scripts.test_summarize_phase35 -v
-          python3 -m unittest scripts.test_capture_phase35_ollama -v
-          bash -n scripts/run_phase35_suite.sh scripts/run_tier0_dense_matrix.sh scripts/profile_phase35_hotpath.sh scripts/run_tier0_gate5a.sh scripts/capture_moe_router_phase5a.sh scripts/run_cpu_moe_stream_experiment.sh scripts/build_linux_release.sh scripts/install_linux_release.sh
 
       - name: Run workspace tests
         run: cargo test --locked --workspace --all-targets
