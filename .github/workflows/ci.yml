@@ -666,6 +666,68 @@ jobs:
           KILN_TEST_MODEL_PATH: ${{ runner.temp }}/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf
         run: cargo test -p kiln-cli --test interactive_speculative_parity -- --ignored --nocapture
 
+      - name: Prove native selected-expert parity on a real GGUF split into original shards
+        env:
+          KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
+        run: |
+          set -euo pipefail
+          ORIGINAL="$KILN_MODELS_DIR/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
+          test -s "$ORIGINAL"
+          # Build the upstream splitter against the exact pinned native fork.
+          cmake -S vendor/llama.cpp -B vendor/llama.cpp/build \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_TOOLS=ON \
+            -DLLAMA_BUILD_COMMON=ON -DLLAMA_BUILD_SERVER=OFF
+          cmake --build vendor/llama.cpp/build --target llama-gguf-split --parallel 2
+          test -x vendor/llama.cpp/build/bin/llama-gguf-split
+          target/debug/kiln plan "$ORIGINAL" --json > "$RUNNER_TEMP/original-plan.json"
+          MAX_TENSORS="$(python3 - "$RUNNER_TEMP/original-plan.json" <<'PY'
+          import json,sys
+          count=json.load(open(sys.argv[1]))["gguf_tensor_count"]
+          assert count >= 6
+          print((count+1)//2)
+          PY
+          )"
+          mkdir -p "$RUNNER_TEMP/kiln-split-test"
+          vendor/llama.cpp/build/bin/llama-gguf-split \
+            --split-max-tensors "$MAX_TENSORS" "$ORIGINAL" \
+            "$RUNNER_TEMP/kiln-split-test/real-moe.gguf"
+          FIRST="$(find "$RUNNER_TEMP/kiln-split-test" -maxdepth 1 -type f \
+            -name '*-00001-of-*.gguf' -print -quit)"
+          test -n "$FIRST"
+          target/debug/kiln plan "$FIRST" --json > "$RUNNER_TEMP/split-moe-plan.json"
+          python3 - "$RUNNER_TEMP/original-plan.json" "$RUNNER_TEMP/split-moe-plan.json" <<'PY'
+          import json,sys
+          original,split=(json.load(open(p)) for p in sys.argv[1:])
+          details=split["split_gguf"]
+          assert details["shard_count"]>=2
+          assert details["total_tensor_count"]==original["gguf_tensor_count"]
+          assert details["verified_complete_fused_expert_slab_count"]>0
+          assert details["native_multi_source_streaming_ready"] is False
+          assert split["recommendations"]["cpu_moe_selected_expert_external_compute_experimental"] is False
+          print("Verified full-model expert projections from separate original GGUF shard sources")
+          PY
+          printf 'A small test prompt.\n/exit\n' | timeout 180 \
+            target/debug/kiln stream "$ORIGINAL" --max-tokens 8 --cache-mib 8 \
+              > "$RUNNER_TEMP/original-stream.txt" 2> "$RUNNER_TEMP/original-stream.log"
+          printf 'A small test prompt.\n/exit\n' | timeout 180 \
+            target/debug/kiln stream "$FIRST" --max-tokens 8 --cache-mib 8 \
+              > "$RUNNER_TEMP/split-stream.txt" 2> "$RUNNER_TEMP/split-stream.log"
+          python3 - "$RUNNER_TEMP/original-stream.txt" "$RUNNER_TEMP/split-stream.txt" \
+              "$RUNNER_TEMP/original-stream.log" "$RUNNER_TEMP/split-stream.log" <<'PY'
+          import pathlib,sys
+          original,split=(pathlib.Path(p).read_text() for p in sys.argv[1:3])
+          evidence=[pathlib.Path(p).read_text() for p in sys.argv[3:]]
+          def reply(text):
+              assert "kiln> " in text
+              value=text.split("kiln> ",1)[1].split("\nyou>",1)[0]
+              assert value.strip()
+              return value
+          assert reply(original)==reply(split), "split native MoE token output differs from original single-file GGUF"
+          assert all("external expert graph verified" in log for log in evidence)
+          print("Native graph-selected expert pread parity passed across real split-GGUF sources")
+          PY
+
       - name: Build and prove portable Linux single-binary release against real MoE GGUF
         env:
           KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
