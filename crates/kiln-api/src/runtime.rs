@@ -147,6 +147,13 @@ fn resident_budget_bytes(available: u64) -> u64 {
     available.saturating_sub((available / 5).max(512 * 1024 * 1024))
 }
 
+/// Live memory estimate for the local UI; never claim the resident budget
+/// equals the full amount available to the OS. Unknown values stay unknown.
+pub(crate) fn memory_headroom_bytes() -> Option<(u64, u64)> {
+    let available = available_ram_bytes()?;
+    Some((available, resident_budget_bytes(available)))
+}
+
 fn should_stream_single_file(
     force_stream: bool, is_split: bool, model_bytes: u64, budget_bytes: u64
 ) -> bool {
