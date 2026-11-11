@@ -8,6 +8,27 @@ const MAX_IPC_LINE: usize = 128 * 1024;
 const MAX_HANDSHAKE_LINE: usize = 4096;
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 const MAX_NATIVE_CACHE_MIB: u32 = 256;
+const DEFAULT_STARTUP_TIMEOUT_SECONDS: u64 = 300;
+
+fn startup_timeout_seconds(value: Option<&str>) -> u64 {
+    value.and_then(|raw| raw.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_STARTUP_TIMEOUT_SECONDS).clamp(30, 900)
+}
+
+fn terminate_child_group(child: &mut Child) {
+    // The launcher and its nested compute child have their own group.
+    #[cfg(unix)]
+    {
+        unsafe extern "C" { fn kill(pid: i32, sig: i32) -> i32; }
+        if let Ok(pid) = i32::try_from(child.id()) {
+            unsafe { let _ = kill(-pid, 9); }
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+
 
 /// Expert cache is in addition to GGML scratch, KV, page cache and the model
 /// loader. Derive a deliberately small allowance from *current resident
@@ -77,18 +98,53 @@ impl StreamWorker {
             .spawn().map_err(|e| format!("could not start native streaming worker: {e}"))?;
         let input = child.stdin.take().ok_or("stream worker stdin unavailable")?;
         let output = child.stdout.take().ok_or("stream worker stdout unavailable")?;
-        let mut worker = Self {
-            child, input: Some(input), output: BufReader::new(output),
-            protocol_failed: false, cache_mib: capacity,
+        // A real larger-than-RAM model may need nontrivial startup time, but
+        // waiting forever inside the API activation lock is unacceptable.
+        // Read on one dedicated thread so the launcher can be terminated
+        // if it never produces its ready frame.
+        let seconds = startup_timeout_seconds(std::env::var("KILN_STREAM_STARTUP_TIMEOUT_SECS")
+            .ok().as_deref());
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let mut output = BufReader::new(output);
+            let line = read_bounded_line(&mut output, MAX_HANDSHAKE_LINE);
+            let _ = tx.send((output, line));
+        });
+        let (output, line) = match rx.recv_timeout(Duration::from_secs(seconds)) {
+            Ok(value) => value,
+            Err(error) => {
+                terminate_child_group(&mut child);
+                return Err(format!(
+                    "native model loading did not complete within {seconds}s ({error}); worker and nested compute process terminated"
+                ));
+            }
         };
-        let line = read_bounded_line(&mut worker.output, MAX_HANDSHAKE_LINE)?
-            .ok_or("experimental native streaming could not initialize this model; check KILN server logs for its GGUF or resource error")?;
-        let response: serde_json::Value = serde_json::from_str(&line)
-            .map_err(|e| format!("malformed stream worker handshake: {e}"))?;
+        let line = match line {
+            Ok(Some(line)) => line,
+            Ok(None) => {
+                terminate_child_group(&mut child);
+                return Err("native worker exited before reporting ready; inspect server logs for unsupported GGUF or memory exhaustion".into());
+            }
+            Err(error) => {
+                terminate_child_group(&mut child);
+                return Err(format!("native worker emitted invalid readiness frame: {error}"));
+            }
+        };
+        let response: serde_json::Value = match serde_json::from_str(&line) {
+            Ok(value) => value,
+            Err(error) => {
+                terminate_child_group(&mut child);
+                return Err(format!("malformed native worker readiness JSON: {error}"));
+            }
+        };
         if response.get("event").and_then(|s| s.as_str()) != Some("ready") {
-            return Err("native streaming worker did not confirm model loading".into());
+            terminate_child_group(&mut child);
+            return Err("native worker failed to confirm model loading".into());
         }
-        Ok(worker)
+        Ok(Self {
+            child, input: Some(input), output, protocol_failed: false,
+            cache_mib: capacity,
+        })
     }
 
     pub fn cache_mib(&self) -> u32 { self.cache_mib }
@@ -163,21 +219,25 @@ impl Drop for StreamWorker {
                     std::thread::sleep(Duration::from_millis(50));
                 }
                 _ => {
-                    #[cfg(unix)]
-                    {
-                        // Kill the entire dedicated process group, including
-                        // the nested native compute worker.
-                        unsafe extern "C" { fn kill(pid: i32, sig: i32) -> i32; }
-                        if let Ok(pid) = i32::try_from(self.child.id()) {
-                            unsafe { let _ = kill(-pid, 9); }
-                        }
-                    }
-                    let _ = self.child.kill();
+                    terminate_child_group(&mut self.child);
                     break;
                 }
             }
         }
         let _ = self.child.wait();
+    }
+}
+
+#[cfg(test)]
+mod startup_timeout_tests {
+    use super::startup_timeout_seconds;
+    #[test]
+    fn accepts_bounded_startup_deadline_without_infinite_blocking() {
+        assert_eq!(startup_timeout_seconds(None),300);
+        assert_eq!(startup_timeout_seconds(Some("45")),45);
+        assert_eq!(startup_timeout_seconds(Some("0")),30);
+        assert_eq!(startup_timeout_seconds(Some("99999")),900);
+        assert_eq!(startup_timeout_seconds(Some("not a number")),300);
     }
 }
 

@@ -101,6 +101,11 @@ cargo run --release -p kiln-bench -- expert-io-split \
 This reports explicit read bytes, per-shard request counts, wall-clock throughput and maximum caller buffer. Linux page cache is uncontrolled; the figures **do not** represent physical SSD traffic, inference throughput or accuracy.
  **Experimental native multi-shard compute:** the pinned KILN llama.cpp CPU backend now consumes a versioned `KILN-MOE-STREAM-2` index, resolves every graph-selected expert slab to its original GGUF shard, and issues bounded positional reads from that source. `kiln stream` creates the temporary verified index automatically for complete, supported fused three-projection MoE layouts, while leaving model files unchanged. The UI may select this mode for eligible split models exceeding current memory headroom. Unknown quantizers, incomplete projections and unsupported architectures still fail closed. Support for a verified source layout is **not** a Tier 0 performance, quality or physical SSD-traffic acceptance result.
 
+## Bound native model startup
+
+For compatible oversized MoE models, the local UI launches an isolated native streaming worker. The initial model-loading handshake now has a bounded deadline rather than allowing an indefinite loading spinner. The default is **300 seconds**; operators may set `KILN_STREAM_STARTUP_TIMEOUT_SECS` (clamped to 30–900 seconds) when slow storage or large model metadata requires longer. On timeout, KILN terminates the dedicated native launcher process group, including nested workers, and reports an explicit activation error. Existing model files remain untouched, and failed model switches still attempt to restore the previous session. This does not guarantee that a model architecture is supported or that inference meets the Tier 0 throughput target.
+
+
 ## Memory-budgeted native MoE caching
 
 When activating a compatible MoE model through the local UI, KILN now derives its native expert cache capacity from the **currently available resident-memory budget**, including Linux cgroup headroom. The experimental default is approximately 1 MiB of cache for each 64 MiB of estimated resident budget, capped at **256 MiB**, and it may be zero when memory is exhausted. If memory information is unavailable, KILN uses the previous 64 MiB fallback. The Advanced tab reports the chosen per-session native expert cache size.
