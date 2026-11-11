@@ -734,3 +734,9 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 
 - Split fast Python unit tests for MoE cache, quality assessment, Tier 0 feasibility, router/trace conversion, and Phase 3.5 evidence capture, plus shell syntax checks, from the heavyweight native test job into an independent `fast-checks` job. Add JavaScript syntax checks for web UI and browser smoke scripts.
 - Both jobs run in parallel; the heavyweight job still builds pinned llama.cpp, runs the Rust workspace, actual MoE and dense GGUF tests, portable release, and browser smoke gates. The fast checks are no longer duplicated in that heavyweight job; all checks remain required for green CI. This is feedback efficiency only, not a claim that Phase 5 Tier 0 deployment targets have passed.
+
+
+### 2026-11-11 — Phase 5 preserve live inference on incomplete source activation
+
+- Reused the split-GGUF source metadata/overflow validation in a dedicated preflight before `ApiState::activate` detaches and unloads an active model. An unavailable source shard is rejected while the active session is left intact; the loader uses the same checked validation to avoid drift.
+- Added no-model unit regression with a synthetic active streaming session, incomplete two-shard replacement, and restored shard sizing. Unsupported architecture, OOM after a valid preflight, and Tier 0 inference acceptance remain separate unverified gates.
