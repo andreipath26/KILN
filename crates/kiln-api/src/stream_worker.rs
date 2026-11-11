@@ -85,9 +85,11 @@ impl StreamWorker {
                 Some("chunk") => {
                     let piece = response.get("text").and_then(|x| x.as_str())
                         .ok_or("stream worker emitted invalid text")?;
-                    combined.push_str(piece);
-                    if combined.len() > 4 * 1024 * 1024 {
-                        return Err("stream worker response exceeds safe limit".into());
+                    if receiver_open {
+                        combined.push_str(piece);
+                        if combined.len() > 4 * 1024 * 1024 {
+                            return Err("stream worker response exceeds safe limit".into());
+                        }
                     }
                     if receiver_open && !on_chunk(piece) {
                         // The HTTP client disconnected. Keep reading until
