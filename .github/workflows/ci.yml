@@ -704,7 +704,8 @@ jobs:
           assert details["total_tensor_count"]==original["gguf_tensor_count"]
           assert details["verified_complete_fused_expert_slab_count"]>0
           assert details["native_multi_source_streaming_ready"] is False
-          assert split["recommendations"]["cpu_moe_selected_expert_external_compute_experimental"] is False
+          assert split["recommendations"]["cpu_moe_selected_expert_external_compute_experimental"] is True
+          assert details["experimental_native_multi_source_compute_supported"] is True
           print("Verified full-model expert projections from separate original GGUF shard sources")
           PY
           printf 'A small test prompt.\n/exit\n' | timeout 180 \
