@@ -300,7 +300,7 @@ mod recoverable_request_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod rejection_classification_tests {
     use super::*;
     use std::io::BufReader;
