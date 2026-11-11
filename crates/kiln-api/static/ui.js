@@ -362,8 +362,17 @@ function renderRemoteModels(models) {
       pull.title = model.gated ? "This repository requires provider authorization and cannot be downloaded through this public flow." : "Download and verify this GGUF file";
       const selection = splitArtifactSelection(model.artifacts || [], artifact.path);
       if (selection.split) {
-        // One row per model, never one misleading install action per shard.
-        if (!/-00001-of-\d{5}\.gguf$/i.test(artifact.path)) continue;
+        // Show one action even if shard 1 is absent from the provider's list,
+        // so an incomplete repository is visibly diagnosed rather than hidden.
+        const sameModel = /^(.+)-\d{5}-of-(\d{5})\.gguf$/i.exec(artifact.path);
+        const firstListed = (model.artifacts || [])
+          .map((item) => item.path)
+          .filter((name) => {
+            const other = /^(.+)-\d{5}-of-(\d{5})\.gguf$/i.exec(name);
+            return other && sameModel && other[1] === sameModel[1] && other[2] === sameModel[2];
+          })
+          .sort()[0];
+        if (artifact.path !== firstListed) continue;
         if (selection.error) {
           pull.textContent = "Incomplete split model (download unavailable)";
           pull.disabled = true;
