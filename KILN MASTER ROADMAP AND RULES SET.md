@@ -680,3 +680,8 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Native selected-expert compute for supported single- and multi-shard fused MoE layouts was already merged in #81. It is distinct from Rust `cpu_moe_streamed` byte-dispatch and sidecar experiments. Updated the Phase 5 guide to remove obsolete assertions that graph-selected expert execution is unwired.
 - GitHub reported successful merges, but Phase 5 PR CI runs had not passed when the merges were issued. CI completion, actual inference smoke tests, Tier 0 hardware throughput/RSS, storage bytes per token, cache effectiveness and WikiText-2 quality **remain unverified**. No Phase 5 exit gate or 70B mission target is declared complete by these changes.
 - Next execution gate: inspect merged-head CI and resolve failures, then obtain pinned Qwen3-30B-A3B Tier 0 end-to-end evidence before claiming any usable larger-than-RAM deployment performance.
+
+
+### 2026-11-11 — Native streaming context-rejection API status
+
+- Preserve explicit distinction between recoverable, fully framed native worker preflight rejection and a poisoned/truncated worker protocol. The API reports the former as HTTP 400 (client input error) while reserving HTTP 502 for genuine IPC/backend faults. Added a shell-simulated worker regression for rejection classification. No new Phase 5 throughput or quality claim.
