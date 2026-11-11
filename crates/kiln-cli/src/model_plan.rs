@@ -151,6 +151,15 @@ fn feasibility(
     })
 }
 
+fn split_native_layout_candidate(shards: Option<&kiln_models::split_gguf::SplitGgufInventory>) -> bool {
+    shards.is_some_and(|inventory|
+        (2..=64).contains(&inventory.shard_count) &&
+        !inventory.fused_expert_slabs.is_empty() &&
+        inventory.fused_expert_slabs.len() <= 300_000 &&
+        inventory.unsupported_expert_tensors.is_empty()
+    )
+}
+
 pub fn run(model: &str, as_json: bool) -> Result<(), String> {
     // The planner must accept the same local GGUF paths and installed Ollama
     // aliases as 'kiln run' and 'kiln stream'; no model weight copy is needed.
@@ -173,12 +182,7 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
     // must never imply that a large model has passed throughput/quality gates.
     let eligible_fused = kiln_models::discover_complete_fused_moe_selections(&model_data)
         .ok().filter(|items| !items.is_empty());
-    let split_native_candidate = split.as_ref().is_some_and(|inventory|
-        (2..=64).contains(&inventory.shard_count) &&
-        !inventory.fused_expert_slabs.is_empty() &&
-        inventory.fused_expert_slabs.len() <= 300_000 &&
-        inventory.unsupported_expert_tensors.is_empty()
-    );
+    let split_native_candidate = split_native_layout_candidate(split.as_ref());
     let experimental_cpu_external_streaming =
         cfg!(target_os = "linux") &&
         (split_native_candidate || (split.is_none() && eligible_fused.is_some()));
@@ -208,7 +212,7 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
         "shards": index.shards,
         "native_multi_source_streaming_ready": index.native_multi_source_streaming_ready,
         "experimental_native_multi_source_compute_supported": cfg!(target_os="linux") && split_native_candidate,
-        "limitation": "Per-shard ranges are verified for supported tensor types, but native multi-file expert computation is NOT implemented"
+        "limitation": "Native multi-file expert compute is experimental for verified complete fused layouts only; other split formats remain unsupported. This preflight does not establish speed, accuracy or actual working-set bounds."
     })));
     report["architecture"] = json!(model_data.metadata_str("general.architecture"));
     let quota = effective_cpu_quota();
@@ -245,7 +249,11 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
         println!("  model total:          {} bytes", total_file_bytes);
         if let Some(index) = split.as_ref() {
             println!("  split GGUF:           {} source shards, {} tensors, {} expert source ranges", index.shard_count, index.total_tensor_count, index.expert_sources.len());
-            println!("  native split stream:  not yet implemented; cannot use single-source index");
+            println!("  native split stream:  {}", if cfg!(target_os="linux") && split_native_candidate {
+                "EXPERIMENTAL verified multi-source fused expert path (not Tier 0 accepted)"
+            } else {
+                "unavailable for this architecture/quantizer/expert layout"
+            });
         }
         println!("  routed expert tensors: {}", has_routed_experts);
         println!("  logical CPUs:         {}", profile.cpu_cores);
@@ -268,6 +276,31 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn split_model_status_never_confuses_sources_with_verified_compute() {
+        use kiln_models::split_gguf::{SplitGgufInventory, SplitFusedExpertSlab};
+        use std::path::PathBuf;
+        let path=PathBuf::from("/nonexistent/model-00001-of-00002.gguf");
+        let mut inventory=SplitGgufInventory {
+            entrypoint:path.clone(),shard_count:2,total_file_bytes:1024,
+            total_tensor_count:3,architecture:Some("qwen".into()),
+            shards:Vec::new(),expert_sources:Vec::new(),
+            fused_expert_slabs:Vec::new(),unsupported_expert_tensors:Vec::new(),
+            native_multi_source_streaming_ready:false,
+        };
+        assert!(!split_native_layout_candidate(Some(&inventory)));
+        inventory.fused_expert_slabs.push(SplitFusedExpertSlab {
+            tensor_name:"blk.0.ffn_up_exps.weight".into(),layer:0,expert_id:0,
+            shard_number:1,source_path:path,source_byte_offset:0,byte_length:64,
+        });
+        assert!(split_native_layout_candidate(Some(&inventory)));
+        inventory.unsupported_expert_tensors.push("unknown tensor".into());
+        assert!(!split_native_layout_candidate(Some(&inventory)));
+        inventory.unsupported_expert_tensors.clear();
+        inventory.shard_count=65;
+        assert!(!split_native_layout_candidate(Some(&inventory)));
+    }
+
     #[test]
     fn memory_parser_is_strict_and_overflow_safe() {
         assert_eq!(mem_available_bytes("MemTotal: 1000 kB\nMemAvailable: 512 kB\n"), Some(524288));
