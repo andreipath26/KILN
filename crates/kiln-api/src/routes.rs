@@ -104,8 +104,13 @@ fn infer_with_chunks(
 
     let model_name = session.model_name.clone();
     if let Some(worker) = session.stream_worker.as_mut() {
-        let output = worker.infer(prompt, max_tokens, on_chunk)
-            .map_err(|e| (StatusCode::BAD_GATEWAY, format!("native MoE streaming failed: {e}")))?;
+        let output = worker.infer_detailed(prompt, max_tokens, on_chunk)
+            .map_err(|error| match error {
+                crate::stream_worker::StreamInferError::Rejected(message) =>
+                    (StatusCode::BAD_REQUEST, message),
+                crate::stream_worker::StreamInferError::Worker(message) =>
+                    (StatusCode::BAD_GATEWAY, format!("native MoE streaming failed: {message}")),
+            })?;
         return Ok((model_name, output));
     }
     let dispatcher = session.dispatcher.as_mut().ok_or_else(|| (
