@@ -196,35 +196,12 @@ jobs:
         run: |
           MODEL="$KILN_MODELS_DIR/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
           if ! test -s "$MODEL"; then
-            for attempt in 1 2; do
+            for attempt in 1 2 3 4 5 6; do
               if target/debug/kiln pull mradermacher/tiny-random-granite-moe-GGUF \
                 --file tiny-random-granite-moe.Q4_K_M.gguf; then break; fi
-              echo "Hugging Face API rate-limited; retry $attempt/2" >&2
-              sleep "$((attempt * 10))"
+              echo "Official Hugging Face model API temporarily rate-limited ($attempt/6)" >&2
+              sleep "$((attempt * 20))"
             done
-          fi
-          if ! test -s "$MODEL"; then
-            # Resolve the SHA of the CURRENT LFS blob from official HF
-            # response metadata. Never pin an unverified historical SHA:
-            # model authors can update the default branch.
-            URI="https://huggingface.co/mradermacher/tiny-random-granite-moe-GGUF/resolve/main/tiny-random-granite-moe.Q4_K_M.gguf"
-            mkdir -p "$(dirname "$MODEL")"
-            HEADERS="$RUNNER_TEMP/moe-source-headers"
-            curl --fail --silent --show-error --location --head \
-              --retry 4 --retry-all-errors --retry-delay 10 --max-time 180 \
-              "$URI" > "$HEADERS"
-            DIGEST="$(tr -d '\r"' < "$HEADERS" | grep -i '^x-linked-etag:' | tail -n 1 | awk '{print $2}')"
-            if ! [[ "$DIGEST" =~ ^[[:xdigit:]]{64}$ ]]; then
-              echo "Official source did not return a valid 64-hex-character LFS SHA-256 ETag" >&2
-              exit 1
-            fi
-            TEMP="$RUNNER_TEMP/kiln-moe-verified-download.part"
-            trap 'rm -f "$TEMP"' EXIT
-            curl --fail --silent --show-error --location --retry 4 --retry-all-errors \
-              --retry-delay 10 --max-time 180 "$URI" --output "$TEMP"
-            echo "$DIGEST  $TEMP" | sha256sum --check -
-            mv "$TEMP" "$MODEL"
-            trap - EXIT
           fi
           test -s "$MODEL"
           target/debug/kiln plan "$MODEL" --json > "$RUNNER_TEMP/moe-plan.json"
