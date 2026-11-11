@@ -14,26 +14,30 @@ async function main() {
     const response = await page.goto(baseUrl, { waitUntil: "networkidle" });
     assert.equal(response.status(), 200);
     await page.getByRole("heading", { name: "Talk to your model" }).waitFor();
-    const groupTest = await page.evaluate(() => {
-      const artifacts = [
-        { path: "quant/model-Q2_K-00001-of-00002.gguf" },
-        { path: "quant/model-Q2_K-00002-of-00002.gguf" },
-        { path: "quant/model-Q4_K-00001-of-00002.gguf" },
-      ];
-      return {
-        complete: splitArtifactGroup(artifacts, artifacts[1].path),
-        incomplete: splitArtifactGroup(artifacts, artifacts[2].path),
-        standalone: splitArtifactGroup(artifacts, "single.gguf"),
-      };
+    // Test the real module-scoped UI renderer using a synthetic repository
+    // response: no network download or exposed test-only global is needed.
+    const fakeSearch = "**/api/ui/models/search?*";
+    await page.route(fakeSearch, async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ models: [{
+          repository: "fixture/split", license: "mit", gated: false, downloads: 1,
+          artifacts: [
+            { path: "quant/model-Q2_K-00001-of-00002.gguf", size_bytes: 256 },
+            { path: "quant/model-Q2_K-00002-of-00002.gguf", size_bytes: 256 },
+            { path: "quant/model-Q4_K-00001-of-00002.gguf", size_bytes: 256 },
+          ],
+        }] }),
+      });
     });
-    assert.deepEqual(groupTest.complete, [
-      "quant/model-Q2_K-00001-of-00002.gguf",
-      "quant/model-Q2_K-00002-of-00002.gguf",
-    ], "remote model UI groups complete GGUF shards");
-    assert.deepEqual(groupTest.incomplete, [
-      "quant/model-Q4_K-00001-of-00002.gguf",
-    ], "remote model UI does not claim partial groups are complete");
-    assert.deepEqual(groupTest.standalone, ["single.gguf"]);
+    await page.locator("#model-search-query").fill("fixture");
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await page.locator("#remote-models").getByRole("button", {
+      name: "Download complete model (2 shards)",
+    }).waitFor();
+    const artifactButtons = await page.locator("#remote-models button").allTextContents();
+    assert.equal(artifactButtons.filter((text) => text.startsWith("Download complete model")).length, 1);
+    assert.equal(artifactButtons.length, 2, "partial quantization remains a single-file option");
+    await page.unroute(fakeSearch);
     await page.getByText("SmolLM2-135M-Instruct.Q4_K_M.gguf", { exact: true }).waitFor();
     assert.equal(await page.locator("#send-button").isDisabled(), false);
 
