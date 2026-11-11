@@ -130,8 +130,8 @@ mod tests {
         let mut up=[0u8;10];let mut down=[0u8;8];
         reader.read_tensor_into("up",&mut up).unwrap();
         reader.read_tensor_into("down",&mut down).unwrap();
-        assert_eq!(up,(20u8..30).collect::<Vec<_>>()[..]);
-        assert_eq!(down,(110u8..118).collect::<Vec<_>>()[..]);
+        assert_eq!(up.to_vec(),(20u8..30).collect::<Vec<_>>());
+        assert_eq!(down.to_vec(),(110u8..118).collect::<Vec<_>>());
         assert!(reader.read_tensor_into("unknown",&mut up).is_err());
         assert!(reader.read_tensor_into("up",&mut down).is_err());
         let mut fork=reader.fork_source_readers().unwrap();
@@ -139,7 +139,7 @@ mod tests {
         std::fs::remove_file(&b).unwrap();
         // Existing descriptors remain valid if a model path disappears.
         reader.read_tensor_into("down",&mut down).unwrap();
-        assert_eq!(down,(110u8..118).collect::<Vec<_>>()[..]);
+        assert_eq!(down.to_vec(),(110u8..118).collect::<Vec<_>>());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
