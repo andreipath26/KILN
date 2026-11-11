@@ -216,13 +216,18 @@ jobs:
             DIGEST="$(python3 - "$HEADERS" <<'PY'
           import re,sys
           headers=open(sys.argv[1],encoding="latin-1").read()
-          values=re.findall(r'(?im)^x-linked-etag:\s*"?([a-fA-F0-9]{64})"?\s*,headers)
+          values=[]
+          for line in headers.splitlines():
+              if line.lower().startswith("x-linked-etag:"):
+                  value=line.partition(":")[2].strip().strip('"')
+                  if len(value)==64 and all(c in "0123456789abcdefABCDEF" for c in value):
+                      values.append(value)
           if not values:
               raise SystemExit("official model response did not include a SHA-256 LFS blob ETag")
           print(values[-1].lower())
           PY
             )"
-            TEMP="${MODEL}.download.$"
+            TEMP="$RUNNER_TEMP/kiln-moe-verified-download.part"
             trap 'rm -f "$TEMP"' EXIT
             curl --fail --silent --show-error --location --retry 4 --retry-all-errors \
               --retry-delay 10 --max-time 180 "$URI" --output "$TEMP"
