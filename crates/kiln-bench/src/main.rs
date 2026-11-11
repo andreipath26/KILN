@@ -1025,24 +1025,44 @@ fn benchmark_split_expert_io(
     // Use a bounded reusable caller buffer rather than one allocation per
     // selected expert. The cap includes both aggregate I/O and max slab size.
     let mut buffer = Vec::new();
-    for slab in inventory.fused_expert_slabs.iter().take(requests) {
-        if slab.byte_length > 64*1_048_576 {
-            return Err("expert slab exceeds 64 MiB per-request working-set limit".into());
+    // A simple prefix of layer/expert-sorted slabs can read exclusively
+    // from the first shard and falsely label the result multi-source.
+    // Interleave verified ranges from distinct source shards instead.
+    let mut per_shard = vec![Vec::new(); inventory.shards.len()];
+    for slab in &inventory.fused_expert_slabs {
+        per_shard[slab.shard_number as usize - 1].push(slab);
+    }
+    let mut cursors = vec![0usize; per_shard.len()];
+    let mut budget_exhausted = false;
+    while selected < requests && !budget_exhausted {
+        let mut advanced = false;
+        for (shard, entries) in per_shard.iter().enumerate() {
+            if selected >= requests { break; }
+            let Some(slab) = entries.get(cursors[shard]) else { continue; };
+            cursors[shard] += 1;
+            advanced = true;
+            if slab.byte_length > 64*1_048_576 {
+                return Err("expert slab exceeds 64 MiB per-request working-set limit".into());
+            }
+            if slab.byte_length > cap.saturating_sub(cumulative) {
+                budget_exhausted = true;
+                break;
+            }
+            let n = usize::try_from(slab.byte_length)
+                .map_err(|_| "expert byte length exceeds platform usize")?;
+            buffer.resize(n,0);
+            reader.read_fused_expert_into(
+                slab.layer,slab.expert_id,&slab.tensor_name,&mut buffer
+            )?;
+            // These bytes are only a low-cost sample, not authenticity proof.
+            if let Some(first) = buffer.first() { checksum = checksum.wrapping_add(u64::from(*first)); }
+            if let Some(last) = buffer.last() { checksum = checksum.wrapping_add(u64::from(*last)); }
+            cumulative = cumulative.checked_add(slab.byte_length)
+                .ok_or("read accounting overflow")?;
+            shard_requests[shard] += 1;
+            selected += 1;
         }
-        if slab.byte_length > cap.saturating_sub(cumulative) { break; }
-        let n = usize::try_from(slab.byte_length)
-            .map_err(|_| "expert byte length exceeds platform usize")?;
-        buffer.resize(n,0);
-        reader.read_fused_expert_into(
-            slab.layer,slab.expert_id,&slab.tensor_name,&mut buffer
-        )?;
-        // Touch returned data to catch zero-fill or obviously dropped reads;
-        // a low-overhead checksum is not integrity authentication.
-        if let Some(first) = buffer.first() { checksum = checksum.wrapping_add(u64::from(*first)); }
-        if let Some(last) = buffer.last() { checksum = checksum.wrapping_add(u64::from(*last)); }
-        cumulative = cumulative.checked_add(slab.byte_length).ok_or("read accounting overflow")?;
-        shard_requests[slab.shard_number as usize-1] += 1;
-        selected += 1;
+        if !advanced { break; }
     }
     if selected == 0 { return Err("no verified expert slab fits the configured read budget".into()); }
     let elapsed = start.elapsed().as_secs_f64();
