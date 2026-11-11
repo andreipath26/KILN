@@ -47,6 +47,7 @@ pub struct StreamWorker {
     input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
     protocol_failed: bool,
+    cache_mib: u32,
 }
 
 impl StreamWorker {
@@ -77,7 +78,8 @@ impl StreamWorker {
         let input = child.stdin.take().ok_or("stream worker stdin unavailable")?;
         let output = child.stdout.take().ok_or("stream worker stdout unavailable")?;
         let mut worker = Self {
-            child, input: Some(input), output: BufReader::new(output), protocol_failed: false,
+            child, input: Some(input), output: BufReader::new(output),
+            protocol_failed: false, cache_mib: capacity,
         };
         let line = read_bounded_line(&mut worker.output, MAX_HANDSHAKE_LINE)?
             .ok_or("experimental native streaming could not initialize this model; check KILN server logs for its GGUF or resource error")?;
@@ -88,6 +90,8 @@ impl StreamWorker {
         }
         Ok(worker)
     }
+
+    pub fn cache_mib(&self) -> u32 { self.cache_mib }
 
     pub fn infer(&mut self, prompt: &str, max_tokens: usize,
                  on_chunk: &mut dyn FnMut(&str) -> bool) -> Result<String, String> {
