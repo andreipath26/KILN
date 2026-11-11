@@ -214,6 +214,7 @@ impl StreamWorker {
             .map_err(|e| format!("streamed model process is unavailable: {e}"))?;
         let mut combined = String::new();
         let mut rejection: Option<String> = None;
+        let mut saw_chunk = false;
         let mut receiver_open = true;
         loop {
             let line = read_bounded_line(&mut self.output, MAX_IPC_LINE)?
@@ -227,6 +228,7 @@ impl StreamWorker {
                     }
                     let piece = response.get("text").and_then(|x| x.as_str())
                         .ok_or("stream worker emitted invalid text")?;
+                    saw_chunk = true;
                     if receiver_open {
                         combined.push_str(piece);
                         if combined.len() > 4 * 1024 * 1024 {
@@ -243,7 +245,7 @@ impl StreamWorker {
                 Some("reject") => {
                     let message = response.get("message").and_then(|x| x.as_str())
                         .ok_or("stream worker emitted an invalid rejection")?;
-                    if message.is_empty() || rejection.is_some() || !combined.is_empty() {
+                    if message.is_empty() || rejection.is_some() || saw_chunk {
                         return Err("stream worker emitted an out-of-order rejection".into());
                     }
                     rejection = Some(message.to_owned());
@@ -349,6 +351,49 @@ mod rejection_classification_tests {
         };
         assert_eq!(worker.infer_detailed("prompt", 8, &mut |_| true),
             Err(StreamInferError::Rejected("too long".into())));
+        assert!(!worker.protocol_failed);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod invalid_frame_tests {
+    use super::*;
+
+    fn simulated_worker(script: &str) -> StreamWorker {
+        let mut child = Command::new("sh").arg("-c").arg(script)
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        StreamWorker {
+            input: child.stdin.take(),
+            output: BufReader::new(child.stdout.take().unwrap()),
+            child, protocol_failed: false, cache_mib: 0,
+        }
+    }
+
+    #[test]
+    fn empty_chunk_before_reject_poison_worker_instead_of_reporting_client_error() {
+        let script = "printf '%s\\n' '{\"event\":\"chunk\",\"text\":\"\"}' '{\"event\":\"reject\",\"message\":\"bad\"}' '{\"event\":\"done\"}'; cat >/dev/null";
+        let mut worker = simulated_worker(script);
+        assert!(matches!(worker.infer_detailed("a", 2, &mut |_| true),
+            Err(StreamInferError::Worker(message)) if message.contains("out-of-order")));
+        assert!(worker.protocol_failed);
+        assert!(matches!(worker.infer_detailed("b", 2, &mut |_| true), Err(StreamInferError::Worker(_))));
+    }
+
+    #[test]
+    fn malformed_worker_frame_poisoning_is_not_recoverable() {
+        let script = "printf '%s\\n' '{\"event\":\"unexpected\"}'; cat >/dev/null";
+        let mut worker = simulated_worker(script);
+        assert!(matches!(worker.infer_detailed("a", 2, &mut |_| true),
+            Err(StreamInferError::Worker(message)) if message.contains("unknown protocol event")));
+        assert!(worker.protocol_failed);
+    }
+
+    #[test]
+    fn rejected_encoded_request_does_not_contact_or_poison_worker() {
+        let mut worker = simulated_worker("cat >/dev/null");
+        let prompt = "\0".repeat(60_000);
+        assert!(matches!(worker.infer_detailed(&prompt, 2, &mut |_| true),
+            Err(StreamInferError::Rejected(message)) if message.contains("encoded request")));
         assert!(!worker.protocol_failed);
     }
 }

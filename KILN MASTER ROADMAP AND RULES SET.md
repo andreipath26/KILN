@@ -703,3 +703,10 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 
 - The native worker reads JSONL requests with a strict 256 KiB maximum. The API previously checked raw UTF-8 prompt bytes (128 KiB), which does not cap the larger escaped JSON serialization. Check serialized request length including newline before writing to the worker and reject oversize frames without poisoning the loaded model. Add regression coverage for control-character escaping and valid maximum raw prompts.
 - This is protocol correctness and model-session availability work; it does not demonstrate Phase 5 Tier 0 speed, RSS, cold-I/O savings or accuracy.
+
+
+### 2026-11-11 — Phase 5 native streaming protocol integrity batch
+
+- Replace lossy terminal token decoding in the native streaming JSONL worker with bounded incremental UTF-8 assembly. Split multi-byte sequences remain intact; invalid or incomplete output now fails closed rather than emitting replacement characters that alter generated text.
+- Require explicit JSONL `max_tokens` values to be positive integers in 1..=4096 rather than silently falling back to 128 on malformed types. Tighten parent IPC response ordering: even an empty `chunk` before `reject` is a protocol error, not a recoverable client rejection.
+- Add unit and Unix simulated-worker regressions covering split UTF-8, bad/truncated output, rejected token limits, malformed events, zero-length chunk ordering and local encoded-request preflight. This is correctness hardening only; target-hardware performance, RSS, external I/O and quality acceptance remain unverified pending CI and Tier 0 evidence.
