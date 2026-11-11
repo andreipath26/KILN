@@ -219,16 +219,7 @@ impl Drop for StreamWorker {
                     std::thread::sleep(Duration::from_millis(50));
                 }
                 _ => {
-                    #[cfg(unix)]
-                    {
-                        // Kill the entire dedicated process group, including
-                        // the nested native compute worker.
-                        unsafe extern "C" { fn kill(pid: i32, sig: i32) -> i32; }
-                        if let Ok(pid) = i32::try_from(self.child.id()) {
-                            unsafe { let _ = kill(-pid, 9); }
-                        }
-                    }
-                    let _ = self.child.kill();
+                    terminate_child_group(&mut self.child);
                     break;
                 }
             }
