@@ -170,6 +170,10 @@ function renderSystemProfile(profile) {
     ["Detected tier", profile.tier],
     ["CPU logical cores", profile.cpu_cores],
     ["Installed RAM", `${profile.ram_gb} GB`],
+    ["Available RAM", Number.isFinite(profile.available_ram_bytes)
+      ? `${(profile.available_ram_bytes / 1_073_741_824).toFixed(2)} GiB` : "Unavailable"],
+    ["Estimated model residency budget", Number.isFinite(profile.resident_budget_bytes)
+      ? `${(profile.resident_budget_bytes / 1_073_741_824).toFixed(2)} GiB` : "Unavailable"],
     ["Context default", profile.n_ctx],
     ["Threads default", profile.n_threads],
   ] : [["Profile", "Not available"]];
@@ -183,7 +187,7 @@ function renderSystemProfile(profile) {
     list.append(row);
   }
   $("#profile-note").textContent = profile
-    ? "This is the current CPU/RAM profile. Accelerator discovery and shared-memory topology are not yet exposed by the API."
+    ? "Available RAM and residency budget are live estimates for model selection, not guaranteed working-set limits. Accelerator discovery is not yet exposed by the API."
     : "The runtime did not return a system profile.";
 }
 
@@ -495,7 +499,10 @@ async function refresh() {
     const activeModelPath = localModels.find((model) => model.active)?.path;
     state.model = tags.models?.[0] ? { ...tags.models[0], path: activeModelPath } : null;
     setServerState(true, "Local runtime connected");
-    renderSession(state.model, { api_version: version.version });
+    renderSession(state.model, {
+      api_version: version.version,
+      active_model: capabilities.active_model,
+    });
     renderCapabilities(capabilities);
     renderLocalModels(localModels);
     readSettings();
