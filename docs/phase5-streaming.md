@@ -1,6 +1,6 @@
 # Phase 5 — expert streaming implementation and feasibility guide
 
-**Authority:** The [master roadmap](../KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md) owns phase order, research, targets, and exit criteria. This page consolidates Phase 5 implementation notes; it does not assert end-to-end streamed inference.
+**Authority:** The [master roadmap](../KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md) owns phase order, research, targets, and exit criteria. This page consolidates Phase 5 implementation notes. A pinned native llama.cpp CPU worker now executes graph-selected fused MoE experts from compatible single- and multi-shard GGUF sources; this is an implementation milestone, **not** proof of Tier 0 throughput, accuracy, peak RAM, or physical SSD-traffic acceptance.
 
 ## Mission and gates
 
@@ -12,9 +12,9 @@ For measured effective bandwidth, use effective bytes/token and cold/warm behavi
 
 ## Implemented components and boundaries
 
-The current main-branch roadmap records these components: validated expert tensor maps and GGUF-preserving sidecars; byte-bounded cache admission and shared byte handles; guarded reads and bounded asynchronous prefetch; Linux io_uring reader with fallback; and `cpu_moe_streamed` dispatch for token-scoped expert-byte operations.
+The main branch includes validated expert tensor maps and GGUF-preserving sidecars; byte-bounded cache admission and shared byte handles; guarded reads and bounded asynchronous prefetch; Linux io_uring reader with fallback; and `cpu_moe_streamed` dispatch for token-scoped expert-byte operations. It also includes the pinned native llama.cpp CPU selected-expert compute path using a versioned `KILN-MOE-STREAM-2` source map, including supported complete multi-shard GGUF layouts (merged via PR #81).
 
-These are distinct implementation milestones. The stock llama.cpp model graph does not yet call the expert operations or materialize sidecar components into inference. Real-model Dell throughput, physical SSD traffic per generated token, total memory under shared handles, model quality and Phase 5 exit criteria remain open. See [UMF and sidecar status](umf-design.md) for artifact details; the [roadmap](../KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md) logs the merged component history.
+These remain distinct paths: the original Rust `cpu_moe_streamed` and sidecar experiments are not the same mechanism as pinned native llama.cpp graph-selected expert execution. The native path is implemented for supported fused-expert layouts, but real-model Dell throughput, physical SSD traffic per generated token, total peak memory under shared handles, model quality, and Phase 5 exit criteria remain open. See [UMF and sidecar status](umf-design.md) for artifact details and the [roadmap](../KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md) for gates.
 
 ### Supported-MoE lazy-mmap baseline
 
@@ -53,4 +53,4 @@ This is a buffered read probe. OS page cache is uncontrolled, and Linux process 
 
 ## Stop/go rule
 
-Do not expand or wire these components into the active model path until Gate 5A has credible Tier 0 evidence. Do not declare Phase 5 complete until the exact model graph produces a reproducible end-to-end result with pinned model/runtime, sustained tokens/s, memory peak, storage bytes/token, cache/prefetch behavior, quality, and a fair baseline. If evidence fails, retain it and use the explicit mission decision process in the roadmap.
+The pinned native graph-selected expert path is already wired experimentally. Treat it as an unvalidated feasibility implementation, not as completed Gate 5A or 5D evidence. Do not declare Phase 5 complete until the exact model graph produces a reproducible end-to-end result with pinned model/runtime, sustained tokens/s, memory peak, storage bytes/token, cache/prefetch behavior, quality, and a fair baseline. If evidence fails, retain it and use the explicit mission decision process in the roadmap.
