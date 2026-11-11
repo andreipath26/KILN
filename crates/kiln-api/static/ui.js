@@ -203,6 +203,9 @@ function renderSession(model, bootstrap) {
         ? "Experimental CPU expert streaming (large model)"
         : "Standard / mmap model loading"
     ) : "—"],
+    ["Native expert cache", bootstrap?.active_model?.mode === "experimental_cpu_moe_stream"
+      && Number.isFinite(bootstrap?.active_model?.expert_cache_mib)
+      ? `${bootstrap.active_model.expert_cache_mib} MiB (memory-budgeted)` : "—"],
   ];
   for (const [label, value] of rows) {
     const row = document.createElement("div");
