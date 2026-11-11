@@ -72,6 +72,25 @@ async function installApiMocks(page, { modelLoaded = true } = {}) {
       return json(route, { models: activePath ? localModels(activePath) : [] });
     }
     if (url.pathname === "/api/ui/models/search") {
+      const query = url.searchParams.get("q");
+      if (query === "incomplete split") {
+        return json(route, {models:[{
+          repository:"kiln-test/incomplete-split",downloads:1,license:"MIT",gated:false,
+          artifacts:[
+            {path:"flash-00001-of-00003.gguf",size_bytes:1024},
+            {path:"flash-00003-of-00003.gguf",size_bytes:1024},
+          ],
+        }]});
+      }
+      if (query === "complete split") {
+        return json(route, {models:[{
+          repository:"kiln-test/complete-split",downloads:1,license:"MIT",gated:false,
+          artifacts:[
+            {path:"flash-00001-of-00002.gguf",size_bytes:1024},
+            {path:"flash-00002-of-00002.gguf",size_bytes:1024},
+          ],
+        }]});
+      }
       return json(route, {
         models: [{
           repository: "kiln-test/tiny-model",
@@ -164,6 +183,25 @@ async function main() {
     await page.getByText("kiln-test/tiny-model", { exact: true }).waitFor();
     await page.getByRole("button", { name: /Download tiny.Q4_K_M.gguf/ }).click();
     await page.getByText("Verified and installed tiny.Q4_K_M.gguf.", { exact: false }).waitFor();
+
+    // A repository with a missing split part must never display a button
+    // that silently downloads a single incomplete shard.
+    await page.locator("#model-search-query").fill("incomplete split");
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    const incomplete = page.locator("#remote-models");
+    await incomplete.getByText("kiln-test/incomplete-split", {exact:true}).waitFor();
+    const blocked = incomplete.getByRole("button", {name:"Incomplete split model (download unavailable)"});
+    assert.equal(await blocked.count(),1);
+    assert.equal(await blocked.isDisabled(),true);
+    assert.match(await blocked.getAttribute("title"),/not listed/);
+    assert.equal(await incomplete.getByRole("button", {name:/Download flash-00003/}).count(),0);
+
+    await page.locator("#model-search-query").fill("complete split");
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    const complete = page.locator("#remote-models");
+    await complete.getByText("kiln-test/complete-split", {exact:true}).waitFor();
+    assert.equal(await complete.getByRole("button",{name:"Download complete model (2 shards)"}).count(),1);
+    assert.equal(await complete.getByRole("button",{name:/Download flash-00002/}).count(),0);
 
     await page.getByRole("button", { name: "Use model" }).click();
     await page.getByText("mock model load failed; previous model restored", { exact: true }).waitFor();
