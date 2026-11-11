@@ -12,6 +12,75 @@ use kiln_models::{
 };
 
 const MAX_STREAM_INDEX_BYTES: usize = 64 * 1024 * 1024;
+const MAX_MULTI_SOURCE_SHARDS: usize = 64;
+const MAX_MULTI_SOURCE_ROWS: usize = 300_000;
+
+fn split_external_index_contents(
+    index: &kiln_models::split_gguf::SplitGgufInventory,
+) -> Result<(Vec<u8>, HashSet<String>), String> {
+    if index.shard_count < 2 || index.shards.len() != index.shard_count as usize ||
+        index.shards.len() > MAX_MULTI_SOURCE_SHARDS {
+        return Err("native split streaming requires 2..=64 complete source shards".into());
+    }
+    if index.fused_expert_slabs.is_empty() ||
+        !index.unsupported_expert_tensors.is_empty() ||
+        index.fused_expert_slabs.len() > MAX_MULTI_SOURCE_ROWS {
+        return Err("native split streaming needs a complete supported fused-expert layout (maximum 300000 slabs)".into());
+    }
+    let mut lines = format!("KILN-MOE-STREAM-2\nSOURCES\t{}\n",index.shards.len());
+    for (id,shard) in index.shards.iter().enumerate() {
+        if shard.shard_number != (id+1) as u32 {
+            return Err("split GGUF shards are not consecutively numbered".into());
+        }
+        let name = shard.path.to_str()
+            .ok_or("split source path is not valid UTF-8")?;
+        if !name.starts_with('/') || name.len() >= 4096 ||
+            name.bytes().any(|b| matches!(b,b'\t' | b'\r' | b'\n' | 0)) {
+            return Err("split source path is not safe for the native index".into());
+        }
+        let line = format!("SOURCE\t{id}\t{name}\n");
+        if lines.len().checked_add(line.len())
+            .is_none_or(|n| n > MAX_STREAM_INDEX_BYTES) {
+            return Err("split source index exceeds 64 MiB".into());
+        }
+        lines.push_str(&line);
+    }
+    lines.push_str("DATA\n");
+    let mut seen = HashSet::new();
+    let mut expected_names = HashSet::new();
+    for slab in &index.fused_expert_slabs {
+        let name = slab.tensor_name.as_str();
+        if name.is_empty() || name.len() >= 64 ||
+            !name.bytes().all(|c| c.is_ascii_alphanumeric() ||
+                matches!(c,b'.'|b'_'|b'-')) {
+            return Err("native tensor name is not representable in the verified index".into());
+        }
+        if !seen.insert((name.to_owned(),slab.expert_id)) {
+            return Err("duplicate split source expert identity".into());
+        }
+        let shard_id = slab.shard_number.checked_sub(1)
+            .ok_or("expert references shard zero")? as usize;
+        let source = index.shards.get(shard_id)
+            .ok_or("expert references an invalid source shard")?;
+        if slab.source_path != source.path || slab.byte_length == 0 ||
+            slab.source_byte_offset.checked_add(slab.byte_length)
+                .is_none_or(|end| end > source.file_size_bytes) {
+            return Err("split expert byte range does not match its validated source".into());
+        }
+        expected_names.insert(name.to_owned());
+        let row = format!("{name}\t{}\t{shard_id}\t{}\t{}\n",
+            slab.expert_id,slab.source_byte_offset,slab.byte_length);
+        if lines.len().checked_add(row.len())
+            .is_none_or(|n| n > MAX_STREAM_INDEX_BYTES) {
+            return Err("split expert index exceeds 64 MiB".into());
+        }
+        lines.push_str(&row);
+    }
+    if expected_names.is_empty() { return Err("split index contains no fused MoE projection".into()); }
+    Ok((lines.into_bytes(),expected_names))
+}
+
+
 
 fn external_index_contents(components: &[ExpertTensorComponent]) -> Result<Vec<u8>, String> {
     if components.is_empty() {
@@ -248,26 +317,36 @@ pub fn run(
     if !source_before.is_file() {
         return Err("source GGUF must be a regular file".into());
     }
-    let model_data = GgufFile::open(&path).map_err(|e| e.to_string())?;
-    let choices = discover_complete_fused_moe_selections(&model_data)
-        .map_err(|e| format!(
-            "model cannot use automatic native MoE streaming ({e}); use explicit expert-export-gguf-stream-index for unfamiliar layouts"
-        ))?;
-    let source_map = resolve_fused_expert_tensor_components(
-        &model_data.tensors, model_data.data_offset, model_data.file_size(), &choices
-    ).map_err(|e| e.to_string())?;
-    let bytes = external_index_contents(&source_map.components)?;
-    drop(model_data);
+    let split_inventory = kiln_models::split_gguf::inspect_split_gguf(&path)?;
+    let (bytes,expected_names,source_snapshots) = if let Some(ref index) = split_inventory {
+        let snapshots = index.shards.iter().map(|part| {
+            std::fs::metadata(&part.path)
+                .map(|meta|(part.path.clone(),meta))
+                .map_err(|e|format!("cannot stat split source {}: {e}",part.path.display()))
+        }).collect::<Result<Vec<_>,_>>()?;
+        let (index_bytes,names) = split_external_index_contents(index)?;
+        (index_bytes,names,snapshots)
+    } else {
+        let model_data = GgufFile::open(&path).map_err(|e| e.to_string())?;
+        let choices = discover_complete_fused_moe_selections(&model_data)
+            .map_err(|e| format!(
+                "model cannot use automatic native MoE streaming ({e}); use explicit expert-export-gguf-stream-index for unfamiliar layouts"
+            ))?;
+        let source_map = resolve_fused_expert_tensor_components(
+            &model_data.tensors,model_data.data_offset,model_data.file_size(),&choices
+        ).map_err(|e|e.to_string())?;
+        let bytes = external_index_contents(&source_map.components)?;
+        let names = choices.iter().map(|choice|choice.tensor_name.clone()).collect();
+        (bytes,names,vec![(path.clone(),source_before.clone())])
+    };
     let temp = TemporaryStreamIndex::create(&bytes)?;
     let audit = TemporaryAudit::create()?;
-    let expected_names: HashSet<String> = choices.iter()
-        .map(|selection| selection.tensor_name.clone()).collect();
     let binary = std::env::current_exe()
         .map_err(|e| format!("unable to locate current KILN binary: {e}"))?;
 
     eprintln!(
         "KILN experimental CPU MoE: {} verified tensors; source GGUF unchanged; cache {} MiB; parallel reads {}; deployment acceptance NOT established",
-        choices.len(), cache_mib, parallel_reads,
+        expected_names.len(), cache_mib, parallel_reads,
     );
     let mut command = Command::new(binary);
     if stdio_json {
@@ -285,7 +364,9 @@ pub fn run(
     if keep_context {
         command.arg("--keep-context");
     }
-    if lazy_moe_experts {
+    if lazy_moe_experts || split_inventory.is_some() {
+        // Split GGUFs larger than RAM must not eagerly populate all expert
+        // pages while the selected-expert external reader is active.
         command.arg("--lazy-moe-experts");
     }
     let exit = command.status()
@@ -301,12 +382,16 @@ pub fn run(
     if audit_bytes > 16 * 1024 * 1024 {
         return Err("native stream audit exceeded the 16 MiB safety cap".into());
     }
-    let source_after = std::fs::metadata(&path)
-        .map_err(|e| format!("source GGUF disappeared during streaming: {e}"))?;
-    if source_before.len() != source_after.len()
-        || source_before.modified().ok() != source_after.modified().ok()
-        || !same_file_identity(&source_before, &source_after) {
-        return Err("source GGUF file changed during streamed inference; discard results".into());
+    for (source, before) in &source_snapshots {
+        let after = std::fs::metadata(source)
+            .map_err(|e|format!("source GGUF shard {} disappeared: {e}",source.display()))?;
+        if before.len() != after.len() ||
+            before.modified().ok() != after.modified().ok() ||
+            !same_file_identity(before,&after) {
+            return Err(format!(
+                "source GGUF shard {} changed during streamed inference; discard results",
+                source.display()));
+        }
     }
     let recorded = std::fs::read_to_string(&audit.path)
         .map_err(|e| format!("could not verify native MoE graph read audit: {e}"))?;
