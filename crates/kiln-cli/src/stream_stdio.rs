@@ -185,7 +185,7 @@ mod protocol_tests {
     #[test]
     fn token_utf8_assembler_emits_valid_prefix_before_incomplete_suffix() {
         let mut pending = Vec::new();
-        assert_eq!(push_token_bytes(&mut pending, b"hello \\xE2\\x82").unwrap(),
+        assert_eq!(push_token_bytes(&mut pending, b"hello \xE2\x82").unwrap(),
             Some("hello ".into()));
         assert_eq!(pending, vec![0xE2, 0x82]);
         assert_eq!(push_token_bytes(&mut pending, &[0xAC]).unwrap(), Some("€".into()));
@@ -194,7 +194,7 @@ mod protocol_tests {
         let mut pending = Vec::new();
         assert_eq!(push_token_bytes(&mut pending, "abc😀".as_bytes()).unwrap(),
             Some("abc😀".into()));
-        assert_eq!(push_token_bytes(&mut pending, b"first \\xF0\\x9F").unwrap(),
+        assert_eq!(push_token_bytes(&mut pending, b"first \xF0\x9F").unwrap(),
             Some("first ".into()));
         assert_eq!(pending, vec![0xF0, 0x9F]);
         assert_eq!(push_token_bytes(&mut pending, &[0x98, 0x80]).unwrap(),
@@ -205,7 +205,7 @@ mod protocol_tests {
     #[test]
     fn token_utf8_assembler_rejects_invalid_tail_after_complete_prefix() {
         let mut pending = Vec::new();
-        assert!(push_token_bytes(&mut pending, b"valid \\xFF").unwrap_err()
+        assert!(push_token_bytes(&mut pending, b"valid \xFF").unwrap_err()
             .contains("invalid UTF-8"));
     }
 
