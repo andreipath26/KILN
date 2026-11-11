@@ -195,15 +195,33 @@ jobs:
           KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
         run: |
           MODEL="$KILN_MODELS_DIR/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
+          EXPECTED_SHA256="cd6dba61f40392d36e73a3f46398a704d5de0e0364c871967760d64ca38df5aa"
           if ! test -s "$MODEL"; then
-            for attempt in 1 2 3 4 5; do
+            for attempt in 1 2; do
               if target/debug/kiln pull mradermacher/tiny-random-granite-moe-GGUF \
                 --file tiny-random-granite-moe.Q4_K_M.gguf; then break; fi
-              echo "Hugging Face temporary failure; retry $attempt/5" >&2
-              sleep "$((attempt * 20))"
+              echo "Hugging Face API rate-limited, attempting verified recovery" >&2
+              sleep "$((attempt * 10))"
             done
           fi
+          # The API occasionally returns HTTP 429 on CI runners. The
+          # immutable digest is captured from a previous successfully
+          # verified real-MoE inference run; direct resolve is never trusted
+          # without checking that digest.
+          if ! test -s "$MODEL"; then
+            mkdir -p "$(dirname "$MODEL")"
+            TEMP="$MODEL.download.$"
+            trap 'rm -f "$TEMP"' EXIT
+            curl --fail --silent --show-error --location --retry 4 --retry-all-errors \
+              --retry-delay 10 --max-time 180 \
+              "https://huggingface.co/mradermacher/tiny-random-granite-moe-GGUF/resolve/main/tiny-random-granite-moe.Q4_K_M.gguf" \
+              --output "$TEMP"
+            echo "$EXPECTED_SHA256  $TEMP" | sha256sum --check -
+            mv "$TEMP" "$MODEL"
+            trap - EXIT
+          fi
           test -s "$MODEL"
+          echo "$EXPECTED_SHA256  $MODEL" | sha256sum --check -
           target/debug/kiln plan "$MODEL" --json > "$RUNNER_TEMP/moe-plan.json"
           KILN_MODELS_DIR="$KILN_MODELS_DIR" \
             target/debug/kiln plan "$(basename "$MODEL")" --json > "$RUNNER_TEMP/moe-plan-by-name.json"
