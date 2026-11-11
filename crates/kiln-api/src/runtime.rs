@@ -201,6 +201,17 @@ fn should_stream_split_file(
     compatible_split && (force_stream || model_bytes > budget_bytes)
 }
 
+/// A missing or unreadable shard must never make a split model appear small
+/// enough for resident inference. Overflow is also an invalid model size.
+fn checked_total_shard_bytes<I>(sizes: I) -> Result<u64, String>
+where
+    I: IntoIterator<Item = Result<u64, String>>,
+{
+    sizes.into_iter().try_fold(0u64, |total, next| {
+        total.checked_add(next?).ok_or_else(|| "split GGUF combined size overflow".to_string())
+    })
+}
+
 fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, String> {
     let metadata = std::fs::metadata(&path)
         .map_err(|e| format!("model path {} is not readable: {}", path.display(), e))?;
@@ -216,9 +227,16 @@ fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, Str
         let is_split = kiln_models::library::split_gguf_parts(&path).is_some();
         let total_size = if let Some((prefix, _, count)) = kiln_models::library::split_gguf_parts(&path) {
             let base = prefix.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            (1..=count).filter_map(|n| std::fs::metadata(
-                prefix.with_file_name(format!("{base}-{n:05}-of-{count:05}.gguf"))
-            ).ok().map(|m| m.len())).sum::<u64>()
+            checked_total_shard_bytes((1..=count).map(|n| {
+                let shard = prefix.with_file_name(format!("{base}-{n:05}-of-{count:05}.gguf"));
+                let info = std::fs::metadata(&shard).map_err(|e|
+                    format!("incomplete split GGUF: cannot read shard {}: {e}", shard.display())
+                )?;
+                if !info.is_file() {
+                    return Err(format!("split GGUF shard is not a regular file: {}", shard.display()));
+                }
+                Ok(info.len())
+            }))?
         } else { metadata.len() };
         if force_stream && !cfg!(target_os = "linux") {
             return Err("native CPU expert streaming is currently Linux-only".into());
@@ -337,6 +355,15 @@ mod memory_routing_tests {
         assert_eq!(resident_budget_bytes(gib), gib - 512*1024*1024);
         assert_eq!(resident_budget_bytes(128*1024*1024), 0);
         assert_eq!(resident_budget_bytes(0), 0);
+    }
+
+    #[test]
+    fn split_size_fails_closed_on_missing_shard_and_overflow() {
+        assert_eq!(checked_total_shard_bytes([Ok(3), Ok(7)]).unwrap(), 10);
+        assert!(checked_total_shard_bytes([Ok(9), Err("missing shard 2".to_owned())])
+            .unwrap_err().contains("missing shard"));
+        assert!(checked_total_shard_bytes([Ok(u64::MAX), Ok(1)])
+            .unwrap_err().contains("overflow"));
     }
 
     #[test]
