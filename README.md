@@ -59,13 +59,26 @@ Open **http://127.0.0.1:11435/**. The UI supports local model inventory, public 
 
 When you select **Use model**, KILN estimates a conservative resident-memory budget using Linux `MemAvailable` and, where present, remaining cgroup memory headroom. It reserves room for the OS, inference context and other allocations; comparing a GGUF with **total installed RAM alone** is insufficient. On Linux, an oversized **compatible single-file fused MoE GGUF** is launched through the experimental native on-demand expert streaming engine, with the model kept in a separate worker process for chat and generation. The Advanced tab identifies the active inference mode. An explicit **Try streaming** option is available for smaller compatible MoE files as well. Streaming remains experimental and is not proof of usable speed, bounded physical RAM, or support for every GGUF architecture.
 
-**Split GGUFs** with conventional names such as `model-00001-of-00002.gguf` must have **all shards in the same directory**. KILN detects missing parts, shows which filenames are absent, and avoids attempting to activate an incomplete set. With all shards present, KILN selects shard 1 as the entrypoint and tries the supported loader with lazy routed-expert mmap for models exceeding RAM. The native external expert streaming index still supports only compatible *single-file* fused layouts; split-model support for that separate kernel remains open. Streamed API sessions use bounded JSON-lines messages between the local server and its isolated native worker. Invalid or truncated frames fail closed, client disconnects do not desynchronize subsequent responses, and a worker that does not exit at model-switch shutdown is terminated after a bounded grace period. Do not delete or re-download an existing shard unless its integrity is in question.
+**Split GGUFs** with conventional names such as `model-00001-of-00002.gguf` must have **all shards in the same directory**. KILN detects missing parts, shows which filenames are absent, and avoids attempting to activate an incomplete set. With all shards present, KILN selects shard 1 as the entrypoint and tries the supported loader with lazy routed-expert mmap for models exceeding RAM. The native external expert streaming index now also supports complete, compatible split-GGUF fused layouts through versioned per-shard source mappings. It remains opt-in experimental inference, and not all models or quantizations are supported. Streamed API sessions use bounded JSON-lines messages between the local server and its isolated native worker. Invalid or truncated frames fail closed, client disconnects do not desynchronize subsequent responses, and a worker that does not exit at model-switch shutdown is terminated after a bounded grace period. Do not delete or re-download an existing shard unless its integrity is in question.
 
 A successful GGUF metadata scan is not evidence that its architecture or quantization is supported by the native inference fork. Incompatible layouts or failed memory allocations remain explicit load errors rather than silent fallback claims.
+
+## Download complete split models and resume safely
+
+For public Hugging Face models supplied as numbered GGUF shards, the web UI offers **Download complete model (N shards)** when the repository lists every part. It downloads each original GGUF file separately with size and SHA-256 validation. If a transfer is cancelled, already completed shards remain intact, and the partial in-progress file is removed. A later attempt verifies and reuses existing shards rather than overwriting or downloading them again. Incomplete remote shard groups are not advertised as complete models.
+
+The CLI provides the same complete-file workflow:
+
+```sh
+kiln pull OWNER/REPOSITORY --file "model-00001-of-00002.gguf" --all-shards
+```
+
+Use a nested repository file path when appropriate. The command checks that all numbered parts and their trusted digests exist in the public repository before starting transfers, and it verifies each installed file. **This is download completeness, not inference compatibility**: some architectures and quantizers remain unsupported, and KILN still requires native multi-shard expert compute validation before calling large split-model streaming production-ready.
 
 ## GGUF tensor safety and oversized metadata
 
 GGUF tensor-size inspection uses checked, row-oriented encoded-byte arithmetic. Known quantization formats with malformed row dimensions, arithmetic overflow, or out-of-file tensor ranges are rejected instead of being treated as valid but unreadable weights. Unknown quantization types remain visible to discovery and diagnostics, but even unknown tensor offsets must belong to the source file. Parsing rejects out-of-range metadata offsets and data-section alignment overflow. This protects model inspection and expert-source mapping; it does **not** make an unsupported model architecture runnable.
+
 
 ## Split GGUF Phase 5 source mapping
 
@@ -82,7 +95,13 @@ cargo run --release -p kiln-bench -- expert-io-split \
 ```
 
 This reports explicit read bytes, per-shard request counts, wall-clock throughput and maximum caller buffer. Linux page cache is uncontrolled; the figures **do not** represent physical SSD traffic, inference throughput or accuracy.
- **Native GGML selected-expert compute is not yet connected to this multi-source reader.** `kiln stream` therefore rejects split models rather than silently using an incomplete first-shard-only index. A successful per-shard preflight is groundwork for cross-shard compute, not a throughput, quality or working-memory guarantee.
+ **Experimental native multi-shard compute:** the pinned KILN llama.cpp CPU backend now consumes a versioned `KILN-MOE-STREAM-2` index, resolves every graph-selected expert slab to its original GGUF shard, and issues bounded positional reads from that source. `kiln stream` creates the temporary verified index automatically for complete, supported fused three-projection MoE layouts, while leaving model files unchanged. The UI may select this mode for eligible split models exceeding current memory headroom. Unknown quantizers, incomplete projections and unsupported architectures still fail closed. Support for a verified source layout is **not** a Tier 0 performance, quality or physical SSD-traffic acceptance result.
+
+## Memory-budgeted native MoE caching
+
+When activating a compatible MoE model through the local UI, KILN now derives its native expert cache capacity from the **currently available resident-memory budget**, including Linux cgroup headroom. The experimental default is approximately 1 MiB of cache for each 64 MiB of estimated resident budget, capped at **256 MiB**, and it may be zero when memory is exhausted. If memory information is unavailable, KILN uses the previous 64 MiB fallback. The Advanced tab reports the chosen per-session native expert cache size.
+
+This policy controls one *native expert hot cache*, not the process RSS, OS page cache, KV memory, working set of shared weights or SSD physical I/O. Cache sizing is a conservative heuristic, not evidence of sustained Tier 0 throughput or a guarantee of a model fitting in RAM. Expert cache sizes for explicit `kiln stream --cache-mib N` are still user-controlled.
 
 ## Experimental streamed MoE inference (Linux only)
 

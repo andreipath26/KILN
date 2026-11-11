@@ -7,6 +7,23 @@ use std::time::{Duration, Instant};
 const MAX_IPC_LINE: usize = 128 * 1024;
 const MAX_HANDSHAKE_LINE: usize = 4096;
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
+const MAX_NATIVE_CACHE_MIB: u32 = 256;
+
+/// Expert cache is in addition to GGML scratch, KV, page cache and the model
+/// loader. Derive a deliberately small allowance from *current resident
+/// budget*, not installed physical RAM, so a pressured Tier 0 machine does
+/// not accidentally allocate the same 64 MiB as an unconstrained server.
+fn native_cache_mib(resident_budget_bytes: Option<u64>) -> u32 {
+    // When headroom cannot be measured, use the established conservative 64
+    // MiB default; the native runtime continues to enforce its own limit.
+    match resident_budget_bytes {
+        None => 64,
+        Some(bytes) => (bytes / (64 * 1024 * 1024))
+            .min(u64::from(MAX_NATIVE_CACHE_MIB)) as u32,
+    }
+}
+
+
 
 /// Limit bytes *during* input, not after read_line has already allocated them.
 /// EOF is distinguished from an unterminated/truncated JSONL response.
@@ -30,6 +47,7 @@ pub struct StreamWorker {
     input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
     protocol_failed: bool,
+    cache_mib: u32,
 }
 
 impl StreamWorker {
@@ -46,17 +64,22 @@ impl StreamWorker {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
         }
+        let capacity = native_cache_mib(crate::runtime::memory_headroom_bytes()
+            .map(|(_, resident)| resident));
+        tracing::info!(cache_mib = capacity, model = %path.display(),
+            "starting bounded native MoE expert cache");
         let mut child = command
             .arg("stream").arg(path)
             .arg("--stdio-json").arg("--parallel-reads")
-            .arg("--cache-mib").arg("64")
+            .arg("--cache-mib").arg(capacity.to_string())
             .stdin(Stdio::piped()).stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn().map_err(|e| format!("could not start native streaming worker: {e}"))?;
         let input = child.stdin.take().ok_or("stream worker stdin unavailable")?;
         let output = child.stdout.take().ok_or("stream worker stdout unavailable")?;
         let mut worker = Self {
-            child, input: Some(input), output: BufReader::new(output), protocol_failed: false,
+            child, input: Some(input), output: BufReader::new(output),
+            protocol_failed: false, cache_mib: capacity,
         };
         let line = read_bounded_line(&mut worker.output, MAX_HANDSHAKE_LINE)?
             .ok_or("experimental native streaming could not initialize this model; check KILN server logs for its GGUF or resource error")?;
@@ -67,6 +90,8 @@ impl StreamWorker {
         }
         Ok(worker)
     }
+
+    pub fn cache_mib(&self) -> u32 { self.cache_mib }
 
     pub fn infer(&mut self, prompt: &str, max_tokens: usize,
                  on_chunk: &mut dyn FnMut(&str) -> bool) -> Result<String, String> {
@@ -153,6 +178,23 @@ impl Drop for StreamWorker {
             }
         }
         let _ = self.child.wait();
+    }
+}
+
+#[cfg(test)]
+mod cache_budget_tests {
+    use super::native_cache_mib;
+    const MIB: u64 = 1024 * 1024;
+
+    #[test]
+    fn cache_size_tracks_actual_headroom_not_total_ram() {
+        assert_eq!(native_cache_mib(None), 64);
+        assert_eq!(native_cache_mib(Some(0)), 0);
+        assert_eq!(native_cache_mib(Some(128*MIB)), 2);
+        assert_eq!(native_cache_mib(Some(512*MIB)), 8);
+        assert_eq!(native_cache_mib(Some(4096*MIB)), 64);
+        assert_eq!(native_cache_mib(Some(16_384*MIB)), 256);
+        assert_eq!(native_cache_mib(Some(u64::MAX)), 256);
     }
 }
 

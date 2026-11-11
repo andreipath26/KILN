@@ -497,6 +497,98 @@ fn model_dir() -> Result<PathBuf, String> {
     Ok(base.join("kiln/models"))
 }
 
+/// Reuse only a matching, digest-verified GGUF. Never overwrite an existing
+/// model, trust a matching basename alone, or follow a symlink when repairing
+/// an incomplete split download.
+fn verify_existing_gguf(path: &Path, sha256: &str, expected_size: Option<u64>) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|e| format!("cannot inspect existing GGUF {}: {e}",path.display()))?;
+    if !metadata.file_type().is_file() {
+        return Err(format!("existing GGUF {} is not a regular file",path.display()));
+    }
+    if expected_size.is_some_and(|size| size != metadata.len()) {
+        return Err(format!("existing GGUF {} has the wrong size; refusing to overwrite it",path.display()));
+    }
+    let mut file = fs::File::open(path)
+        .map_err(|e| format!("cannot open existing GGUF {}: {e}",path.display()))?;
+    let mut hash = Sha256::new();
+    let mut buf = [0u8; 1024 * 1024];
+    loop {
+        let n = file.read(&mut buf).map_err(|e| format!("reading existing GGUF failed: {e}"))?;
+        if n == 0 { break; }
+        hash.update(&buf[..n]);
+    }
+    let actual = hash.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>();
+    if actual != sha256 {
+        return Err(format!("existing GGUF {} has a different SHA-256; refusing to overwrite or re-download it",path.display()));
+    }
+    GgufFile::open(path).map_err(|e| format!("existing GGUF {} has invalid structure: {e}",path.display()))?;
+    Ok(())
+}
+
+/// Select only the exact numbered GGUF shards of one quantization/folder.
+/// Missing shards are an error, not a reason to silently download part 2
+/// and call it a complete model.
+pub fn complete_split_shard_files(file: &str, available: &[String]) -> Result<Vec<String>, String> {
+    if !valid_repo_file(file) { return Err("selected file must be a safe GGUF repository path".into()); }
+    let Some((prefix, _, total)) = split_gguf_parts(Path::new(file)) else {
+        return Ok(vec![file.to_owned()]);
+    };
+    let base = prefix.to_str().ok_or("GGUF split filename is not UTF-8")?;
+    let candidates: HashSet<&str> = available.iter().map(String::as_str).collect();
+    let mut selected = Vec::with_capacity(total as usize);
+    for index in 1..=total {
+        let part = format!("{base}-{index:05}-of-{total:05}.gguf");
+        if !candidates.contains(part.as_str()) {
+            return Err(format!("repository does not contain complete split GGUF; missing {part}"));
+        }
+        selected.push(part);
+    }
+    Ok(selected)
+}
+
+/// Complete public split-GGUF transfer: verifies the remote shard listing
+/// before initiating any downloads, and then individually SHA-256 verifies
+/// all original GGUF files. Already-verified parts are reused in place.
+pub fn pull_complete_hugging_face_gguf(repo: &str, file: &str) -> Result<Vec<PathBuf>, String> {
+    if !valid_repo_id(repo) || !valid_repo_file(file) {
+        return Err("expected public repository owner/name and safe GGUF file path".into());
+    }
+    let info_url = format!("https://huggingface.co/api/models/{}?blobs=true",url_encode(repo));
+    let metadata: Value = serde_json::from_str(&get_https_text(&info_url)?)
+        .map_err(|e| format!("invalid Hugging Face metadata: {e}"))?;
+    if metadata.get("gated").is_some_and(|value| match value {
+        Value::Bool(value) => *value,
+        Value::String(value) => value != "false",
+        _ => false,
+    }) {
+        return Err("model repository is gated; KILN requires provider authorization".into());
+    }
+    let entries = metadata.get("siblings").and_then(Value::as_array)
+        .ok_or("model repository did not return a file list")?;
+    let files: Vec<String> = entries.iter()
+        .filter_map(|item| item.get("rfilename").and_then(Value::as_str))
+        .map(str::to_owned).collect();
+    let selected = complete_split_shard_files(file,&files)?;
+    // Preflight that every file has a trustworthy digest. A missing digest
+    // in shard N must fail before KILN downloads shards 1..N-1.
+    for file in &selected {
+        let entry = entries.iter().find(|x| x.get("rfilename").and_then(Value::as_str)==Some(file))
+            .ok_or_else(|| format!("model shard {file} disappeared from metadata"))?;
+        let digest = sha256_from_metadata(entry)
+            .ok_or_else(|| format!("cannot verify shard {file}: no SHA-256 in remote metadata"))?;
+        if digest.len()!=64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(format!("invalid SHA-256 metadata for shard {file}"));
+        }
+    }
+    let mut installed = Vec::with_capacity(selected.len());
+    for part in selected {
+        installed.push(pull_hugging_face(repo,&part)
+            .map_err(|e| format!("split download stopped at {part} after {} verified shards: {e}",installed.len()))?);
+    }
+    Ok(installed)
+}
+
 pub fn pull_hugging_face(repo: &str, file: &str) -> Result<PathBuf, String> {
     pull_hugging_face_with_progress(repo, file, &AtomicBool::new(false), |_, _| true)
 }
@@ -542,7 +634,10 @@ pub fn pull_hugging_face_with_progress(
     let repo_dir = repo.replace('/', "--");
     let relative = Path::new(file);
     let destination = root.join(repo_dir).join(relative);
-    if destination.exists() { return Err(format!("destination already exists: {}", destination.display())); }
+    if destination.exists() {
+        verify_existing_gguf(&destination, &expected, expected_size)?;
+        return Ok(destination);
+    }
     let parent = destination.parent().ok_or("invalid destination path")?;
     fs::create_dir_all(parent).map_err(|e| format!("could not create model directory: {e}"))?;
     let temp = destination.with_file_name(format!("{}.{}.part", relative.file_name().and_then(|x| x.to_str()).unwrap_or("model.gguf"), std::process::id()));
@@ -654,7 +749,13 @@ pub async fn pull_hugging_face_async_with_progress(
 
     let root = model_dir()?;
     let destination = root.join(repo.replace('/', "--")).join(Path::new(file));
-    if destination.exists() { return Err(format!("destination already exists: {}", destination.display())); }
+    if destination.exists() {
+        let copy = destination.clone();
+        let digest = expected.clone();
+        tokio::task::spawn_blocking(move || verify_existing_gguf(&copy, &digest, expected_size))
+            .await.map_err(|e| format!("existing GGUF verification worker failed: {e}"))??;
+        return Ok(destination);
+    }
     let parent = destination.parent().ok_or("invalid destination path")?;
     fs::create_dir_all(parent).map_err(|e| format!("could not create model directory: {e}"))?;
     let temp = destination.with_file_name(format!("{}.{}.part", Path::new(file).file_name().and_then(|x| x.to_str()).unwrap_or("model.gguf"), std::process::id()));
@@ -802,6 +903,45 @@ mod tests {
         assert!(valid_repo_file("nested/model.Q4_K_M.gguf"));
         assert!(!valid_repo_file("../outside.gguf"));
         assert!(!valid_repo_file("model.bin"));
+    }
+
+    #[test]
+    fn split_download_selection_is_exact_and_fails_on_missing_parts() {
+        use super::complete_split_shard_files;
+        let source = vec![
+            "quant/model-A-Q2_K-00001-of-00002.gguf".into(),
+            "quant/model-A-Q2_K-00002-of-00002.gguf".into(),
+            "quant/model-A-Q4_K-00001-of-00002.gguf".into(),
+            "unrelated.gguf".into(),
+        ];
+        let parts=complete_split_shard_files("quant/model-A-Q2_K-00002-of-00002.gguf",&source).unwrap();
+        assert_eq!(parts,&source[..2]);
+        let err=complete_split_shard_files("quant/model-A-Q4_K-00001-of-00002.gguf",&source).unwrap_err();
+        assert!(err.contains("quant/model-A-Q4_K-00002-of-00002.gguf"));
+        assert_eq!(complete_split_shard_files("unrelated.gguf",&source).unwrap(),vec!["unrelated.gguf"]);
+        assert!(complete_split_shard_files("../escape.gguf",&source).is_err());
+    }
+
+    #[test]
+    fn existing_verified_gguf_can_be_reused_without_overwriting_weights() {
+        use super::verify_existing_gguf;
+        use sha2::{Digest, Sha256};
+        let dir=std::env::temp_dir().join(format!("kiln-existing-model-{}-{:?}",std::process::id(),std::thread::current().id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path=dir.join("fixture.gguf");
+        let mut bytes=Vec::new();
+        bytes.extend_from_slice(b"GGUF");
+        bytes.extend_from_slice(&3u32.to_le_bytes());
+        bytes.extend_from_slice(&0u64.to_le_bytes());
+        bytes.extend_from_slice(&0u64.to_le_bytes());
+        bytes.resize(32,0);
+        std::fs::write(&path,&bytes).unwrap();
+        let digest=format!("{:x}",Sha256::digest(&bytes));
+        verify_existing_gguf(&path,&digest,Some(32)).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(),bytes);
+        assert!(verify_existing_gguf(&path,&"0".repeat(64),Some(32)).is_err());
+        assert!(verify_existing_gguf(&path,&digest,Some(33)).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

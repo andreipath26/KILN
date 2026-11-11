@@ -203,6 +203,9 @@ function renderSession(model, bootstrap) {
         ? "Experimental CPU expert streaming (large model)"
         : "Standard / mmap model loading"
     ) : "—"],
+    ["Native expert cache", bootstrap?.active_model?.mode === "experimental_cpu_moe_stream"
+      && Number.isFinite(bootstrap?.active_model?.expert_cache_mib)
+      ? `${bootstrap.active_model.expert_cache_mib} MiB (memory-budgeted)` : "—"],
   ];
   for (const [label, value] of rows) {
     const row = document.createElement("div");
@@ -302,6 +305,19 @@ function renderLocalModels(models) {
   }
 }
 
+// Group exact conventional GGUF shard names within one remote repository.
+// Never mix quantizations, subdirectories or similarly named model families.
+function splitArtifactGroup(artifacts, selected) {
+  const match = /^(.+)-(\d{5})-of-(\d{5})\.gguf$/i.exec(selected);
+  if (!match) return [selected];
+  const count = Number(match[3]);
+  if (!Number.isSafeInteger(count) || count < 2 || count > 1024) return [selected];
+  const expected = Array.from({ length: count }, (_, index) =>
+    `${match[1]}-${String(index + 1).padStart(5, "0")}-of-${match[3]}.gguf`);
+  const available = new Set(artifacts.map((item) => item.path));
+  return expected.every((path) => available.has(path)) ? expected : [selected];
+}
+
 function renderRemoteModels(models) {
   state.remoteModels = Array.isArray(models) ? models : [];
   const list = $("#remote-models");
@@ -335,7 +351,15 @@ function renderRemoteModels(models) {
       pull.textContent = `Download ${artifact.path}${size}`;
       pull.disabled = Boolean(model.gated) || state.modelActionBusy;
       pull.title = model.gated ? "This repository requires provider authorization and cannot be downloaded through this public flow." : "Download and verify this GGUF file";
-      pull.addEventListener("click", () => void downloadArtifact(model.repository, artifact.path));
+      const group = splitArtifactGroup(model.artifacts || [], artifact.path);
+      if (group.length > 1) {
+        // Show a single complete-model action on shard 1. Individual
+        // partial-shard downloads are deliberately not the default.
+        if (group[0] !== artifact.path) continue;
+        pull.textContent = `Download complete model (${group.length} shards)`;
+        pull.title = `Download and individually SHA-256 verify all ${group.length} original GGUF shards`;
+      }
+      pull.addEventListener("click", () => void downloadArtifact(model.repository, artifact.path, group));
       actions.append(pull);
     }
     if (model.gated) {
@@ -399,37 +423,58 @@ async function searchModels(query) {
   }
 }
 
-async function downloadArtifact(repository, file) {
+async function downloadArtifact(repository, file, requestedFiles = [file]) {
   if (state.modelActionBusy) return;
+  const files = [...new Set(requestedFiles)];
+  if (!files.length || files.length > 1024) {
+    setModelActionState(false, "Invalid split-model download selection.");
+    return;
+  }
   state.modelActionBusy = true;
   state.downloadController = new AbortController();
-  setModelActionState(true, `Starting download: ${file}`, true);
+  const signal = state.downloadController.signal;
+  const modelLabel = files.length > 1 ? `${files.length}-shard GGUF model` : file;
+  setModelActionState(true, `Starting download: ${modelLabel}`, true);
+  let installedCount = 0;
   try {
-    const response = await fetch("/api/ui/models/pull", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ repository, file }),
-      signal: state.downloadController.signal,
-    });
-    if (!response.ok) {
-      const problem = await response.json().catch(() => ({}));
-      throw new Error(problem.error || `Model download request failed (${response.status}).`);
+    for (const [index, currentFile] of files.entries()) {
+      if (signal.aborted) throw new DOMException("Download cancelled", "AbortError");
+      const response = await fetch("/api/ui/models/pull", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repository, file: currentFile }),
+        signal,
+      });
+      if (!response.ok) {
+        const problem = await response.json().catch(() => ({}));
+        throw new Error(problem.error || `Model download request failed (${response.status}).`);
+      }
+      let installedPath = null;
+      for await (const event of parseJsonlFromResponse(response)) {
+        if (event.event === "progress") {
+          const received = Number(event.bytes_received || 0);
+          const total = Number(event.total_bytes || 0);
+          const amount = `${(received / 1_073_741_824).toFixed(2)} GiB`;
+          const pct = total > 0 ? ` (${Math.min(100, Math.floor(received * 100 / total))}%)` : "";
+          const prefix = files.length > 1 ? `Shard ${index + 1}/${files.length} · ` : "";
+          $("#model-library-status").textContent = `${prefix}Downloading ${currentFile}: ${amount}${pct}`;
+        } else if (event.event === "done") installedPath = event.path;
+        else if (event.event === "error") throw new Error(event.error || "Model download failed.");
+      }
+      if (!installedPath) {
+        throw new Error("The server closed the download stream before confirming installation.");
+      }
+      installedCount += 1;
     }
-    let installedPath = null;
-    for await (const event of parseJsonlFromResponse(response)) {
-      if (event.event === "progress") {
-        const received = Number(event.bytes_received || 0);
-        const total = Number(event.total_bytes || 0);
-        const amount = `${(received / 1_073_741_824).toFixed(2)} GiB`;
-        const pct = total > 0 ? ` (${Math.min(100, Math.floor(received * 100 / total))}%)` : "";
-        $("#model-library-status").textContent = `Downloading ${file}: ${amount}${pct}`;
-      } else if (event.event === "done") installedPath = event.path;
-      else if (event.event === "error") throw new Error(event.error || "Model download failed.");
-    }
-    if (!installedPath) throw new Error("The server closed the download stream before confirming installation.");
     await loadLocalModels();
-    setModelActionState(false, `Verified and installed ${file}. Select it from local models to load it.`);
+    setModelActionState(false, files.length === 1
+      ? `Verified and installed ${file}. Select it from local models to load it.`
+      : `Verified ${installedCount}/${files.length} files for ${modelLabel}. Select the complete model from local models.`);
   } catch (error) {
-    const message = error.name === "AbortError" ? "Download canceled; the partial file was removed." : (error.message || "Model download failed.");
+    const message = error.name === "AbortError"
+      ? (files.length === 1 ? "Download canceled; the partial file was removed."
+        : `Download canceled after ${installedCount}/${files.length} verified files. Completed shards were preserved; the partial download was removed.`)
+      : `Download stopped after ${installedCount}/${files.length} verified files: ${error.message || "unknown error"}. Completed shards were preserved.`;
+    await loadLocalModels().catch(() => {});
     setModelActionState(false, message);
   } finally {
     state.downloadController = null;

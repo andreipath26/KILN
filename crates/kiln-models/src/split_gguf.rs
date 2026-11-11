@@ -217,13 +217,16 @@ pub fn inspect_split_gguf(path: &Path) -> Result<Option<SplitGgufInventory>, Str
             }
         }
         let shard_arch = model.metadata_str("general.architecture").map(str::to_owned);
-        if let Some(ref current) = architecture {
-            if shard_arch.as_ref() != Some(current) {
+        // Upstream llama-gguf-split intentionally writes the original
+        // architecture metadata ONLY to shard 1. Later shards normally
+        // contain split.no/split.count and tensor tables without it.
+        if number == 1 {
+            architecture = shard_arch;
+        } else if let Some(ref explicit) = shard_arch {
+            if architecture.as_ref() != Some(explicit) {
                 return Err(format!("split GGUF shards disagree on architecture: {}",
                     shard.display()));
             }
-        } else if number == 1 {
-            architecture = shard_arch;
         }
         if number == 1 { first_metadata = Some(model.metadata.clone()); }
         total_bytes = total_bytes.checked_add(model.file_size())
@@ -295,10 +298,14 @@ mod tests {
         bytes.extend_from_slice(b"GGUF");
         bytes.extend_from_slice(&3u32.to_le_bytes());
         bytes.extend_from_slice(&1u64.to_le_bytes()); // one tensor
-        bytes.extend_from_slice(&3u64.to_le_bytes()); // three metadata keys
-        push_string(&mut bytes, "general.architecture");
-        bytes.extend_from_slice(&8u32.to_le_bytes()); // string
-        push_string(&mut bytes, "tiny-moe");
+        // Match llama-gguf-split: only the first shard carries all
+        // original general architecture metadata.
+        bytes.extend_from_slice(&(if part==1 {3u64} else {2u64}).to_le_bytes());
+        if part==1 {
+            push_string(&mut bytes, "general.architecture");
+            bytes.extend_from_slice(&8u32.to_le_bytes());
+            push_string(&mut bytes, "tiny-moe");
+        }
         push_string(&mut bytes, "split.no");
         bytes.extend_from_slice(&4u32.to_le_bytes()); // uint32
         bytes.extend_from_slice(&(part-1).to_le_bytes());

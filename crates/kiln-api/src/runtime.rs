@@ -182,11 +182,21 @@ fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, Str
         if force_stream && !cfg!(target_os = "linux") {
             return Err("native CPU expert streaming is currently Linux-only".into());
         }
-        if force_stream && is_split {
-            return Err("native single-file MoE streaming does not yet support split GGUFs; use the automatic lazy mapped loader when all shards are present".into());
+        let native_split_candidate = if is_split {
+            let inventory = kiln_models::split_gguf::inspect_split_gguf(&path)?
+                .ok_or("model has split filename but could not be indexed as split GGUF")?;
+            (2..=64).contains(&inventory.shard_count) &&
+                !inventory.fused_expert_slabs.is_empty() &&
+                inventory.fused_expert_slabs.len() <= 300_000 &&
+                inventory.unsupported_expert_tensors.is_empty()
+        } else { false };
+        if force_stream && is_split && !native_split_candidate {
+            return Err("this split GGUF lacks a complete supported fused MoE expert layout for native multi-source streaming".into());
         }
-        if cfg!(target_os = "linux")
-            && should_stream_single_file(force_stream, is_split, total_size, resident_budget) {
+        if cfg!(target_os = "linux") && (
+            should_stream_single_file(force_stream, is_split, total_size, resident_budget) ||
+            (native_split_candidate && (force_stream || total_size > resident_budget))
+        ) {
             let worker = StreamWorker::start(&path).map_err(|e| format!(
                 "model ({:.1} GiB; resident budget {:.1} GiB) was routed to native expert streaming, but the GGUF layout or streaming worker is incompatible: {e}",
                 total_size as f64 / 1_073_741_824.0,
