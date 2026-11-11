@@ -310,6 +310,9 @@ enum Commands {
         /// Exact GGUF file path inside that repository.
         #[arg(long)]
         file: String,
+        /// Download every numbered shard of the selected GGUF (verify and reuse existing shards).
+        #[arg(long)]
+        all_shards: bool,
     },
     /// Find readable GGUF model candidates already installed on this machine.
     List {
@@ -1042,9 +1045,19 @@ async fn main() {
                 std::process::exit(1);
             }
         },
-        Commands::Pull { model, file } => {
-            match tokio::task::spawn_blocking(move || model_library::pull_hugging_face(&model, &file)).await {
-                Ok(Ok(path)) => println!("Installed model: {}", path.display()),
+        Commands::Pull { model, file, all_shards } => {
+            let result = tokio::task::spawn_blocking(move || {
+                if all_shards {
+                    kiln_models::library::pull_complete_hugging_face_gguf(&model,&file)
+                } else {
+                    model_library::pull_hugging_face(&model,&file).map(|p| vec![p])
+                }
+            }).await;
+            match result {
+                Ok(Ok(paths)) => {
+                    for path in &paths { println!("Verified model file: {}",path.display()); }
+                    println!("Model download complete: {} verified file(s)",paths.len());
+                }
                 Ok(Err(error)) => { eprintln!("pull: {error}"); std::process::exit(1); }
                 Err(error) => { eprintln!("pull worker failed: {error}"); std::process::exit(1); }
             }
