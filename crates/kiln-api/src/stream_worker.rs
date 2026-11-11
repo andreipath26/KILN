@@ -5,6 +5,8 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::time::{Duration, Instant};
 
 const MAX_IPC_LINE: usize = 128 * 1024;
+// Must match the child JSONL reader's 256 KiB cap, including the newline.
+const MAX_REQUEST_LINE: usize = 262_144;
 const MAX_HANDSHAKE_LINE: usize = 4096;
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 const MAX_NATIVE_CACHE_MIB: u32 = 256;
@@ -77,6 +79,18 @@ impl std::fmt::Display for StreamInferError {
             Self::Rejected(message) | Self::Worker(message) => f.write_str(message),
         }
     }
+}
+
+/// Encoding can expand quotes, control characters and backslashes. Check the
+/// actual UTF-8 JSONL frame before writing to the child to avoid poisoning a
+/// healthy loaded session with an over-limit request.
+fn encode_request(prompt: &str, max_tokens: usize) -> Result<String, StreamInferError> {
+    let frame = serde_json::json!({"prompt":prompt,"max_tokens":max_tokens}).to_string();
+    if frame.len().checked_add(1).is_none_or(|bytes| bytes > MAX_REQUEST_LINE) {
+        return Err(StreamInferError::Rejected(
+            "streamed prompt exceeds the native 256 KiB encoded request limit; shorten the prompt".into()));
+    }
+    Ok(frame)
 }
 
 pub struct StreamWorker {
@@ -180,7 +194,8 @@ impl StreamWorker {
             return Err(StreamInferError::Rejected(
                 "streamed prompt or token count exceeds bounded IPC limits".into()));
         }
-        match self.infer_framed(prompt, max_tokens, on_chunk) {
+        let request_line = encode_request(prompt, max_tokens)?;
+        match self.infer_framed(&request_line, on_chunk) {
             Ok(Ok(text)) => Ok(text),
             // A fully framed rejection does not corrupt the loaded model.
             Ok(Err(message)) => Err(StreamInferError::Rejected(message)),
@@ -192,11 +207,10 @@ impl StreamWorker {
         }
     }
 
-    fn infer_framed(&mut self, prompt: &str, max_tokens: usize,
+    fn infer_framed(&mut self, request_line: &str,
                     on_chunk: &mut dyn FnMut(&str) -> bool) -> Result<Result<String, String>, String> {
-        let request = serde_json::json!({"prompt":prompt,"max_tokens":max_tokens});
         let input = self.input.as_mut().ok_or("stream worker stdin has closed")?;
-        writeln!(input,"{request}").and_then(|_| input.flush())
+        writeln!(input,"{request_line}").and_then(|_| input.flush())
             .map_err(|e| format!("streamed model process is unavailable: {e}"))?;
         let mut combined = String::new();
         let mut rejection: Option<String> = None;
@@ -297,6 +311,25 @@ mod recoverable_request_tests {
         assert!(!worker.protocol_failed);
         assert_eq!(worker.infer("short",8,&mut |_| true).unwrap(),"okay");
         assert!(!worker.protocol_failed);
+    }
+}
+
+#[cfg(test)]
+mod request_encoding_tests {
+    use super::*;
+
+    #[test]
+    fn serialized_request_limit_accounts_for_json_escaping() {
+        let safe = encode_request("hello", 8).unwrap();
+        assert!(safe.ends_with("}"));
+        assert!(safe.len() + 1 <= MAX_REQUEST_LINE);
+        let escaped = "\\u{0000}".repeat(60_000);
+        assert!(escaped.len() < 131_072);
+        assert!(matches!(encode_request(&escaped, 8),
+            Err(StreamInferError::Rejected(message)) if message.contains("encoded request limit")));
+        // The rejection is local preflight; no native worker was contacted.
+        let bounded = "a".repeat(131_072);
+        assert!(encode_request(&bounded, 4096).is_ok());
     }
 }
 
