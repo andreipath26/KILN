@@ -127,6 +127,8 @@ cargo run -p kiln-cli -- stream /path/to/model.gguf --cache-mib 0
 
 `stream` accepts a GGUF path, a resolvable installed model identifier, or `auto`. Options include `--cache-mib 0..512` (64 by default), `--parallel-reads`, `--max-tokens`, `--keep-context`, and `--lazy-moe-experts`. It verifies the recognized expert layout, uses a temporary index and audit file, then cleans them up. It is opt-in and fails on unsupported layouts rather than silently claiming successful streaming. `--lazy-moe-experts` alone is a separate mmap-loader experiment, **not** equivalent to native streamed compute.
 
+For long chats, the streamed worker caps generated tokens to the remaining model context instead of attempting a decode beyond `n_ctx`. A prompt whose tokenization itself exceeds the context is rejected with an actionable message; the loaded model remains available for the next shorter request.
+
 The native audit distinguishes operand bytes delivered, explicit `pread` bytes and cache hits. Those counters are **not** proof of physical SSD reads, cold-storage throughput or lower end-to-end memory usage. Use pinned models, repeatable quality baselines and target-hardware measurements before comparing speed, RAM and accuracy. See the [Phase 5 streaming guide](docs/phase5-streaming.md) and [master roadmap](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md) for test methodologies and acceptance criteria.
 
 ## Update an installed KILN (Linux)

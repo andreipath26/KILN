@@ -24,6 +24,22 @@ fn emit(event: serde_json::Value) -> Result<(), String> {
     writeln!(out, "{event}").and_then(|_| out.flush()).map_err(|e| e.to_string())
 }
 
+/// The final prefill token produces the first output token without adding
+/// that sampled token to KV. Subsequent samples need one KV position each.
+/// Cap generation before it reaches the context boundary mid-stream.
+fn available_generation_steps(
+    prompt_tokens: usize, context_tokens: usize, requested: usize
+) -> Result<usize, String> {
+    if prompt_tokens == 0 { return Err("prompt produced no tokens".into()); }
+    if context_tokens == 0 || prompt_tokens > context_tokens {
+        return Err(format!(
+            "prompt requires {prompt_tokens} tokens but the active model context holds {context_tokens}; shorten the chat history or increase the context limit"
+        ));
+    }
+    if requested == 0 { return Err("requested token limit must be positive".into()); }
+    Ok(requested.min(context_tokens - prompt_tokens + 1))
+}
+
 pub fn run(model: &str, lazy_moe_experts: bool) -> Result<(), String> {
     let profile = SystemProfile::load_or_probe();
     let mut dispatcher = RuntimeDispatcher::new();
@@ -58,13 +74,25 @@ pub fn run(model: &str, lazy_moe_experts: bool) -> Result<(), String> {
             RuntimeResult::Tokens(value) if !value.is_empty() => value,
             _ => return Err("empty or invalid tokenization".into()),
         };
+        let max_steps = match available_generation_steps(
+            encoded.len(), profile.n_ctx as usize, tokens as usize
+        ) {
+            Ok(value) => value,
+            Err(message) => {
+                // This is a recoverable request rejection, not a broken
+                // native worker. Signal the API without losing loaded weights.
+                emit(serde_json::json!({"event":"reject","message":message}))?;
+                emit(serde_json::json!({"event":"done"}))?;
+                continue;
+            }
+        };
         let mut token = match dispatcher.dispatch(RuntimeOp::ForwardGreedy { tokens: encoded })
             .map_err(|e| format!("stream prefill failed: {e}"))? {
             RuntimeResult::Int(value) => value,
             _ => return Err("stream prefill produced invalid token".into()),
         };
         let mut pending = Vec::<u8>::new();
-        for n in 0..tokens {
+        for n in 0..max_steps as u64 {
             if token == eos { break; }
             let raw = match dispatcher.dispatch(RuntimeOp::TokenToStr { token })
                 .map_err(|e| format!("stream token decode failed: {e}"))? {
@@ -79,7 +107,7 @@ pub fn run(model: &str, lazy_moe_experts: bool) -> Result<(), String> {
             } else if pending.len() > 16 {
                 return Err("invalid native token UTF-8 sequence".into());
             }
-            if n+1 < tokens {
+            if n+1 < max_steps as u64 {
                 token = match dispatcher.dispatch(RuntimeOp::ForwardGreedy { tokens: vec![token] })
                     .map_err(|e| format!("stream decode failed: {e}"))? {
                     RuntimeResult::Int(value) => value,
@@ -100,6 +128,18 @@ pub fn run(model: &str, lazy_moe_experts: bool) -> Result<(), String> {
 mod protocol_tests {
     use super::*;
     use std::io::{BufReader, Cursor};
+
+    #[test]
+    fn prefill_budget_caps_generation_before_running_off_context() {
+        assert_eq!(available_generation_steps(1,2048,4096).unwrap(),2048);
+        assert_eq!(available_generation_steps(2048,2048,128).unwrap(),1);
+        assert_eq!(available_generation_steps(2047,2048,128).unwrap(),2);
+        assert_eq!(available_generation_steps(8,2048,64).unwrap(),64);
+        assert!(available_generation_steps(2049,2048,64).unwrap_err().contains("shorten"));
+        assert!(available_generation_steps(0,2048,64).is_err());
+        assert!(available_generation_steps(1,0,64).is_err());
+        assert!(available_generation_steps(1,2048,0).is_err());
+    }
 
     #[test]
     fn request_limit_is_enforced_before_allocating_the_entire_line() {
