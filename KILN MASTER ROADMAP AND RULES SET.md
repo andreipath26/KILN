@@ -716,3 +716,10 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 
 - Extended the live Linux CI small-MoE activation flow to exercise an encoded JSONL frame size rejection and a tokenized over-context preflight rejection, both HTTP 400 while native worker remains loaded, followed by successful generation and unchanged streaming mode. The over-context request is deliberately below the 128 KiB raw prompt cap so the test reaches tokenization/context checking rather than only checking the input byte limit.
 - Archive rejection JSON and post-recovery output/capabilities with the existing real-model evidence. Successful small-model recovery is not evidence of memory-bounded Qwen3-30B-A3B inference or Tier 0 throughput, cache, SSD traffic, accuracy and reliability gates.
+
+
+### 2026-11-11 — Repair cached real-GGUF fixture preparation
+
+- Diagnosed the first non-artifact failure in CI run 43098936751, job 130784747808: `Prepare real activation and recovery candidates` failed when `ln` tried to recreate an existing `alternate-smoke.gguf` hard link in the restored model cache. Earlier workspace and native parity checks passed; subsequent UI smoke tests did not execute on that job.
+- Made the alternate GGUF and Ollama blob fixture setup idempotent: check inode identity (`test -ef`), recreate only missing/stale fixture links, then assert zero-copy identity. Existing model source files are not modified. CI and real-model recovery must pass on a subsequent run before any gate is claimed.
+- The same job successfully uploaded `phase5-real-moe-evidence` and the portable release archive; the older artifact-upload failure was separate and transient based on observed HTTP/JSON errors. This does not establish Tier 0 performance or quality.
