@@ -160,6 +160,14 @@ fn should_stream_single_file(
     !is_split && (force_stream || model_bytes > budget_bytes)
 }
 
+/// A complete split-model source map is necessary, but streaming is selected
+/// only when requested or when the combined GGUF exceeds available memory.
+fn should_stream_split_file(
+    force_stream: bool, compatible_split: bool, model_bytes: u64, budget_bytes: u64
+) -> bool {
+    compatible_split && (force_stream || model_bytes > budget_bytes)
+}
+
 fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, String> {
     let metadata = std::fs::metadata(&path)
         .map_err(|e| format!("model path {} is not readable: {}", path.display(), e))?;
@@ -195,7 +203,7 @@ fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, Str
         }
         if cfg!(target_os = "linux") && (
             should_stream_single_file(force_stream, is_split, total_size, resident_budget) ||
-            (native_split_candidate && (force_stream || total_size > resident_budget))
+            should_stream_split_file(force_stream, native_split_candidate, total_size, resident_budget)
         ) {
             let worker = StreamWorker::start(&path).map_err(|e| format!(
                 "model ({:.1} GiB; resident budget {:.1} GiB) was routed to native expert streaming, but the GGUF layout or streaming worker is incompatible: {e}",
@@ -284,6 +292,21 @@ mod memory_routing_tests {
     }
 
     #[test]
+    fn compatible_split_moe_automatically_selects_native_streaming_under_pressure() {
+        let gib = 1_073_741_824u64;
+        // The *entire* source GGUF set is compared with the RAM budget.
+        assert!(should_stream_split_file(false,true,28*gib,12*gib));
+        assert!(!should_stream_split_file(false,true,6*gib,12*gib));
+        // A user may opt into native expert reads for a smaller supported MoE.
+        assert!(should_stream_split_file(true,true,6*gib,12*gib));
+        // A missing expert projection or unsupported quantizer must not be
+        // interpreted as a verified native multi-source layout.
+        assert!(!should_stream_split_file(true,false,28*gib,12*gib));
+        assert!(!should_stream_split_file(false,false,28*gib,12*gib));
+        assert!(should_stream_split_file(false,true,28*gib,0));
+    }
+
+    #[test]
     fn available_memory_routes_oversized_single_file_not_just_total_ram() {
         let gib = 1_073_741_824u64;
         let free_budget = resident_budget_bytes(8*gib);
@@ -292,7 +315,8 @@ mod memory_routing_tests {
         assert!(should_stream_single_file(false,false,10*gib,free_budget));
         assert!(!should_stream_single_file(false,false,2*gib,free_budget));
         assert!(should_stream_single_file(true,false,2*gib,free_budget));
-        // The native external expert index has no cross-shard support.
+        // The single-file path excludes split sets; verified split models
+        // are routed by should_stream_split_file instead.
         assert!(!should_stream_single_file(true,true,10*gib,free_budget));
         assert!(!should_stream_single_file(false,true,10*gib,free_budget));
     }
