@@ -680,3 +680,9 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Native selected-expert compute for supported single- and multi-shard fused MoE layouts was already merged in #81. It is distinct from Rust `cpu_moe_streamed` byte-dispatch and sidecar experiments. Updated the Phase 5 guide to remove obsolete assertions that graph-selected expert execution is unwired.
 - GitHub reported successful merges, but Phase 5 PR CI runs had not passed when the merges were issued. CI completion, actual inference smoke tests, Tier 0 hardware throughput/RSS, storage bytes per token, cache effectiveness and WikiText-2 quality **remain unverified**. No Phase 5 exit gate or 70B mission target is declared complete by these changes.
 - Next execution gate: inspect merged-head CI and resolve failures, then obtain pinned Qwen3-30B-A3B Tier 0 end-to-end evidence before claiming any usable larger-than-RAM deployment performance.
+
+
+### 2026-11-11 — Phase 5 split-model memory routing safeguard
+
+- Corrected local API split-GGUF total-size calculation: every conventionally numbered source shard must have readable regular-file metadata; missing/unreadable parts now fail closed instead of being silently omitted from memory routing. Combined-size arithmetic rejects overflow.
+- Added focused unit regressions for successful aggregation, missing shard errors and u64 overflow. This is a correctness guard only: CI and target-hardware performance/quality gates remain separate and no Phase 5 acceptance claim is made.
