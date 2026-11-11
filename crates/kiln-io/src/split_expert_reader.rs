@@ -84,6 +84,31 @@ impl SplitGgufExpertReader {
             .map_err(|e| format!("expert tensor {name} source read failed: {e}"))
     }
 
+    /// Read one native-layout fused expert slab without first materializing
+    /// the full fused projection. This is the exact per-expert I/O primitive
+    /// needed for a future native graph callback with per-shard descriptors.
+    pub fn read_fused_expert_into(
+        &self, layer: u32, expert_id: u32, projection_name: &str,
+        destination: &mut [u8],
+    ) -> Result<(), String> {
+        let slab = self.inventory.fused_expert_slabs.iter().find(|entry| {
+            entry.layer == layer && entry.expert_id == expert_id &&
+                entry.tensor_name == projection_name
+        }).ok_or_else(|| format!(
+            "fused expert {layer}:{expert_id} projection {projection_name} is not in a complete verified multi-shard map"
+        ))?;
+        if destination.len() as u64 != slab.byte_length {
+            return Err(format!(
+                "expert slab needs exactly {} bytes, got {}",
+                slab.byte_length,destination.len()));
+        }
+        let source = self.sources.get(slab.shard_number as usize - 1)
+            .ok_or("fused expert slab references a missing source file")?;
+        source.lock().unwrap_or_else(|e| e.into_inner())
+            .read_exact_at(slab.source_byte_offset,destination)
+            .map_err(|e| format!("fused expert {layer}:{expert_id} source read failed: {e}"))
+    }
+
     /// Clone pinned file descriptors for parallel expert reads without
     /// reopening an attacker-replaceable filesystem pathname.
     pub fn fork_source_readers(&self) -> Result<Vec<FileRangeReader>, String> {
@@ -141,6 +166,46 @@ mod tests {
         reader.read_tensor_into("down",&mut down).unwrap();
         assert_eq!(down.to_vec(),(110u8..118).collect::<Vec<_>>());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn reads_only_selected_fused_slab_from_correct_original_shard() {
+        use kiln_models::split_gguf::SplitFusedExpertSlab;
+        let nonce=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .unwrap().as_nanos();
+        let dir=std::env::temp_dir().join(format!("kiln-fused-slab-{}-{nonce}",std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let first=dir.join("one.gguf");
+        let second=dir.join("two.gguf");
+        std::fs::write(&first,[0u8;128]).unwrap();
+        let mut content=[0u8;128];
+        content[32..40].copy_from_slice(b"EXPERT00");
+        content[40..48].copy_from_slice(b"EXPERT01");
+        std::fs::write(&second,content).unwrap();
+        let inv=SplitGgufInventory {
+            entrypoint:first.clone(),shard_count:2,total_file_bytes:256,
+            total_tensor_count:1,architecture:Some("tiny".into()),
+            shards:vec![
+                SplitShardSummary{shard_number:1,path:first.clone(),file_size_bytes:128,
+                    tensor_count:0,expert_tensor_count:0,unsupported_expert_tensor_count:0},
+                SplitShardSummary{shard_number:2,path:second.clone(),file_size_bytes:128,
+                    tensor_count:1,expert_tensor_count:1,unsupported_expert_tensor_count:0},
+            ],
+            expert_sources:vec![],
+            fused_expert_slabs:(0..2).map(|expert_id|SplitFusedExpertSlab{
+                tensor_name:"blk.0.ffn_up_exps.weight".into(),
+                layer:0,expert_id,shard_number:2,source_path:second.clone(),
+                source_byte_offset:32+u64::from(expert_id)*8,byte_length:8,
+            }).collect(),
+            unsupported_expert_tensors:vec![],native_multi_source_streaming_ready:false,
+        };
+        let reader=SplitGgufExpertReader::from_inventory(inv).unwrap();
+        let mut out=[0u8;8];
+        reader.read_fused_expert_into(0,1,"blk.0.ffn_up_exps.weight",&mut out).unwrap();
+        assert_eq!(&out,b"EXPERT01");
+        assert!(reader.read_fused_expert_into(0,2,"blk.0.ffn_up_exps.weight",&mut out).is_err());
+        assert!(reader.read_fused_expert_into(0,0,"blk.0.ffn_up_exps.weight",&mut out[..7]).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
