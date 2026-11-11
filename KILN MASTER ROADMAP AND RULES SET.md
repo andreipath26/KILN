@@ -723,3 +723,8 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Diagnosed the first non-artifact failure in CI run 43098936751, job 130784747808: `Prepare real activation and recovery candidates` failed when `ln` tried to recreate an existing `alternate-smoke.gguf` hard link in the restored model cache. Earlier workspace and native parity checks passed; subsequent UI smoke tests did not execute on that job.
 - Made the alternate GGUF and Ollama blob fixture setup idempotent: check inode identity (`test -ef`), recreate only missing/stale fixture links, then assert zero-copy identity. Existing model source files are not modified. CI and real-model recovery must pass on a subsequent run before any gate is claimed.
 - The same job successfully uploaded `phase5-real-moe-evidence` and the portable release archive; the older artifact-upload failure was separate and transient based on observed HTTP/JSON errors. This does not establish Tier 0 performance or quality.
+
+
+### 2026-11-11 — Correct native UTF-8 prefix/suffix streaming boundary
+
+- Follow-up correctness review of the incremental UTF-8 decoder found that a token piece containing complete ASCII/UTF-8 text followed by an incomplete multi-byte suffix could exceed the pending-buffer limit and fail despite valid output. The decoder now emits its complete prefix immediately and retains only the trailing incomplete codepoint (max three bytes); malformed bytes and truncated final output still fail closed. Added multi-byte token boundary and invalid-tail regressions. No model weights or Tier 0 acceptance claims changed.
