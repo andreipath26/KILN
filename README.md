@@ -81,6 +81,10 @@ kiln pull OWNER/REPOSITORY --file "model-00001-of-00002.gguf" --all-shards
 
 Use a nested repository file path when appropriate. The command checks that all numbered parts and their trusted digests exist in the public repository before starting transfers, and it verifies each installed file. **This is download completeness, not inference compatibility**: some architectures and quantizers remain unsupported, and KILN still requires native multi-shard expert compute validation before calling large split-model streaming production-ready.
 
+## Phase 5 CI evidence preservation
+
+The GitHub Actions real-model evidence archive runs **after** the complete model, split-GGUF, native-worker, portable-release, and browser smoke sequence (including API shutdown). The archive step uses `always()` so failed tests still preserve whatever evidence was produced. A failed artifact upload remains a visible CI failure and must be investigated; an uploaded artifact is not proof that every test or Tier 0 performance target passed.
+
 ## GGUF tensor safety and oversized metadata
 
 GGUF tensor-size inspection uses checked, row-oriented encoded-byte arithmetic. Known quantization formats with malformed row dimensions, arithmetic overflow, or out-of-file tensor ranges are rejected instead of being treated as valid but unreadable weights. Unknown quantization types remain visible to discovery and diagnostics, but even unknown tensor offsets must belong to the source file. Parsing rejects out-of-range metadata offsets and data-section alignment overflow. This protects model inspection and expert-source mapping; it does **not** make an unsupported model architecture runnable.
