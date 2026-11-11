@@ -463,7 +463,9 @@ async function downloadArtifact(repository, file, requestedFiles = [file]) {
       installedCount += 1;
     }
     await loadLocalModels();
-    setModelActionState(false, `Verified ${installedCount}/${files.length} files for ${modelLabel}. Select the complete model from local models.`);
+    setModelActionState(false, files.length === 1
+      ? `Verified and installed ${file}. Select it from local models to load it.`
+      : `Verified ${installedCount}/${files.length} files for ${modelLabel}. Select the complete model from local models.`);
   } catch (error) {
     const message = error.name === "AbortError"
       ? (files.length === 1 ? "Download canceled; the partial file was removed."
