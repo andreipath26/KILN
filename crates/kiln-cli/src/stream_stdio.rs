@@ -40,6 +40,30 @@ fn available_generation_steps(
     Ok(requested.min(context_tokens - prompt_tokens + 1))
 }
 
+/// Assemble complete UTF-8 without changing token bytes. A partial
+/// multi-byte codepoint may span multiple token pieces; malformed bytes may
+/// not be silently replaced because doing so changes generated text.
+fn push_token_bytes(pending: &mut Vec<u8>, raw: &[u8]) -> Result<Option<String>, String> {
+    pending.extend_from_slice(raw);
+    match std::str::from_utf8(pending) {
+        Ok(text) => {
+            let completed = text.to_owned();
+            pending.clear();
+            Ok((!completed.is_empty()).then_some(completed))
+        }
+        Err(error) if error.error_len().is_some() =>
+            Err("native tokenizer emitted invalid UTF-8 bytes".into()),
+        Err(_) if pending.len() > 4 =>
+            Err("native tokenizer emitted an overlong incomplete UTF-8 sequence".into()),
+        Err(_) => Ok(None),
+    }
+}
+
+fn finish_token_bytes(pending: &[u8]) -> Result<(), String> {
+    if pending.is_empty() { Ok(()) }
+    else { Err("native tokenizer ended with an incomplete UTF-8 sequence".into()) }
+}
+
 pub fn run(model: &str, lazy_moe_experts: bool) -> Result<(), String> {
     let profile = SystemProfile::load_or_probe();
     let mut dispatcher = RuntimeDispatcher::new();
@@ -64,7 +88,11 @@ pub fn run(model: &str, lazy_moe_experts: bool) -> Result<(), String> {
             .map_err(|e| format!("invalid IPC JSON: {e}"))?;
         let prompt = req.get("prompt").and_then(|x| x.as_str())
             .ok_or("stream IPC requires a prompt")?;
-        let tokens = req.get("max_tokens").and_then(|x| x.as_u64()).unwrap_or(128);
+        let tokens = match req.get("max_tokens") {
+            None => 128,
+            Some(value) => value.as_u64()
+                .ok_or("stream IPC max_tokens must be a positive integer")?,
+        };
         if prompt.is_empty() || prompt.len() > 131_072 || tokens == 0 || tokens > 4096 {
             return Err("invalid stream IPC prompt length or token limit".into());
         }
@@ -100,12 +128,8 @@ pub fn run(model: &str, lazy_moe_experts: bool) -> Result<(), String> {
                 RuntimeResult::Str(text) => text.into_bytes(),
                 _ => return Err("stream decoder returned invalid bytes".into()),
             };
-            pending.extend(raw);
-            if let Ok(piece) = std::str::from_utf8(&pending) {
-                if !piece.is_empty() { emit(serde_json::json!({"event":"chunk","text":piece}))?; }
-                pending.clear();
-            } else if pending.len() > 16 {
-                return Err("invalid native token UTF-8 sequence".into());
+            if let Some(piece) = push_token_bytes(&mut pending, &raw)? {
+                emit(serde_json::json!({"event":"chunk","text":piece}))?;
             }
             if n+1 < max_steps as u64 {
                 token = match dispatcher.dispatch(RuntimeOp::ForwardGreedy { tokens: vec![token] })
@@ -115,9 +139,7 @@ pub fn run(model: &str, lazy_moe_experts: bool) -> Result<(), String> {
                 };
             }
         }
-        if !pending.is_empty() {
-            emit(serde_json::json!({"event":"chunk","text":String::from_utf8_lossy(&pending)}))?;
-        }
+        finish_token_bytes(&pending)?;
         emit(serde_json::json!({"event":"done"}))?;
     }
     dispatcher.dispatch(RuntimeOp::Unload).map_err(|e| e.to_string())?;
@@ -128,6 +150,36 @@ pub fn run(model: &str, lazy_moe_experts: bool) -> Result<(), String> {
 mod protocol_tests {
     use super::*;
     use std::io::{BufReader, Cursor};
+
+    #[test]
+    fn token_utf8_assembler_preserves_split_codepoints_without_replacement() {
+        let mut pending = Vec::new();
+        assert_eq!(push_token_bytes(&mut pending, &[0xE2]).unwrap(), None);
+        assert_eq!(push_token_bytes(&mut pending, &[0x82]).unwrap(), None);
+        assert_eq!(push_token_bytes(&mut pending, &[0xAC]).unwrap(), Some("€".into()));
+        finish_token_bytes(&pending).unwrap();
+        assert_eq!(push_token_bytes(&mut pending, b"ok").unwrap(), Some("ok".into()));
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn token_utf8_assembler_rejects_invalid_and_truncated_output() {
+        let mut invalid = Vec::new();
+        assert!(push_token_bytes(&mut invalid, &[0xff]).unwrap_err().contains("invalid UTF-8"));
+        let mut incomplete = Vec::new();
+        assert_eq!(push_token_bytes(&mut incomplete, &[0xF0, 0x9F]).unwrap(), None);
+        assert!(finish_token_bytes(&incomplete).unwrap_err().contains("incomplete UTF-8"));
+        assert!(push_token_bytes(&mut incomplete, &[0xFF]).is_err());
+    }
+
+    #[test]
+    fn invalid_token_limit_is_not_silently_defaulted() {
+        let integer = serde_json::json!({"max_tokens":8});
+        assert_eq!(integer["max_tokens"].as_u64(),Some(8));
+        for value in [serde_json::json!("8"), serde_json::json!(-1), serde_json::json!(null)] {
+            assert!(value.as_u64().is_none());
+        }
+    }
 
     #[test]
     fn prefill_budget_caps_generation_before_running_off_context() {
