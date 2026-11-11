@@ -101,22 +101,27 @@ impl StreamWorker {
         if prompt.is_empty() || prompt.len() > 131_072 || max_tokens == 0 || max_tokens > 4096 {
             return Err("streamed prompt or token count exceeds bounded IPC limits".into());
         }
-        let result = self.infer_framed(prompt, max_tokens, on_chunk);
-        if result.is_err() {
-            // A failed or incomplete JSONL exchange must not be confused with
-            // the response to the *next* prompt. Require a fresh child.
-            self.protocol_failed = true;
+        match self.infer_framed(prompt, max_tokens, on_chunk) {
+            Ok(Ok(text)) => Ok(text),
+            // A fully framed preflight rejection does not corrupt the native
+            // worker or lose the model already loaded in memory.
+            Ok(Err(message)) => Err(message),
+            Err(message) => {
+                // Unknown/truncated frames remain fatal to this session.
+                self.protocol_failed = true;
+                Err(message)
+            }
         }
-        result
     }
 
     fn infer_framed(&mut self, prompt: &str, max_tokens: usize,
-                    on_chunk: &mut dyn FnMut(&str) -> bool) -> Result<String, String> {
+                    on_chunk: &mut dyn FnMut(&str) -> bool) -> Result<Result<String, String>, String> {
         let request = serde_json::json!({"prompt":prompt,"max_tokens":max_tokens});
         let input = self.input.as_mut().ok_or("stream worker stdin has closed")?;
         writeln!(input,"{request}").and_then(|_| input.flush())
             .map_err(|e| format!("streamed model process is unavailable: {e}"))?;
         let mut combined = String::new();
+        let mut rejection: Option<String> = None;
         let mut receiver_open = true;
         loop {
             let line = read_bounded_line(&mut self.output, MAX_IPC_LINE)?
@@ -125,6 +130,9 @@ impl StreamWorker {
                 .map_err(|e| format!("malformed streamed response: {e}"))?;
             match response.get("event").and_then(|x| x.as_str()) {
                 Some("chunk") => {
+                    if rejection.is_some() {
+                        return Err("stream worker emitted text after a rejected request".into());
+                    }
                     let piece = response.get("text").and_then(|x| x.as_str())
                         .ok_or("stream worker emitted invalid text")?;
                     if receiver_open {
@@ -140,11 +148,22 @@ impl StreamWorker {
                         receiver_open = false;
                     }
                 }
+                Some("reject") => {
+                    let message = response.get("message").and_then(|x| x.as_str())
+                        .ok_or("stream worker emitted an invalid rejection")?;
+                    if message.is_empty() || rejection.is_some() || !combined.is_empty() {
+                        return Err("stream worker emitted an out-of-order rejection".into());
+                    }
+                    rejection = Some(message.to_owned());
+                }
                 Some("done") => break,
                 _ => return Err("stream worker emitted an unknown protocol event".into()),
             }
         }
-        Ok(combined)
+        Ok(match rejection {
+            Some(message) => Err(message),
+            None => Ok(combined),
+        })
     }
 }
 
