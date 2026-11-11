@@ -200,6 +200,37 @@ impl Drop for StreamWorker {
     }
 }
 
+#[cfg(all(test, unix))]
+mod recoverable_request_tests {
+    use super::*;
+    #[test]
+    fn rejected_prefill_preserves_worker_and_next_reply_alignment() {
+        // A simulated JSONL child verifies the framing contract without
+        // loading any GGUF or claiming native parity.
+        let script = concat!(
+            "printf '%s\\n' ",
+            "'{\\"event\\":\\"reject\\",\\"message\\":\\"prompt exceeds context\\"}' ",
+            "'{\\"event\\":\\"done\\"}' ",
+            "'{\\"event\\":\\"chunk\\",\\"text\\":\\"okay\\"}' ",
+            "'{\\"event\\":\\"done\\"}'; ",
+            "cat >/dev/null"
+        );
+        let mut child = Command::new("sh").arg("-c").arg(script)
+            .stdin(Stdio::piped()).stdout(Stdio::piped())
+            .spawn().unwrap();
+        let mut worker = StreamWorker {
+            input: child.stdin.take(),
+            output: BufReader::new(child.stdout.take().unwrap()),
+            child, protocol_failed:false, cache_mib:0,
+        };
+        assert!(worker.infer("too long",8,&mut |_| true)
+            .unwrap_err().contains("prompt exceeds context"));
+        assert!(!worker.protocol_failed);
+        assert_eq!(worker.infer("short",8,&mut |_| true).unwrap(),"okay");
+        assert!(!worker.protocol_failed);
+    }
+}
+
 #[cfg(test)]
 mod cache_budget_tests {
     use super::native_cache_mib;
