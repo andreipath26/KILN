@@ -672,3 +672,11 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Replaced the October quantization draft with an evidence-scoped policy consistent with KILN-E35. It separates GGUF structural validation, tensor/backend support, and model-level evidence; it does not expand support claims.
 - Removed superseded standalone draft/experiment files after incorporating their current procedures, status, and caveats. Git history retains the original text.
 - Added docs/README.md as the maintained index and updated this map and the repository README. No implementation, phase status, performance result, or acceptance gate changed.
+
+
+### 2026-11-11 — Phase 5 streamed-model safety and UI integration (repository verification)
+
+- Merged PRs #85–#91 into `main`: bounded native worker startup and process-group cleanup; verified split-model auto-routing tests; corrected native split-MoE plan output; active-session reuse; incomplete remote shard protection; local native-stream eligibility; and bounded context/recoverable request rejection.
+- Native selected-expert compute for supported single- and multi-shard fused MoE layouts was already merged in #81. It is distinct from Rust `cpu_moe_streamed` byte-dispatch and sidecar experiments. Updated the Phase 5 guide to remove obsolete assertions that graph-selected expert execution is unwired.
+- GitHub reported successful merges, but Phase 5 PR CI runs had not passed when the merges were issued. CI completion, actual inference smoke tests, Tier 0 hardware throughput/RSS, storage bytes per token, cache effectiveness and WikiText-2 quality **remain unverified**. No Phase 5 exit gate or 70B mission target is declared complete by these changes.
+- Next execution gate: inspect merged-head CI and resolve failures, then obtain pinned Qwen3-30B-A3B Tier 0 end-to-end evidence before claiming any usable larger-than-RAM deployment performance.
