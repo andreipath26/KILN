@@ -63,6 +63,23 @@ When you select **Use model**, KILN estimates a conservative resident-memory bud
 
 A successful GGUF metadata scan is not evidence that its architecture or quantization is supported by the native inference fork. Incompatible layouts or failed memory allocations remain explicit load errors rather than silent fallback claims.
 
+## Split GGUF Phase 5 source mapping
+
+`kiln plan /path/to/model-00001-of-00002.gguf --json` validates **every** part of a split GGUF and reports the **combined** model size, per-shard tensor counts, and verified source byte ranges for recognized routed-expert tensors. It does not combine the original files or read all the model weights into RAM. Supported tensor types are checked for row alignment, byte-range overflow and source-file bounds, while unknown quantizers remain explicitly unsupported. Missing shards, inconsistent split metadata and duplicate tensor names fail closed.
+
+The `kiln-io` multi-source expert reader can independently open and pin the original source files, read selected exact tensor ranges into caller-owned buffers, and fork independent positional readers for parallel access. It also resolves verified third-axis **fused expert slabs** across all model shards, allowing a specific (layer, expert, projection) range to be read without loading the whole tensor.
+
+Benchmark the real source-file I/O with:
+
+```sh
+cargo run --release -p kiln-bench -- expert-io-split \
+  --source-gguf /path/to/model-00001-of-00002.gguf \
+  --requests 64 --max-read-mib 256 --json
+```
+
+This reports explicit read bytes, per-shard request counts, wall-clock throughput and maximum caller buffer. Linux page cache is uncontrolled; the figures **do not** represent physical SSD traffic, inference throughput or accuracy.
+ **Native GGML selected-expert compute is not yet connected to this multi-source reader.** `kiln stream` therefore rejects split models rather than silently using an incomplete first-shard-only index. A successful per-shard preflight is groundwork for cross-shard compute, not a throughput, quality or working-memory guarantee.
+
 ## Experimental streamed MoE inference (Linux only)
 
 For a **compatible fused-expert MoE GGUF**, use the explicit opt-in command:

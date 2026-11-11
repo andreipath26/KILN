@@ -32,6 +32,7 @@ pub use gguf::{GgufError, GgufFile, GgufHeader, GgufType, GgufTensorInfo, GgufVa
 pub use tokenizer::{BpeTokenizer, TokenizerError};
 
 pub mod expert_tensor_map;
+pub mod split_gguf;
 pub use expert_tensor_map::{NamedExpertTensor, ExpertTensorComponent, GgufExpertSourceMap, ExpertMapError, resolve_expert_tensor_components, resolve_expert_tensors_in_gguf};
 pub use expert_tensor_map::{FusedExpertTensorSelection, resolve_fused_expert_tensor_components, resolve_fused_expert_tensors_in_gguf};
 pub use expert_tensor_map::discover_complete_fused_moe_selections;

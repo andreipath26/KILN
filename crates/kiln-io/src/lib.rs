@@ -18,6 +18,8 @@ pub mod request;
 pub mod source;
 pub mod fallback;
 pub mod range_reader;
+pub mod split_expert_reader;
+pub use split_expert_reader::SplitGgufExpertReader;
 pub mod expert_blob;
 pub mod cached_expert_blob;
 pub mod routing_history;
