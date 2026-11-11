@@ -290,15 +290,21 @@ function renderLocalModels(models) {
         actions.append(repair);
       }
     }
-    if (!model.active && !model.load_error) {
+    if (!model.active && !model.load_error && model.native_stream_candidate === true) {
       const stream = document.createElement("button");
       stream.type = "button";
       stream.className = "button button-secondary";
       stream.textContent = "Try streaming";
-      stream.title = "Experimental Linux CPU on-demand expert reads; compatible single-file fused MoE GGUF only";
+      stream.title = "Experimental selected-expert CPU reads for this verified fused MoE layout (single- or multi-shard); runtime and performance remain unverified";
       stream.disabled = state.modelActionBusy || state.busy;
       stream.addEventListener("click", () => void activateLocalModel(model.path, "stream"));
       actions.append(stream);
+    } else if (!model.active && !model.load_error && model.native_stream_candidate === false) {
+      const reason = document.createElement("span");
+      reason.className = "muted small";
+      reason.textContent = "Native expert streaming not supported for this GGUF layout";
+      reason.title = "Ordinary mmap or lazy expert loading may still be available";
+      actions.append(reason);
     }
     row.append(main, actions);
     list.append(row);
