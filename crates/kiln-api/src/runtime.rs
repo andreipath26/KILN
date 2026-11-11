@@ -65,7 +65,9 @@ impl ApiState {
         let previous = {
             let mut runtime = self.runtime.lock()
                 .map_err(|_| "runtime state lock is poisoned".to_string())?;
-            runtime.take().map(|session| (session.model_path.clone(), session.model_name.clone()))
+            runtime.take().map(|session| (
+                session.model_path.clone(), session.model_name.clone(), session.streaming
+            ))
         };
 
         match load_session(path.clone(), force_stream) {
@@ -75,8 +77,11 @@ impl ApiState {
                 Ok(name)
             }
             Err(load_error) => {
-                if let Some((previous_path, previous_name)) = previous {
-                    match load_session(previous_path, false) {
+                if let Some((previous_path, previous_name, was_streaming)) = previous {
+                    // Restore the original execution mode, including an
+                    // explicitly streamed small MoE model. Re-selecting the
+                    // ordinary loader could otherwise crash on recovery.
+                    match load_session(previous_path, was_streaming) {
                         Ok(session) => {
                             *self.runtime.lock().map_err(|_| "runtime state lock is poisoned".to_string())? = Some(session);
                             Err(format!("model activation failed: {load_error}; restored previous model '{previous_name}'"))
