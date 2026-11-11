@@ -80,6 +80,12 @@ cargo run --release -p kiln-bench -- expert-io-split \
 This reports explicit read bytes, per-shard request counts, wall-clock throughput and maximum caller buffer. Linux page cache is uncontrolled; the figures **do not** represent physical SSD traffic, inference throughput or accuracy.
  **Native GGML selected-expert compute is not yet connected to this multi-source reader.** `kiln stream` therefore rejects split models rather than silently using an incomplete first-shard-only index. A successful per-shard preflight is groundwork for cross-shard compute, not a throughput, quality or working-memory guarantee.
 
+## Memory-budgeted native MoE caching
+
+When activating a compatible MoE model through the local UI, KILN now derives its native expert cache capacity from the **currently available resident-memory budget**, including Linux cgroup headroom. The experimental default is approximately 1 MiB of cache for each 64 MiB of estimated resident budget, capped at **256 MiB**, and it may be zero when memory is exhausted. If memory information is unavailable, KILN uses the previous 64 MiB fallback. The Advanced tab reports the chosen per-session native expert cache size.
+
+This policy controls one *native expert hot cache*, not the process RSS, OS page cache, KV memory, working set of shared weights or SSD physical I/O. Cache sizing is a conservative heuristic, not evidence of sustained Tier 0 throughput or a guarantee of a model fitting in RAM. Expert cache sizes for explicit `kiln stream --cache-mib N` are still user-controlled.
+
 ## Experimental streamed MoE inference (Linux only)
 
 For a **compatible fused-expert MoE GGUF**, use the explicit opt-in command:
