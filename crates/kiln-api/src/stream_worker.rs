@@ -63,6 +63,22 @@ fn read_bounded_line<R: BufRead>(reader: &mut R, limit: usize) -> Result<Option<
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
+/// A complete preflight rejection is an input error, not a failed worker.
+/// All framing, IPC and process failures remain gateway errors.
+#[derive(Debug, PartialEq, Eq)]
+pub enum StreamInferError {
+    Rejected(String),
+    Worker(String),
+}
+
+impl std::fmt::Display for StreamInferError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Rejected(message) | Self::Worker(message) => f.write_str(message),
+        }
+    }
+}
+
 pub struct StreamWorker {
     child: Child,
     input: Option<ChildStdin>,
@@ -151,21 +167,27 @@ impl StreamWorker {
 
     pub fn infer(&mut self, prompt: &str, max_tokens: usize,
                  on_chunk: &mut dyn FnMut(&str) -> bool) -> Result<String, String> {
+        self.infer_detailed(prompt, max_tokens, on_chunk).map_err(|e| e.to_string())
+    }
+
+    pub fn infer_detailed(&mut self, prompt: &str, max_tokens: usize,
+                          on_chunk: &mut dyn FnMut(&str) -> bool) -> Result<String, StreamInferError> {
         if self.protocol_failed {
-            return Err("stream worker protocol failed during a previous request; reselect the model to start a fresh worker".into());
+            return Err(StreamInferError::Worker(
+                "stream worker protocol failed during a previous request; reselect the model to start a fresh worker".into()));
         }
         if prompt.is_empty() || prompt.len() > 131_072 || max_tokens == 0 || max_tokens > 4096 {
-            return Err("streamed prompt or token count exceeds bounded IPC limits".into());
+            return Err(StreamInferError::Rejected(
+                "streamed prompt or token count exceeds bounded IPC limits".into()));
         }
         match self.infer_framed(prompt, max_tokens, on_chunk) {
             Ok(Ok(text)) => Ok(text),
-            // A fully framed preflight rejection does not corrupt the native
-            // worker or lose the model already loaded in memory.
-            Ok(Err(message)) => Err(message),
+            // A fully framed rejection does not corrupt the loaded model.
+            Ok(Err(message)) => Err(StreamInferError::Rejected(message)),
             Err(message) => {
                 // Unknown/truncated frames remain fatal to this session.
                 self.protocol_failed = true;
-                Err(message)
+                Err(StreamInferError::Worker(message))
             }
         }
     }
@@ -274,6 +296,26 @@ mod recoverable_request_tests {
             .unwrap_err().contains("prompt exceeds context"));
         assert!(!worker.protocol_failed);
         assert_eq!(worker.infer("short",8,&mut |_| true).unwrap(),"okay");
+        assert!(!worker.protocol_failed);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod rejection_classification_tests {
+    use super::*;
+    use std::io::BufReader;
+    #[test]
+    fn well_framed_rejection_is_not_a_gateway_failure() {
+        let script = "printf '%s\\n' '{\"event\":\"reject\",\"message\":\"too long\"}' '{\"event\":\"done\"}'; cat >/dev/null";
+        let mut child = Command::new("sh").arg("-c").arg(script)
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let mut worker = StreamWorker {
+            input: child.stdin.take(),
+            output: BufReader::new(child.stdout.take().unwrap()),
+            child, protocol_failed: false, cache_mib: 0,
+        };
+        assert_eq!(worker.infer_detailed("prompt", 8, &mut |_| true),
+            Err(StreamInferError::Rejected("too long".into())));
         assert!(!worker.protocol_failed);
     }
 }
