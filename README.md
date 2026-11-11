@@ -133,6 +133,8 @@ cargo run -p kiln-cli -- stream /path/to/model.gguf --cache-mib 0
 
 `stream` accepts a GGUF path, a resolvable installed model identifier, or `auto`. Options include `--cache-mib 0..512` (64 by default), `--parallel-reads`, `--max-tokens`, `--keep-context`, and `--lazy-moe-experts`. It verifies the recognized expert layout, uses a temporary index and audit file, then cleans them up. It is opt-in and fails on unsupported layouts rather than silently claiming successful streaming. `--lazy-moe-experts` alone is a separate mmap-loader experiment, **not** equivalent to native streamed compute.
 
+The API also verifies the **serialized** JSONL request size before sending it to the native worker. Quotes, backslashes, and control characters may expand during JSON escaping; oversized encoded frames are rejected locally with HTTP 400, preserving the loaded model instead of causing a worker protocol failure.
+
 For the local API, an overlong streamed-model prompt returns HTTP 400 with a corrective context-length message without poisoning the active native session. Broken/truncated worker IPC remains HTTP 502 and requires a fresh worker. This distinction has framed JSONL regression coverage.
 
 For long chats, the streamed worker caps generated tokens to the remaining model context instead of attempting a decode beyond `n_ctx`. A prompt whose tokenization itself exceeds the context is rejected with an actionable message; the loaded model remains available for the next shorter request.
