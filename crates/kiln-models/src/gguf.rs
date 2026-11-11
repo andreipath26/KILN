@@ -455,28 +455,37 @@ pub struct GgufTensorInfo {
 }
 
 impl GgufTensorInfo {
-    /// The number of elements in the tensor.
-    pub fn num_elements(&self) -> u64 {
-        self.shape.iter().product()
+    /// Exact tensor element count, or None if dimensions overflow.
+    pub fn checked_num_elements(&self) -> Option<u64> {
+        self.shape.iter().try_fold(1u64, |n, dim| n.checked_mul(*dim))
     }
 
-    /// The byte size of the tensor.
+    /// Backwards-compatible saturating element count. Source validation
+    /// always uses checked_num_elements instead of trusting this estimate.
+    pub fn num_elements(&self) -> u64 {
+        self.checked_num_elements().unwrap_or(u64::MAX)
+    }
+
+    /// Exact GGUF-encoded bytes, computed *per contiguous row* with checked
+    /// arithmetic. Never round a flattened tensor across quantization rows;
+    /// every GGUF row has its own block packing requirements.
     pub fn byte_size(&self) -> Option<u64> {
-        let n = self.num_elements();
-        match self.dtype {
-            GgufType::F32 => Some(n * 4),
-            GgufType::F16 => Some(n * 2),
-            GgufType::Tq1_0 => Some((n + 4) / 5),
-            GgufType::Unknown(_) => None,
+        let width = *self.shape.first()?;
+        if width == 0 || self.shape.iter().any(|n| *n == 0) { return None; }
+        let rows = self.shape[1..].iter()
+            .try_fold(1u64, |n, dim| n.checked_mul(*dim))?;
+        let row_bytes = match self.dtype {
+            GgufType::F32 => width.checked_mul(4)?,
+            GgufType::F16 => width.checked_mul(2)?,
+            GgufType::Tq1_0 => width.checked_add(4)? / 5,
+            GgufType::Unknown(_) => return None,
             ref t => {
-                // Blocked quantized formats. The size is the number of
-                // blocks times the bytes per block.
-                let block_size = t.block_size()?;
-                let block_bytes = t.block_bytes()?;
-                let num_blocks = (n + block_size - 1) / block_size;
-                Some(num_blocks * block_bytes)
+                let block = t.block_size()?;
+                if width % block != 0 { return None; }
+                (width / block).checked_mul(t.block_bytes()?)?
             }
-        }
+        };
+        row_bytes.checked_mul(rows)
     }
 }
 
@@ -599,7 +608,11 @@ impl GgufFile {
         for t in &tensors {
             let byte_size = match t.byte_size() {
                 Some(n) => n,
-                None => continue, // unknown dtype, skip bounds check
+                None if matches!(t.dtype, GgufType::Unknown(_)) => continue,
+                None => return Err(GgufError::Tensor(format!(
+                    "tensor '{}' has invalid, non-aligned or overflowing dimensions",
+                    t.name
+                ))),
             };
             let end = data_offset
                 .checked_add(t.offset)
@@ -635,9 +648,10 @@ impl GgufFile {
     /// Get the raw bytes of a tensor.
     pub fn tensor_bytes(&self, name: &str) -> Option<&[u8]> {
         let t = self.tensor(name)?;
-        let byte_size = t.byte_size()? as usize;
-        let start = (self.data_offset + t.offset) as usize;
-        let end = start + byte_size;
+        let byte_size = usize::try_from(t.byte_size()?).ok()?;
+        let offset = self.data_offset.checked_add(t.offset)?;
+        let start = usize::try_from(offset).ok()?;
+        let end = start.checked_add(byte_size)?;
         self.mmap.get(start..end)
     }
 
@@ -809,6 +823,30 @@ mod tests {
         assert_eq!(t.offset, 0);
         assert_eq!(t.num_elements(), 12);
         assert_eq!(t.byte_size(), Some(48));
+    }
+
+    #[test]
+    fn tensor_sizes_are_row_aligned_and_overflow_safe() {
+        let tensor = |shape:Vec<u64>, dtype| GgufTensorInfo {
+            name:"test".into(),shape,dtype,offset:0
+        };
+        assert_eq!(tensor(vec![256,2],GgufType::Q4_K).byte_size(),Some(288));
+        assert_eq!(tensor(vec![255,2],GgufType::Q4_K).byte_size(),None);
+        assert_eq!(tensor(vec![6,2],GgufType::Tq1_0).byte_size(),Some(4));
+        assert_eq!(tensor(vec![u64::MAX,2],GgufType::F32).byte_size(),None);
+        assert_eq!(tensor(vec![0,2],GgufType::F16).byte_size(),None);
+        let huge=tensor(vec![u64::MAX,2],GgufType::F16);
+        assert_eq!(huge.checked_num_elements(),None);
+        assert_eq!(huge.num_elements(),u64::MAX);
+    }
+
+    #[test]
+    fn offset_overflow_cannot_escape_a_tensor_slice() {
+        let tensor=GgufTensorInfo {
+            name:"overflow".into(),shape:vec![u64::MAX,2],
+            dtype:GgufType::F32,offset:u64::MAX
+        };
+        assert!(tensor.byte_size().is_none());
     }
 
     #[test]
