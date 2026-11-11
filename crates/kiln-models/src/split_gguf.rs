@@ -28,6 +28,20 @@ pub struct SplitShardSummary {
     pub unsupported_expert_tensor_count: usize,
 }
 
+/// One fully validated, original-file expert slab of a known fused
+/// projection. Selection uses the declared third GGUF dimension, never an
+/// inferred weight axis or a guessed byte division.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SplitFusedExpertSlab {
+    pub tensor_name: String,
+    pub layer: u32,
+    pub expert_id: u32,
+    pub shard_number: u32,
+    pub source_path: PathBuf,
+    pub source_byte_offset: u64,
+    pub byte_length: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SplitGgufInventory {
     pub entrypoint: PathBuf,
@@ -39,6 +53,9 @@ pub struct SplitGgufInventory {
     /// Exact validated source bytes for recognized expert tensors. This is
     /// evidence for future multi-source streaming; not a runnable index.
     pub expert_sources: Vec<SplitExpertSource>,
+    /// Complete uniform 3-projection fused expert tensor slices across
+    /// every shard; empty means no verified full-model fused layout.
+    pub fused_expert_slabs: Vec<SplitFusedExpertSlab>,
     pub unsupported_expert_tensors: Vec<String>,
     pub native_multi_source_streaming_ready: bool,
 }
@@ -84,6 +101,85 @@ fn expert_source(
     })
 }
 
+fn fused_projection(name: &str) -> Option<(u32, &str)> {
+    let rest = name.strip_prefix("blk.")?;
+    let (layer, projection) = rest.split_once('.')?;
+    if !matches!(projection, "ffn_up_exps.weight" | "ffn_down_exps.weight" |
+        "ffn_gate_exps.weight") { return None; }
+    // Reject leading zeros and malformed layer names instead of allowing
+    // multiple spellings to bypass per-layer uniqueness checks.
+    let layer: u32 = layer.parse().ok()?;
+    if layer.to_string() != layer.to_owned() { return None; }
+    Some((layer, projection))
+}
+
+/// Strictly recognize complete, uniform third-axis experts across all source
+/// shards, using only declared metadata from the first GGUF. Each tensor's
+/// slabs remain in the original file at checked absolute offsets.
+fn fused_slabs(
+    architecture: Option<&str>,
+    metadata: &std::collections::HashMap<String, crate::gguf::GgufValue>,
+    tensors: &[(u32, PathBuf, u64, u64, GgufTensorInfo)]
+) -> Result<Vec<SplitFusedExpertSlab>, String> {
+    let Some(arch) = architecture else { return Ok(Vec::new()); };
+    let expert_count = metadata.get(&format!("{arch}.expert_count"))
+        .and_then(|v| v.as_u32()).filter(|n| (2..=65536).contains(n));
+    let block_count = metadata.get(&format!("{arch}.block_count"))
+        .and_then(|v| v.as_u32()).filter(|n| (1..=10000).contains(n));
+    let (Some(expert_count),Some(block_count)) = (expert_count,block_count) else {
+        return Ok(Vec::new());
+    };
+    let mut selections = Vec::new();
+    let mut seen = HashSet::new();
+    for (shard,path,data_offset,file_size,tensor) in tensors {
+        let Some((layer,projection)) = fused_projection(&tensor.name) else { continue; };
+        if layer >= block_count {
+            return Err(format!("fused tensor {} layer exceeds declared block count",tensor.name));
+        }
+        if !seen.insert((layer,projection)) {
+            return Err(format!("duplicate fused projection {} in the split GGUF",tensor.name));
+        }
+        if tensor.shape.len()!=3 || tensor.shape[2]!=u64::from(expert_count) {
+            return Err(format!("fused tensor {} has inconsistent expert axis",tensor.name));
+        }
+        let mut slice = tensor.clone();
+        slice.shape.truncate(2);
+        let slab_bytes = checked_tensor_byte_length(&slice)
+            .filter(|n| *n>0).ok_or_else(||format!(
+                "unsupported fused expert tensor layout {}",tensor.name))?;
+        let full = slab_bytes.checked_mul(u64::from(expert_count))
+            .ok_or("fused expert tensor byte-length overflow")?;
+        if checked_tensor_byte_length(tensor) != Some(full) {
+            return Err(format!("fused tensor {} has noncontiguous expert slabs",tensor.name));
+        }
+        let first = data_offset.checked_add(tensor.offset)
+            .ok_or("fused tensor absolute offset overflow")?;
+        let end = first.checked_add(full).ok_or("fused tensor end overflow")?;
+        if end > *file_size { return Err(format!(
+            "fused tensor {} exceeds its source shard",tensor.name)); }
+        for expert_id in 0..expert_count {
+            let offset = first.checked_add(slab_bytes*u64::from(expert_id))
+                .ok_or("fused expert slab offset overflow")?;
+            selections.push(SplitFusedExpertSlab {
+                tensor_name:tensor.name.clone(),layer,expert_id,
+                shard_number:*shard,source_path:path.clone(),
+                source_byte_offset:offset,byte_length:slab_bytes,
+            });
+        }
+    }
+    let wanted = usize::try_from(block_count).ok().and_then(|n| n.checked_mul(3))
+        .ok_or("fused expert block count overflow")?;
+    if seen.len() != wanted {
+        // A partial model or a mixed MoE architecture is not certified as
+        // complete; do not export runnable native stream selections.
+        return Ok(Vec::new());
+    }
+    selections.sort_unstable_by(|a,b|
+        (a.layer,a.expert_id,a.tensor_name.as_str()).cmp(&
+         (b.layer,b.expert_id,b.tensor_name.as_str())));
+    Ok(selections)
+}
+
 /// Inspect all numbered parts in-place; never download, rewrite or combine
 /// the original shards. Each expert source is tied to one exact shard.
 pub fn inspect_split_gguf(path: &Path) -> Result<Option<SplitGgufInventory>, String> {
@@ -101,6 +197,8 @@ pub fn inspect_split_gguf(path: &Path) -> Result<Option<SplitGgufInventory>, Str
     let mut total_bytes = 0u64;
     let mut total_tensors = 0usize;
     let mut architecture: Option<String> = None;
+    let mut first_metadata = None;
+    let mut all_tensors = Vec::new();
 
     for number in 1..=count {
         let shard = parent.join(format!("{base}-{number:05}-of-{count:05}.gguf"));
@@ -124,7 +222,10 @@ pub fn inspect_split_gguf(path: &Path) -> Result<Option<SplitGgufInventory>, Str
                 return Err(format!("split GGUF shards disagree on architecture: {}",
                     shard.display()));
             }
-        } else if number == 1 { architecture = shard_arch; }
+        } else if number == 1 {
+            architecture = shard_arch;
+        }
+        if number == 1 { first_metadata = Some(model.metadata.clone()); }
         total_bytes = total_bytes.checked_add(model.file_size())
             .ok_or("split GGUF total file size overflow")?;
         total_tensors = total_tensors.checked_add(model.tensor_count())
@@ -135,6 +236,10 @@ pub fn inspect_split_gguf(path: &Path) -> Result<Option<SplitGgufInventory>, Str
         let mut expert_count = 0;
         let mut unsupported_count = 0;
         for tensor in &model.tensors {
+            if is_expert_tensor(&tensor.name) {
+                all_tensors.push((number,shard.clone(),model.data_offset,
+                    model.file_size(),tensor.clone()));
+            }
             if !names.insert(tensor.name.as_str().to_owned()) {
                 return Err(format!("duplicate tensor {} across GGUF shards",tensor.name));
             }
@@ -156,10 +261,14 @@ pub fn inspect_split_gguf(path: &Path) -> Result<Option<SplitGgufInventory>, Str
             unsupported_expert_tensor_count:unsupported_count,
         });
     }
+    let fused_expert_slabs = fused_slabs(architecture.as_deref(),
+        first_metadata.as_ref().ok_or("first shard metadata missing")?,
+        &all_tensors)?;
     Ok(Some(SplitGgufInventory {
         entrypoint:first, shard_count:count,total_file_bytes:total_bytes,
         total_tensor_count:total_tensors, architecture,shards,
-        expert_sources:sources, unsupported_expert_tensors:unsupported,
+        expert_sources:sources, fused_expert_slabs,
+        unsupported_expert_tensors:unsupported,
         // The native GGML expert reader still supports one original GGUF
         // source path. A validated per-shard map is NOT a working multi-file
         // compute path, so this must remain false until native integration.
@@ -249,6 +358,33 @@ mod tests {
         assert_eq!(found.unsupported_expert_tensors.len(),1);
         assert_eq!(found.shards[1].unsupported_expert_tensor_count,1);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn complete_fused_expert_slabs_span_multiple_shards_without_ambiguity() {
+        use crate::gguf::GgufValue;
+        use std::collections::HashMap;
+        let mut meta=HashMap::new();
+        meta.insert("tiny.expert_count".into(),GgufValue::Uint32(2));
+        meta.insert("tiny.block_count".into(),GgufValue::Uint32(1));
+        let tensors=["ffn_up_exps.weight","ffn_gate_exps.weight","ffn_down_exps.weight"]
+            .iter().enumerate().map(|(i,proj)|{
+                let t=GgufTensorInfo{name:format!("blk.0.{proj}"),
+                    dtype:GgufType::F16,shape:vec![4,3,2],offset:0};
+                (i as u32 % 2 + 1,PathBuf::from(format!("/shard-{i}.gguf")),32,1000,t)
+            }).collect::<Vec<_>>();
+        let full=fused_slabs(Some("tiny"),&meta,&tensors).unwrap();
+        assert_eq!(full.len(),6);
+        assert_eq!(full.iter().filter(|x| x.expert_id==0).count(),3);
+        assert!(full.iter().any(|x| x.shard_number==2));
+        for item in full.iter().filter(|item| item.tensor_name=="blk.0.ffn_up_exps.weight") {
+            assert_eq!(item.byte_length,24);
+            assert_eq!(item.source_byte_offset,32+u64::from(item.expert_id)*24);
+        }
+        assert!(fused_slabs(Some("tiny"),&meta,&tensors[..2]).unwrap().is_empty());
+        let mut invalid=tensors.clone();
+        invalid[1].4.shape[2]=3;
+        assert!(fused_slabs(Some("tiny"),&meta,&invalid).is_err());
     }
 
     #[test]
