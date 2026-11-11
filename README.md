@@ -75,6 +75,11 @@ kiln pull OWNER/REPOSITORY --file "model-00001-of-00002.gguf" --all-shards
 
 Use a nested repository file path when appropriate. The command checks that all numbered parts and their trusted digests exist in the public repository before starting transfers, and it verifies each installed file. **This is download completeness, not inference compatibility**: some architectures and quantizers remain unsupported, and KILN still requires native multi-shard expert compute validation before calling large split-model streaming production-ready.
 
+## GGUF tensor safety and oversized metadata
+
+GGUF tensor-size inspection uses checked, row-oriented encoded-byte arithmetic. Known quantization formats with malformed row dimensions, arithmetic overflow, or out-of-file tensor ranges are rejected instead of being treated as valid but unreadable weights. Unknown quantization types remain visible to discovery and diagnostics, but even unknown tensor offsets must belong to the source file. Parsing rejects out-of-range metadata offsets and data-section alignment overflow. This protects model inspection and expert-source mapping; it does **not** make an unsupported model architecture runnable.
+
+
 ## Split GGUF Phase 5 source mapping
 
 `kiln plan /path/to/model-00001-of-00002.gguf --json` validates **every** part of a split GGUF and reports the **combined** model size, per-shard tensor counts, and verified source byte ranges for recognized routed-expert tensors. It does not combine the original files or read all the model weights into RAM. Supported tensor types are checked for row alignment, byte-range overflow and source-file bounds, while unknown quantizers remain explicitly unsupported. Missing shards, inconsistent split metadata and duplicate tensor names fail closed.

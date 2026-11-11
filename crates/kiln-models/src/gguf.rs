@@ -284,7 +284,9 @@ impl<'a> Reader<'a> {
     }
 
     fn string(&mut self) -> Result<String, GgufError> {
-        let len = self.u64()? as usize;
+        let size = self.u64()?;
+        let len = usize::try_from(size)
+            .map_err(|_| GgufError::Metadata("GGUF string length exceeds addressable memory".into()))?;
         self.need(len)?;
         let s = std::str::from_utf8(&self.bytes[self.pos..self.pos + len])
             .map_err(|e| GgufError::Metadata(format!("invalid UTF-8: {}", e)))?
@@ -325,7 +327,10 @@ pub fn parse_metadata(
     start_offset: usize,
     kv_count: u64,
 ) -> Result<(std::collections::HashMap<String, GgufValue>, usize), GgufError> {
-    let mut reader = Reader::new(&bytes[start_offset..]);
+    let slice = bytes.get(start_offset..).ok_or(GgufError::TruncatedFile {
+        needed: start_offset, got: bytes.len(),
+    })?;
+    let mut reader = Reader::new(slice);
     let mut map = std::collections::HashMap::new();
 
     for i in 0..kv_count {
@@ -455,28 +460,37 @@ pub struct GgufTensorInfo {
 }
 
 impl GgufTensorInfo {
-    /// The number of elements in the tensor.
-    pub fn num_elements(&self) -> u64 {
-        self.shape.iter().product()
+    /// Exact tensor element count, or None if dimensions overflow.
+    pub fn checked_num_elements(&self) -> Option<u64> {
+        self.shape.iter().try_fold(1u64, |n, dim| n.checked_mul(*dim))
     }
 
-    /// The byte size of the tensor.
+    /// Backwards-compatible saturating element count. Source validation
+    /// always uses checked_num_elements instead of trusting this estimate.
+    pub fn num_elements(&self) -> u64 {
+        self.checked_num_elements().unwrap_or(u64::MAX)
+    }
+
+    /// Exact GGUF-encoded bytes, computed *per contiguous row* with checked
+    /// arithmetic. Never round a flattened tensor across quantization rows;
+    /// every GGUF row has its own block packing requirements.
     pub fn byte_size(&self) -> Option<u64> {
-        let n = self.num_elements();
-        match self.dtype {
-            GgufType::F32 => Some(n * 4),
-            GgufType::F16 => Some(n * 2),
-            GgufType::Tq1_0 => Some((n + 4) / 5),
-            GgufType::Unknown(_) => None,
+        let width = *self.shape.first()?;
+        if width == 0 || self.shape.iter().any(|n| *n == 0) { return None; }
+        let rows = self.shape[1..].iter()
+            .try_fold(1u64, |n, dim| n.checked_mul(*dim))?;
+        let row_bytes = match self.dtype {
+            GgufType::F32 => width.checked_mul(4)?,
+            GgufType::F16 => width.checked_mul(2)?,
+            GgufType::Tq1_0 => width.checked_add(4)? / 5,
+            GgufType::Unknown(_) => return None,
             ref t => {
-                // Blocked quantized formats. The size is the number of
-                // blocks times the bytes per block.
-                let block_size = t.block_size()?;
-                let block_bytes = t.block_bytes()?;
-                let num_blocks = (n + block_size - 1) / block_size;
-                Some(num_blocks * block_bytes)
+                let block = t.block_size()?;
+                if width % block != 0 { return None; }
+                (width / block).checked_mul(t.block_bytes()?)?
             }
-        }
+        };
+        row_bytes.checked_mul(rows)
     }
 }
 
@@ -490,7 +504,10 @@ pub fn parse_tensor_table(
     start_offset: usize,
     tensor_count: u64,
 ) -> Result<(Vec<GgufTensorInfo>, usize), GgufError> {
-    let mut reader = Reader::new(&bytes[start_offset..]);
+    let slice = bytes.get(start_offset..).ok_or(GgufError::TruncatedFile {
+        needed: start_offset, got: bytes.len(),
+    })?;
+    let mut reader = Reader::new(slice);
     let mut tensors = Vec::with_capacity(tensor_count.min(4096) as usize);
 
     for i in 0..tensor_count {
@@ -588,7 +605,14 @@ impl GgufFile {
         }
 
         // Round the offset up to the alignment boundary.
-        let data_offset = align_up(after_tensor_table as u64, alignment);
+        let data_offset = align_up(after_tensor_table as u64, alignment)
+            .ok_or_else(|| GgufError::Alignment("GGUF data offset overflow".into()))?;
+        if data_offset > bytes.len() as u64 {
+            return Err(GgufError::TruncatedFile {
+                needed: usize::try_from(data_offset).unwrap_or(usize::MAX),
+                got: bytes.len(),
+            });
+        }
 
         // Verify that every tensor with a known dtype fits within the
         // file. Tensors with unknown dtypes are skipped. The loader
@@ -599,7 +623,22 @@ impl GgufFile {
         for t in &tensors {
             let byte_size = match t.byte_size() {
                 Some(n) => n,
-                None => continue, // unknown dtype, skip bounds check
+                None if matches!(t.dtype, GgufType::Unknown(_)) => {
+                    // Preserve unknown formats for diagnostics, but their
+                    // starting offset still must belong to this file.
+                    let start = data_offset.checked_add(t.offset)
+                        .ok_or_else(|| GgufError::Tensor(format!(
+                            "unknown tensor '{}' offset overflow",t.name)))?;
+                    if start > bytes.len() as u64 {
+                        return Err(GgufError::Tensor(format!(
+                            "unknown tensor '{}' starts past end of GGUF",t.name)));
+                    }
+                    continue;
+                },
+                None => return Err(GgufError::Tensor(format!(
+                    "tensor '{}' has invalid, non-aligned or overflowing dimensions",
+                    t.name
+                ))),
             };
             let end = data_offset
                 .checked_add(t.offset)
@@ -635,9 +674,10 @@ impl GgufFile {
     /// Get the raw bytes of a tensor.
     pub fn tensor_bytes(&self, name: &str) -> Option<&[u8]> {
         let t = self.tensor(name)?;
-        let byte_size = t.byte_size()? as usize;
-        let start = (self.data_offset + t.offset) as usize;
-        let end = start + byte_size;
+        let byte_size = usize::try_from(t.byte_size()?).ok()?;
+        let offset = self.data_offset.checked_add(t.offset)?;
+        let start = usize::try_from(offset).ok()?;
+        let end = start.checked_add(byte_size)?;
         self.mmap.get(start..end)
     }
 
@@ -668,11 +708,10 @@ impl GgufFile {
 }
 
 /// Round `value` up to the nearest multiple of `alignment`.
-fn align_up(value: u64, alignment: u64) -> u64 {
-    if alignment == 0 {
-        return value;
-    }
-    (value + alignment - 1) & !(alignment - 1)
+fn align_up(value: u64, alignment: u64) -> Option<u64> {
+    if alignment == 0 { return Some(value); }
+    value.checked_add(alignment - 1)
+        .map(|rounded| rounded & !(alignment - 1))
 }
 
 #[cfg(test)]
@@ -812,6 +851,30 @@ mod tests {
     }
 
     #[test]
+    fn tensor_sizes_are_row_aligned_and_overflow_safe() {
+        let tensor = |shape:Vec<u64>, dtype| GgufTensorInfo {
+            name:"test".into(),shape,dtype,offset:0
+        };
+        assert_eq!(tensor(vec![256,2],GgufType::Q4_K).byte_size(),Some(288));
+        assert_eq!(tensor(vec![255,2],GgufType::Q4_K).byte_size(),None);
+        assert_eq!(tensor(vec![6,2],GgufType::Tq1_0).byte_size(),Some(4));
+        assert_eq!(tensor(vec![u64::MAX,2],GgufType::F32).byte_size(),None);
+        assert_eq!(tensor(vec![0,2],GgufType::F16).byte_size(),None);
+        let huge=tensor(vec![u64::MAX,2],GgufType::F16);
+        assert_eq!(huge.checked_num_elements(),None);
+        assert_eq!(huge.num_elements(),u64::MAX);
+    }
+
+    #[test]
+    fn offset_overflow_cannot_escape_a_tensor_slice() {
+        let tensor=GgufTensorInfo {
+            name:"overflow".into(),shape:vec![u64::MAX,2],
+            dtype:GgufType::F32,offset:u64::MAX
+        };
+        assert!(tensor.byte_size().is_none());
+    }
+
+    #[test]
     fn parse_tensor_table_tq1_0() {
         // A TQ1_0 tensor with 10 elements -> (10 + 4) / 5 = 2 bytes
         let mut buf = Vec::new();
@@ -857,12 +920,19 @@ mod tests {
     }
 
     #[test]
+    fn bad_offsets_do_not_panic_in_parsers() {
+        assert!(parse_metadata(&[0u8;4], 100, 1).is_err());
+        assert!(parse_tensor_table(&[0u8;4], 100, 1).is_err());
+        assert_eq!(align_up(u64::MAX,32),None);
+    }
+
+    #[test]
     fn align_up_basics() {
-        assert_eq!(align_up(0, 32), 0);
-        assert_eq!(align_up(1, 32), 32);
-        assert_eq!(align_up(32, 32), 32);
-        assert_eq!(align_up(33, 32), 64);
-        assert_eq!(align_up(0, 1), 0);
+        assert_eq!(align_up(0, 32), Some(0));
+        assert_eq!(align_up(1, 32), Some(32));
+        assert_eq!(align_up(32, 32), Some(32));
+        assert_eq!(align_up(33, 32), Some(64));
+        assert_eq!(align_up(0, 1), Some(0));
     }
 
     /// Build a minimal valid GGUF file in memory and write it to a
