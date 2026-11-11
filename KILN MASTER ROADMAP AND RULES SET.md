@@ -686,3 +686,8 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 
 - Corrected local API split-GGUF total-size calculation: every conventionally numbered source shard must have readable regular-file metadata; missing/unreadable parts now fail closed instead of being silently omitted from memory routing. Combined-size arithmetic rejects overflow.
 - Added focused unit regressions for successful aggregation, missing shard errors and u64 overflow. This is a correctness guard only: CI and target-hardware performance/quality gates remain separate and no Phase 5 acceptance claim is made.
+
+
+### 2026-11-11 — Native streaming context-rejection API status (reconciled batch)
+
+- Preserve distinction between fully framed native worker preflight rejection and a poisoned/truncated IPC protocol. Return HTTP 400 for client prompt rejections and HTTP 502 for genuine worker failures, with a Unix framed-worker regression. This is API correctness work, not a Phase 5 performance or quality gate.
