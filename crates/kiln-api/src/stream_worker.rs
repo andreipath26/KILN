@@ -323,7 +323,7 @@ mod request_encoding_tests {
         let safe = encode_request("hello", 8).unwrap();
         assert!(safe.ends_with("}"));
         assert!(safe.len() + 1 <= MAX_REQUEST_LINE);
-        let escaped = "\\u{0000}".repeat(60_000);
+        let escaped = "\0".repeat(60_000);
         assert!(escaped.len() < 131_072);
         assert!(matches!(encode_request(&escaped, 8),
             Err(StreamInferError::Rejected(message)) if message.contains("encoded request limit")));
