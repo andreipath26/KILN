@@ -85,6 +85,10 @@ Use a nested repository file path when appropriate. The command checks that all 
 
 The Linux CI smoke test now keeps one actual native MoE model loaded while exercising two HTTP 400 paths: an over-context prompt that fits the raw IPC request bound, and a control-character prompt whose escaped JSONL frame exceeds the native worker limit. It then sends a short generation request to the same native session and verifies that the streaming mode remains active. The response and recovery evidence are archived after the full smoke sequence. Passing this gate verifies protocol/session recovery for a small test GGUF only; it is not a large-model Tier 0 speed, memory, SSD I/O, or WikiText-2 quality result.
 
+## Parallel CI feedback
+
+GitHub Actions runs a lightweight `fast-checks` job alongside the native real-model integration job. It validates Python evidence/feasibility utilities, shell script syntax, and local browser JavaScript syntax without compiling the pinned llama.cpp submodule or downloading GGUF weights. The long native test job retains workspace, real-model parity, release, and UI smoke gates. Both jobs must pass before CI is green; this split avoids duplicating the fast tests in the long-running job.
+
 ## Repeatable real-model CI fixtures
 
 The smoke workflow reuses verified GGUF files by hard link for alternate-model and Ollama-manifest checks. Restored caches may already contain these paths, so fixture setup compares inode identity and only repairs a missing or stale link; it does not copy or modify source model weights. This avoids failing an otherwise successful native integration run because a cache-restored test link already exists.
