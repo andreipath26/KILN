@@ -27,6 +27,7 @@ function localModels(activePath = "/tmp/test-model.gguf") {
       path: "/tmp/other-model.gguf",
       size_bytes: 500_000_000,
       source: "local GGUF",
+      native_stream_candidate: true,
       valid_gguf: true,
       active: activePath === "/tmp/other-model.gguf",
     },
@@ -152,6 +153,9 @@ async function main() {
 
     await page.getByRole("heading", { name: "Talk to your model" }).waitFor();
     await page.getByText("test-model.gguf", { exact: true }).waitFor();
+    // The UI must not advertise native streaming for every dense/unknown
+    // model, while retaining the explicit option for eligible MoE layouts.
+    assert.equal(await page.getByRole("button", {name:"Try streaming"}).count(),1);
     await checkAccessibility(page, "Simple view");
 
     await page.locator("#prompt").fill("Say hello");
