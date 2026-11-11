@@ -193,6 +193,8 @@ fn should_stream_single_file(
 }
 
 fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, String> {
+    let path = std::fs::canonicalize(&path)
+        .map_err(|e| format!("cannot resolve model path {}: {e}",path.display()))?;
     let metadata = std::fs::metadata(&path)
         .map_err(|e| format!("model path {} is not readable: {}", path.display(), e))?;
     if !metadata.is_file() {
