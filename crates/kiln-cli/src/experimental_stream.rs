@@ -407,6 +407,42 @@ pub fn run(
 mod tests {
     use super::*;
     #[test]
+    fn version_two_split_index_selects_each_original_shard_and_rejects_bad_source() {
+        use kiln_models::split_gguf::{SplitGgufInventory,SplitShardSummary,SplitFusedExpertSlab};
+        let first=PathBuf::from("/data/qwen-00001-of-00002.gguf");
+        let second=PathBuf::from("/data/qwen-00002-of-00002.gguf");
+        let shards=[first.clone(),second.clone()].into_iter().enumerate()
+            .map(|(i,path)|SplitShardSummary {
+                shard_number:i as u32+1,path,file_size_bytes:4096,
+                tensor_count:1,expert_tensor_count:1,unsupported_expert_tensor_count:0
+            }).collect::<Vec<_>>();
+        let slabs=(0..2u32).map(|expert_id|SplitFusedExpertSlab {
+            tensor_name:"blk.0.ffn_up_exps.weight".into(),layer:0,expert_id,
+            shard_number:2,source_path:second.clone(),
+            source_byte_offset:128+u64::from(expert_id)*256,byte_length:256
+        }).collect();
+        let inventory=SplitGgufInventory {
+            entrypoint:first,shard_count:2,total_file_bytes:8192,total_tensor_count:2,
+            architecture:Some("tiny".into()),shards,expert_sources:vec![],
+            fused_expert_slabs:slabs,unsupported_expert_tensors:vec![],
+            native_multi_source_streaming_ready:false,
+        };
+        let (index,names)=split_external_index_contents(&inventory).unwrap();
+        let value=String::from_utf8(index).unwrap();
+        assert!(value.starts_with("KILN-MOE-STREAM-2\nSOURCES\t2\n"));
+        assert!(value.contains("SOURCE\t0\t/data/qwen-00001-of-00002.gguf\n"));
+        assert!(value.contains("SOURCE\t1\t/data/qwen-00002-of-00002.gguf\nDATA\n"));
+        assert!(value.contains("blk.0.ffn_up_exps.weight\t1\t1\t384\t256\n"));
+        assert_eq!(names.len(),1);
+        let mut invalid=inventory.clone();
+        invalid.fused_expert_slabs[0].source_path=PathBuf::from("/tmp/unrelated.gguf");
+        assert!(split_external_index_contents(&invalid).is_err());
+        invalid=inventory.clone();
+        invalid.fused_expert_slabs.push(invalid.fused_expert_slabs[0].clone());
+        assert!(split_external_index_contents(&invalid).is_err());
+    }
+
+    #[test]
     fn safe_external_index_is_bounded_and_rejects_duplicate_or_ambiguous_experts() {
         let component = ExpertTensorComponent {
             layer: 2, expert_id: 1,
