@@ -217,13 +217,16 @@ pub fn inspect_split_gguf(path: &Path) -> Result<Option<SplitGgufInventory>, Str
             }
         }
         let shard_arch = model.metadata_str("general.architecture").map(str::to_owned);
-        if let Some(ref current) = architecture {
-            if shard_arch.as_ref() != Some(current) {
+        // Upstream llama-gguf-split intentionally writes the original
+        // architecture metadata ONLY to shard 1. Later shards normally
+        // contain split.no/split.count and tensor tables without it.
+        if number == 1 {
+            architecture = shard_arch;
+        } else if let Some(ref explicit) = shard_arch {
+            if architecture.as_ref() != Some(explicit) {
                 return Err(format!("split GGUF shards disagree on architecture: {}",
                     shard.display()));
             }
-        } else if number == 1 {
-            architecture = shard_arch;
         }
         if number == 1 { first_metadata = Some(model.metadata.clone()); }
         total_bytes = total_bytes.checked_add(model.file_size())
