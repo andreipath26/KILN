@@ -307,15 +307,24 @@ function renderLocalModels(models) {
 
 // Group exact conventional GGUF shard names within one remote repository.
 // Never mix quantizations, subdirectories or similarly named model families.
-function splitArtifactGroup(artifacts, selected) {
+function splitArtifactSelection(artifacts, selected) {
   const match = /^(.+)-(\d{5})-of-(\d{5})\.gguf$/i.exec(selected);
-  if (!match) return [selected];
+  if (!match) return { files: [selected], split: false, missing: [], error: "" };
   const count = Number(match[3]);
-  if (!Number.isSafeInteger(count) || count < 2 || count > 1024) return [selected];
+  if (!Number.isSafeInteger(count) || count < 2 || count > 1024) {
+    return { files: [], split: true, missing: [],
+      error: "Invalid GGUF split count; cannot download a partial model." };
+  }
   const expected = Array.from({ length: count }, (_, index) =>
     `${match[1]}-${String(index + 1).padStart(5, "0")}-of-${match[3]}.gguf`);
   const available = new Set(artifacts.map((item) => item.path));
-  return expected.every((path) => available.has(path)) ? expected : [selected];
+  const missing = expected.filter((file) => !available.has(file));
+  return {
+    files: missing.length ? [] : expected, split: true, missing,
+    error: missing.length
+      ? `Incomplete remote split GGUF: ${missing.length} of ${count} shards are not listed. KILN will not download a partial model.`
+      : "",
+  };
 }
 
 function renderRemoteModels(models) {
@@ -351,15 +360,23 @@ function renderRemoteModels(models) {
       pull.textContent = `Download ${artifact.path}${size}`;
       pull.disabled = Boolean(model.gated) || state.modelActionBusy;
       pull.title = model.gated ? "This repository requires provider authorization and cannot be downloaded through this public flow." : "Download and verify this GGUF file";
-      const group = splitArtifactGroup(model.artifacts || [], artifact.path);
-      if (group.length > 1) {
-        // Show a single complete-model action on shard 1. Individual
-        // partial-shard downloads are deliberately not the default.
-        if (group[0] !== artifact.path) continue;
-        pull.textContent = `Download complete model (${group.length} shards)`;
-        pull.title = `Download and individually SHA-256 verify all ${group.length} original GGUF shards`;
+      const selection = splitArtifactSelection(model.artifacts || [], artifact.path);
+      if (selection.split) {
+        // One row per model, never one misleading install action per shard.
+        if (!/-00001-of-\d{5}\.gguf$/i.test(artifact.path)) continue;
+        if (selection.error) {
+          pull.textContent = "Incomplete split model (download unavailable)";
+          pull.disabled = true;
+          pull.title = selection.error + " Check the provider repository for the missing parts.";
+        } else {
+          pull.textContent = `Download complete model (${selection.files.length} shards)`;
+          pull.title = `Download and individually SHA-256 verify all ${selection.files.length} original GGUF shards`;
+        }
       }
-      pull.addEventListener("click", () => void downloadArtifact(model.repository, artifact.path, group));
+      if (!selection.error) {
+        pull.addEventListener("click", () =>
+          void downloadArtifact(model.repository, artifact.path, selection.files));
+      }
       actions.append(pull);
     }
     if (model.gated) {
