@@ -29,6 +29,7 @@ pub struct StreamWorker {
     child: Child,
     input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
+    protocol_failed: bool,
 }
 
 impl StreamWorker {
@@ -54,7 +55,9 @@ impl StreamWorker {
             .spawn().map_err(|e| format!("could not start native streaming worker: {e}"))?;
         let input = child.stdin.take().ok_or("stream worker stdin unavailable")?;
         let output = child.stdout.take().ok_or("stream worker stdout unavailable")?;
-        let mut worker = Self { child, input: Some(input), output: BufReader::new(output) };
+        let mut worker = Self {
+            child, input: Some(input), output: BufReader::new(output), protocol_failed: false,
+        };
         let line = read_bounded_line(&mut worker.output, MAX_HANDSHAKE_LINE)?
             .ok_or("experimental native streaming could not initialize this model; check KILN server logs for its GGUF or resource error")?;
         let response: serde_json::Value = serde_json::from_str(&line)
@@ -67,9 +70,23 @@ impl StreamWorker {
 
     pub fn infer(&mut self, prompt: &str, max_tokens: usize,
                  on_chunk: &mut dyn FnMut(&str) -> bool) -> Result<String, String> {
+        if self.protocol_failed {
+            return Err("stream worker protocol failed during a previous request; reselect the model to start a fresh worker".into());
+        }
         if prompt.is_empty() || prompt.len() > 131_072 || max_tokens == 0 || max_tokens > 4096 {
             return Err("streamed prompt or token count exceeds bounded IPC limits".into());
         }
+        let result = self.infer_framed(prompt, max_tokens, on_chunk);
+        if result.is_err() {
+            // A failed or incomplete JSONL exchange must not be confused with
+            // the response to the *next* prompt. Require a fresh child.
+            self.protocol_failed = true;
+        }
+        result
+    }
+
+    fn infer_framed(&mut self, prompt: &str, max_tokens: usize,
+                    on_chunk: &mut dyn FnMut(&str) -> bool) -> Result<String, String> {
         let request = serde_json::json!({"prompt":prompt,"max_tokens":max_tokens});
         let input = self.input.as_mut().ok_or("stream worker stdin has closed")?;
         writeln!(input,"{request}").and_then(|_| input.flush())
