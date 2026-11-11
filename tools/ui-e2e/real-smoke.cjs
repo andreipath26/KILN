@@ -28,6 +28,11 @@ async function main() {
     assert.equal(await page.locator("#active-model-name").textContent(), "alternate-smoke");
 
     await page.getByRole("tab", { name: "Advanced" }).click();
+    const profileText = await page.locator("#system-profile").textContent();
+    assert.ok(profileText.includes("Available RAM"), "UI exposes current memory headroom");
+    assert.ok(profileText.includes("Estimated model residency budget"), "UI exposes conservative model-loading limit");
+    assert.match(await page.locator("#session-details").textContent(),
+      /Standard \/ mmap model loading/, "UI shows the actual current engine mode");
     await page.locator("#max-tokens").fill("16");
     await page.locator("#max-tokens").dispatchEvent("change");
     await page.getByRole("tab", { name: "Simple" }).click();
