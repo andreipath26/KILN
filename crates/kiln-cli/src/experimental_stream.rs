@@ -233,6 +233,16 @@ pub fn run(
     };
     let path = std::fs::canonicalize(&found)
         .map_err(|error| format!("model path cannot be resolved: {error}"))?;
+    if let Some((_, _, parts)) = kiln_models::library::split_gguf_parts(&path) {
+        // The native expert read callback currently accepts one file
+        // descriptor. Building a one-source index from shard 1 would omit
+        // routed experts in other shards and falsely claim graph coverage.
+        return Err(format!(
+            "this model has {parts} GGUF shards; native multi-source expert reads are not yet wired. \
+             Use 'kiln plan <first-shard.gguf>' to inspect all shard sources. \
+             Do not select a partial single-shard stream index."
+        ));
+    }
     let source_before = std::fs::metadata(&path)
         .map_err(|e| format!("cannot stat source GGUF: {e}"))?;
     if !source_before.is_file() {
