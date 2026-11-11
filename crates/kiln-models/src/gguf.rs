@@ -504,7 +504,10 @@ pub fn parse_tensor_table(
     start_offset: usize,
     tensor_count: u64,
 ) -> Result<(Vec<GgufTensorInfo>, usize), GgufError> {
-    let mut reader = Reader::new(&bytes[start_offset..]);
+    let slice = bytes.get(start_offset..).ok_or(GgufError::TruncatedFile {
+        needed: start_offset, got: bytes.len(),
+    })?;
+    let mut reader = Reader::new(slice);
     let mut tensors = Vec::with_capacity(tensor_count.min(4096) as usize);
 
     for i in 0..tensor_count {
