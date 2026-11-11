@@ -463,6 +463,7 @@ pub async fn ui_model_activate(
 /// marked explicitly instead of being presented as active settings.
 pub async fn ui_capabilities(State(state): State<ApiState>) -> Json<Value> {
     let profile = kiln_runtime::SystemProfile::load_or_probe();
+    let memory = crate::runtime::memory_headroom_bytes();
     let active_model = state.runtime.lock().ok().and_then(|runtime| {
         runtime.as_ref().map(|session| json!({
             "name": session.model_name,
@@ -478,6 +479,8 @@ pub async fn ui_capabilities(State(state): State<ApiState>) -> Json<Value> {
             "tier": format!("{:?}", profile.tier),
             "cpu_cores": profile.cpu_cores,
             "ram_gb": profile.ram_gb,
+            "available_ram_bytes": memory.map(|(available, _)| available),
+            "resident_budget_bytes": memory.map(|(_, budget)| budget),
             "n_ctx": profile.n_ctx,
             "n_batch": profile.n_batch,
             "n_threads": profile.n_threads,

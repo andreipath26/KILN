@@ -65,7 +65,9 @@ impl ApiState {
         let previous = {
             let mut runtime = self.runtime.lock()
                 .map_err(|_| "runtime state lock is poisoned".to_string())?;
-            runtime.take().map(|session| (session.model_path.clone(), session.model_name.clone()))
+            runtime.take().map(|session| (
+                session.model_path.clone(), session.model_name.clone(), session.streaming
+            ))
         };
 
         match load_session(path.clone(), force_stream) {
@@ -75,8 +77,11 @@ impl ApiState {
                 Ok(name)
             }
             Err(load_error) => {
-                if let Some((previous_path, previous_name)) = previous {
-                    match load_session(previous_path, false) {
+                if let Some((previous_path, previous_name, was_streaming)) = previous {
+                    // Restore the original execution mode, including an
+                    // explicitly streamed small MoE model. Re-selecting the
+                    // ordinary loader could otherwise crash on recovery.
+                    match load_session(previous_path, was_streaming) {
                         Ok(session) => {
                             *self.runtime.lock().map_err(|_| "runtime state lock is poisoned".to_string())? = Some(session);
                             Err(format!("model activation failed: {load_error}; restored previous model '{previous_name}'"))
@@ -91,6 +96,70 @@ impl ApiState {
     }
 }
 
+/// Physical free-memory and container headroom are different from installed
+/// RAM. Requiring headroom avoids choosing a resident load simply because a
+/// GGUF happens to fit within the machine's *total* RAM.
+fn parse_mem_available_bytes(meminfo: &str) -> Option<u64> {
+    let line = meminfo.lines().find(|line| line.starts_with("MemAvailable:"))?;
+    let mut fields = line.split_whitespace();
+    if fields.next()? != "MemAvailable:" { return None; }
+    let kib = fields.next()?.parse::<u64>().ok()?;
+    if fields.next()? != "kB" || fields.next().is_some() { return None; }
+    kib.checked_mul(1024)
+}
+
+fn finite_cgroup_bytes(raw: &str) -> Option<u64> {
+    let raw = raw.trim();
+    if raw == "max" || raw.is_empty() || !raw.bytes().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    raw.parse::<u64>().ok().filter(|n| *n > 0 && *n < (1u64 << 60))
+}
+
+fn available_ram_bytes() -> Option<u64> {
+    #[cfg(target_os="linux")]
+    {
+        let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
+        let mut available = parse_mem_available_bytes(&meminfo)?;
+        for (max_path, current_path) in [
+            ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current"),
+            ("/sys/fs/cgroup/memory/memory.limit_in_bytes",
+             "/sys/fs/cgroup/memory/memory.usage_in_bytes"),
+        ] {
+            let cap = std::fs::read_to_string(max_path).ok()
+                .and_then(|s| finite_cgroup_bytes(&s));
+            let usage = std::fs::read_to_string(current_path).ok()
+                .and_then(|s| s.trim().parse::<u64>().ok());
+            if let (Some(cap), Some(usage)) = (cap,usage) {
+                available = available.min(cap.saturating_sub(usage));
+            }
+        }
+        Some(available)
+    }
+    #[cfg(not(target_os="linux"))]
+    { None }
+}
+
+fn resident_budget_bytes(available: u64) -> u64 {
+    // Allow the OS, inference context, runtime allocations and other programs
+    // to use their share. This is deliberately a conservative dispatch hint,
+    // not a guarantee that the entire model would otherwise be resident.
+    available.saturating_sub((available / 5).max(512 * 1024 * 1024))
+}
+
+/// Live memory estimate for the local UI; never claim the resident budget
+/// equals the full amount available to the OS. Unknown values stay unknown.
+pub(crate) fn memory_headroom_bytes() -> Option<(u64, u64)> {
+    let available = available_ram_bytes()?;
+    Some((available, resident_budget_bytes(available)))
+}
+
+fn should_stream_single_file(
+    force_stream: bool, is_split: bool, model_bytes: u64, budget_bytes: u64
+) -> bool {
+    !is_split && (force_stream || model_bytes > budget_bytes)
+}
+
 fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, String> {
     let metadata = std::fs::metadata(&path)
         .map_err(|e| format!("model path {} is not readable: {}", path.display(), e))?;
@@ -99,7 +168,10 @@ fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, Str
     }
 
         let profile = SystemProfile::load_or_probe();
-        let stream_threshold = u64::from(profile.ram_gb).saturating_mul(1_073_741_824);
+        let available = available_ram_bytes().unwrap_or_else(|| {
+            u64::from(profile.ram_gb).saturating_mul(1_073_741_824)
+        });
+        let resident_budget = resident_budget_bytes(available);
         let is_split = kiln_models::library::split_gguf_parts(&path).is_some();
         let total_size = if let Some((prefix, _, count)) = kiln_models::library::split_gguf_parts(&path) {
             let base = prefix.file_name().and_then(|s| s.to_str()).unwrap_or("");
@@ -107,13 +179,18 @@ fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, Str
                 prefix.with_file_name(format!("{base}-{n:05}-of-{count:05}.gguf"))
             ).ok().map(|m| m.len())).sum::<u64>()
         } else { metadata.len() };
+        if force_stream && !cfg!(target_os = "linux") {
+            return Err("native CPU expert streaming is currently Linux-only".into());
+        }
         if force_stream && is_split {
             return Err("native single-file MoE streaming does not yet support split GGUFs; use the automatic lazy mapped loader when all shards are present".into());
         }
-        if force_stream || (stream_threshold > 0 && total_size > stream_threshold && !is_split) {
+        if cfg!(target_os = "linux")
+            && should_stream_single_file(force_stream, is_split, total_size, resident_budget) {
             let worker = StreamWorker::start(&path).map_err(|e| format!(
-                "oversized model ({:.1} GiB) needs native expert streaming, but it cannot be loaded in this experimental mode: {e}",
-                total_size as f64 / 1_073_741_824.0
+                "model ({:.1} GiB; resident budget {:.1} GiB) was routed to native expert streaming, but the GGUF layout or streaming worker is incompatible: {e}",
+                total_size as f64 / 1_073_741_824.0,
+                resident_budget as f64 / 1_073_741_824.0
             ))?;
             let model_name = path.file_stem().and_then(|s| s.to_str())
                 .unwrap_or("model").to_owned();
@@ -130,7 +207,7 @@ fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, Str
             n_batch: profile.n_batch,
             n_ubatch: profile.n_batch.min(512),
             n_threads: profile.n_threads,
-            lazy_moe_experts: total_size > stream_threshold && stream_threshold > 0,
+            lazy_moe_experts: total_size > resident_budget,
         }).map_err(|e| format!("failed to load configured model {}: {}", path.display(), e))?;
 
         let eos_token = match dispatcher.dispatch(RuntimeOp::EosToken)
@@ -161,4 +238,52 @@ fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, Str
                 model_path: path,
                 eos_token,
             })
+}
+
+#[cfg(test)]
+mod memory_routing_tests {
+    use super::*;
+
+    #[test]
+    fn reads_memavailable_without_confusing_total_ram() {
+        let sample = "MemTotal:       16384000 kB\nMemFree: 1024 kB\nMemAvailable: 2000000 kB\n";
+        assert_eq!(parse_mem_available_bytes(sample), Some(2_048_000_000));
+        assert_eq!(parse_mem_available_bytes("MemAvailable: max kB"), None);
+        assert_eq!(parse_mem_available_bytes("MemAvailable: 123 bytes"), None);
+        assert_eq!(parse_mem_available_bytes("MemAvailable: 0 kB"), Some(0));
+        assert_eq!(parse_mem_available_bytes("MemAvailable: 18446744073709551615 kB"), None);
+        // A genuinely exhausted host must NEVER fall back to installed RAM.
+        assert_eq!(resident_budget_bytes(parse_mem_available_bytes("MemAvailable: 0 kB").unwrap()), 0);
+    }
+
+    #[test]
+    fn parses_only_real_cgroup_limits() {
+        assert_eq!(finite_cgroup_bytes("max"),None);
+        assert_eq!(finite_cgroup_bytes("9223372036854771712"),None);
+        assert_eq!(finite_cgroup_bytes("2147483648\n"),Some(2_147_483_648));
+        assert_eq!(finite_cgroup_bytes("-1"),None);
+    }
+
+    #[test]
+    fn conservative_budget_reserves_memory_for_os_and_kv() {
+        let gib = 1_073_741_824u64;
+        assert_eq!(resident_budget_bytes(16*gib), 16*gib - 16*gib/5);
+        assert_eq!(resident_budget_bytes(gib), gib - 512*1024*1024);
+        assert_eq!(resident_budget_bytes(128*1024*1024), 0);
+        assert_eq!(resident_budget_bytes(0), 0);
+    }
+
+    #[test]
+    fn available_memory_routes_oversized_single_file_not_just_total_ram() {
+        let gib = 1_073_741_824u64;
+        let free_budget = resident_budget_bytes(8*gib);
+        // This 10 GiB model is below a 16 GiB *total* RAM figure, but
+        // cannot reasonably be loaded with only 8 GiB currently available.
+        assert!(should_stream_single_file(false,false,10*gib,free_budget));
+        assert!(!should_stream_single_file(false,false,2*gib,free_budget));
+        assert!(should_stream_single_file(true,false,2*gib,free_budget));
+        // The native external expert index has no cross-shard support.
+        assert!(!should_stream_single_file(true,true,10*gib,free_budget));
+        assert!(!should_stream_single_file(false,true,10*gib,free_budget));
+    }
 }
