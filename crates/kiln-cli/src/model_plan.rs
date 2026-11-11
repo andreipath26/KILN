@@ -173,8 +173,15 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
     // must never imply that a large model has passed throughput/quality gates.
     let eligible_fused = kiln_models::discover_complete_fused_moe_selections(&model_data)
         .ok().filter(|items| !items.is_empty());
+    let split_native_candidate = split.as_ref().is_some_and(|inventory|
+        (2..=64).contains(&inventory.shard_count) &&
+        !inventory.fused_expert_slabs.is_empty() &&
+        inventory.fused_expert_slabs.len() <= 300_000 &&
+        inventory.unsupported_expert_tensors.is_empty()
+    );
     let experimental_cpu_external_streaming =
-        cfg!(target_os = "linux") && split.is_none() && eligible_fused.is_some();
+        cfg!(target_os = "linux") &&
+        (split_native_candidate || (split.is_none() && eligible_fused.is_some()));
     let total_file_bytes = split.as_ref()
         .map_or(model_data.file_size(), |index| index.total_file_bytes);
     let total_tensors = split.as_ref()
@@ -200,6 +207,7 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
         "unsupported_expert_tensors": index.unsupported_expert_tensors,
         "shards": index.shards,
         "native_multi_source_streaming_ready": index.native_multi_source_streaming_ready,
+        "experimental_native_multi_source_compute_supported": cfg!(target_os="linux") && split_native_candidate,
         "limitation": "Per-shard ranges are verified for supported tensor types, but native multi-file expert computation is NOT implemented"
     })));
     report["architecture"] = json!(model_data.metadata_str("general.architecture"));
@@ -217,13 +225,15 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
             eligible_fused.as_ref().map(|items| items.len()).unwrap_or(0)
         });
     report["recommendations"]["experimental_source_gguf_index_command"] =
-        json!(if experimental_cpu_external_streaming {
+        json!(if split_native_candidate && cfg!(target_os = "linux") {
+            "kiln stream <first-shard.gguf> --cache-mib 64 --parallel-reads (experimental native multi-file selected-expert reads)"
+        } else if experimental_cpu_external_streaming {
             "kiln-bench expert-export-gguf-stream-index --source-gguf <model.gguf> --auto-verified --output-file <new-index.tsv>"
         } else {
             "not supported for this GGUF layout/platform without explicit expert selection"
         });
     report["recommendations"]["experimental_selected_expert_compute_note"] = json!(
-        "Native graph-selected expert pread computation is opt-in via KILN_MOE_STREAM_BLOB + KILN_MOE_STREAM_INDEX; it remains experimental, requires real parity/throughput/memory evidence and does not prove Tier 0 deployment"
+        "Native graph-selected expert pread computation is opt-in via kiln stream. Complete split fused layouts use a verified KILN-MOE-STREAM-2 per-shard index; still experimental and requires measured parity, throughput, RSS and physical SSD evidence"
     );
 
     if as_json {
