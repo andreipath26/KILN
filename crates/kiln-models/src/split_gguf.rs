@@ -108,9 +108,9 @@ fn fused_projection(name: &str) -> Option<(u32, &str)> {
         "ffn_gate_exps.weight") { return None; }
     // Reject leading zeros and malformed layer names instead of allowing
     // multiple spellings to bypass per-layer uniqueness checks.
-    let layer: u32 = layer.parse().ok()?;
-    if layer.to_string() != layer.to_owned() { return None; }
-    Some((layer, projection))
+    let layer_number: u32 = layer.parse().ok()?;
+    if layer_number.to_string() != layer { return None; }
+    Some((layer_number, projection))
 }
 
 /// Strictly recognize complete, uniform third-axis experts across all source
