@@ -156,6 +156,10 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
     // aliases as 'kiln run' and 'kiln stream'; no model weight copy is needed.
     let resolved = crate::model_library::resolve_model_identifier(model)?;
     let path = resolved.as_path();
+    // Inspect *all* GGUF shard headers and tensor ranges. A single first
+    // shard is not the model's total file size, expert inventory or evidence
+    // that the one-source native expert reader can stream the complete set.
+    let split = kiln_models::split_gguf::inspect_split_gguf(path)?;
     let model_data = GgufFile::open(path).map_err(|error| format!(
         "model preflight failed to parse GGUF {}: {error}", path.display()
     ))?;
@@ -170,16 +174,33 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
     let eligible_fused = kiln_models::discover_complete_fused_moe_selections(&model_data)
         .ok().filter(|items| !items.is_empty());
     let experimental_cpu_external_streaming =
-        cfg!(target_os = "linux") && eligible_fused.is_some();
+        cfg!(target_os = "linux") && split.is_none() && eligible_fused.is_some();
+    let total_file_bytes = split.as_ref()
+        .map_or(model_data.file_size(), |index| index.total_file_bytes);
+    let total_tensors = split.as_ref()
+        .map_or(model_data.tensor_count(), |index| index.total_tensor_count);
+    let all_shards_have_routed_experts = split.as_ref().is_some_and(|index|
+        index.shards.iter().any(|part| part.expert_tensor_count > 0));
+    let has_routed_experts = has_routed_experts || all_shards_have_routed_experts;
     let profile = SystemProfile::probe();
     let available = physical_memory_available();
     let mut report = feasibility(
-        model_data.file_size(), available, has_routed_experts,
+        total_file_bytes, available, has_routed_experts,
         profile.cpu_cores, profile.ram_gb
     );
     report["model_path"] = json!(std::fs::canonicalize(path)
         .unwrap_or_else(|_| path.to_path_buf()).display().to_string());
-    report["gguf_tensor_count"] = json!(model_data.tensor_count());
+    report["gguf_tensor_count"] = json!(total_tensors);
+    report["split_gguf"] = json!(split.as_ref().map(|index| json!({
+        "shard_count": index.shard_count,
+        "total_file_bytes": index.total_file_bytes,
+        "total_tensor_count": index.total_tensor_count,
+        "expert_source_count": index.expert_sources.len(),
+        "unsupported_expert_tensors": index.unsupported_expert_tensors,
+        "shards": index.shards,
+        "native_multi_source_streaming_ready": index.native_multi_source_streaming_ready,
+        "limitation": "Per-shard ranges are verified for supported tensor types, but native multi-file expert computation is NOT implemented"
+    })));
     report["architecture"] = json!(model_data.metadata_str("general.architecture"));
     let quota = effective_cpu_quota();
     let recommended_threads = quota
@@ -191,7 +212,9 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
     report["recommendations"]["cpu_moe_selected_expert_external_compute_experimental"] =
         json!(experimental_cpu_external_streaming);
     report["recommendations"]["verified_fused_expert_tensor_count"] =
-        json!(eligible_fused.as_ref().map(|items| items.len()).unwrap_or(0));
+        json!(if split.is_some() { 0 } else {
+            eligible_fused.as_ref().map(|items| items.len()).unwrap_or(0)
+        });
     report["recommendations"]["experimental_source_gguf_index_command"] =
         json!(if experimental_cpu_external_streaming {
             "kiln-bench expert-export-gguf-stream-index --source-gguf <model.gguf> --auto-verified --output-file <new-index.tsv>"
@@ -208,7 +231,11 @@ pub fn run(model: &str, as_json: bool) -> Result<(), String> {
         println!("KILN read-only model feasibility preflight");
         println!("  model:                {}", report["model_path"].as_str().unwrap_or(model));
         println!("  architecture:         {}", report["architecture"].as_str().unwrap_or("unknown"));
-        println!("  model file:           {} bytes", model_data.file_size());
+        println!("  model total:          {} bytes", total_file_bytes);
+        if let Some(index) = split.as_ref() {
+            println!("  split GGUF:           {} source shards, {} tensors, {} expert source ranges", index.shard_count, index.total_tensor_count, index.expert_sources.len());
+            println!("  native split stream:  not yet implemented; cannot use single-source index");
+        }
         println!("  routed expert tensors: {}", has_routed_experts);
         println!("  logical CPUs:         {}", profile.cpu_cores);
         println!("  available RAM:        {}", available.map(|n| format!("{n} bytes")).unwrap_or_else(|| "unavailable".into()));
