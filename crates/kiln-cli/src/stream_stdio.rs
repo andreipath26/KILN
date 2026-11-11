@@ -43,6 +43,18 @@ fn available_generation_steps(
 /// Assemble complete UTF-8 without changing token bytes. A partial
 /// multi-byte codepoint may span multiple token pieces; malformed bytes may
 /// not be silently replaced because doing so changes generated text.
+fn parse_request_token_limit(req: &serde_json::Value) -> Result<u64, String> {
+    let tokens = match req.get("max_tokens") {
+        None => 128,
+        Some(value) => value.as_u64()
+            .ok_or("stream IPC max_tokens must be a positive integer")?,
+    };
+    if !(1..=4096).contains(&tokens) {
+        return Err("stream IPC max_tokens must be between 1 and 4096".into());
+    }
+    Ok(tokens)
+}
+
 fn push_token_bytes(pending: &mut Vec<u8>, raw: &[u8]) -> Result<Option<String>, String> {
     pending.extend_from_slice(raw);
     match std::str::from_utf8(pending) {
@@ -88,13 +100,9 @@ pub fn run(model: &str, lazy_moe_experts: bool) -> Result<(), String> {
             .map_err(|e| format!("invalid IPC JSON: {e}"))?;
         let prompt = req.get("prompt").and_then(|x| x.as_str())
             .ok_or("stream IPC requires a prompt")?;
-        let tokens = match req.get("max_tokens") {
-            None => 128,
-            Some(value) => value.as_u64()
-                .ok_or("stream IPC max_tokens must be a positive integer")?,
-        };
-        if prompt.is_empty() || prompt.len() > 131_072 || tokens == 0 || tokens > 4096 {
-            return Err("invalid stream IPC prompt length or token limit".into());
+        let tokens = parse_request_token_limit(&req)?;
+        if prompt.is_empty() || prompt.len() > 131_072 {
+            return Err("invalid stream IPC prompt length".into());
         }
         dispatcher.dispatch(RuntimeOp::Reset).map_err(|e| format!("stream reset: {e}"))?;
         let encoded = match dispatcher.dispatch(RuntimeOp::Tokenize { text: prompt.to_string() })
@@ -174,10 +182,12 @@ mod protocol_tests {
 
     #[test]
     fn invalid_token_limit_is_not_silently_defaulted() {
-        let integer = serde_json::json!({"max_tokens":8});
-        assert_eq!(integer["max_tokens"].as_u64(),Some(8));
-        for value in [serde_json::json!("8"), serde_json::json!(-1), serde_json::json!(null)] {
-            assert!(value.as_u64().is_none());
+        assert_eq!(parse_request_token_limit(&serde_json::json!({})).unwrap(), 128);
+        assert_eq!(parse_request_token_limit(&serde_json::json!({"max_tokens":8})).unwrap(), 8);
+        for value in [serde_json::json!("8"), serde_json::json!(-1),
+                      serde_json::json!(null), serde_json::json!(0),
+                      serde_json::json!(4097), serde_json::json!(true)] {
+            assert!(parse_request_token_limit(&serde_json::json!({"max_tokens":value})).is_err());
         }
     }
 
