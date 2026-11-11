@@ -105,7 +105,7 @@ fn parse_mem_available_bytes(meminfo: &str) -> Option<u64> {
     if fields.next()? != "MemAvailable:" { return None; }
     let kib = fields.next()?.parse::<u64>().ok()?;
     if fields.next()? != "kB" || fields.next().is_some() { return None; }
-    kib.checked_mul(1024).filter(|n| *n > 0)
+    kib.checked_mul(1024)
 }
 
 fn finite_cgroup_bytes(raw: &str) -> Option<u64> {
@@ -243,8 +243,10 @@ mod memory_routing_tests {
         assert_eq!(parse_mem_available_bytes(sample), Some(2_048_000_000));
         assert_eq!(parse_mem_available_bytes("MemAvailable: max kB"), None);
         assert_eq!(parse_mem_available_bytes("MemAvailable: 123 bytes"), None);
-        assert_eq!(parse_mem_available_bytes("MemAvailable: 0 kB"), None);
+        assert_eq!(parse_mem_available_bytes("MemAvailable: 0 kB"), Some(0));
         assert_eq!(parse_mem_available_bytes("MemAvailable: 18446744073709551615 kB"), None);
+        // A genuinely exhausted host must NEVER fall back to installed RAM.
+        assert_eq!(resident_budget_bytes(parse_mem_available_bytes("MemAvailable: 0 kB").unwrap()), 0);
     }
 
     #[test]
