@@ -339,32 +339,59 @@ pub async fn version() -> Json<VersionResponse> {
     })
 }
 
+/// Check the same supported fused expert shapes used by `kiln stream`.
+/// This is a capability preflight only: no weights are loaded for inference,
+/// and positive results never guarantee working-set or token throughput.
+fn native_stream_candidate(path: &std::path::Path) -> bool {
+    if !cfg!(target_os = "linux") { return false; }
+    if kiln_models::library::split_gguf_parts(path).is_some() {
+        return kiln_models::split_gguf::inspect_split_gguf(path)
+            .ok().flatten().is_some_and(|index| {
+                (2..=64).contains(&index.shard_count) &&
+                !index.fused_expert_slabs.is_empty() &&
+                index.fused_expert_slabs.len() <= 300_000 &&
+                index.unsupported_expert_tensors.is_empty()
+            });
+    }
+    kiln_models::GgufFile::open(path).ok()
+        .and_then(|gguf| kiln_models::discover_complete_fused_moe_selections(&gguf).ok())
+        .is_some_and(|selected| !selected.is_empty())
+}
+
 /// GET /api/ui/models. Return structurally valid local GGUF candidates.
 pub async fn ui_models(State(state): State<ApiState>) -> Result<Json<Value>, ErrorResponse> {
     let active_path = state.runtime.lock().ok().and_then(|runtime| runtime.as_ref().and_then(|session| {
         std::fs::canonicalize(&session.model_path).ok()
     }));
     let scan_roots = active_path.iter().cloned().collect::<Vec<_>>();
-    let models = tokio::task::spawn_blocking(move || kiln_models::library::discover_models(&scan_roots))
-        .await
-        .map_err(|e| error_response((StatusCode::INTERNAL_SERVER_ERROR, format!("model scan failed: {e}"))))?;
-    let models: Vec<Value> = models.into_iter().map(|model| {
-        let path = PathBuf::from(&model.path);
-        let active = active_path.as_ref().is_some_and(|active| std::fs::canonicalize(&path).ok().as_ref() == Some(active));
-        let load_error = kiln_models::library::normalize_gguf_load_path(&path).err();
-        let repair_missing = kiln_models::library::missing_split_shards_for_download(&path);
-        json!({
-            "load_error": load_error,
-            "repair_missing": repair_missing,
-            "name": model.name,
-            "path": model.path,
-            "size_bytes": model.size_bytes,
-            "source": model.source,
-            "aliases": model.aliases,
-            "valid_gguf": model.valid_gguf,
-            "active": active
-        })
-    }).collect();
+    // Both discovery and per-model GGUF metadata inspection use filesystem
+    // I/O. Keep the complete pass off the async reactor.
+    let models: Vec<Value> = tokio::task::spawn_blocking(move || {
+        kiln_models::library::discover_models(&scan_roots)
+            .into_iter().map(|model| {
+                let path = PathBuf::from(&model.path);
+                let active = active_path.as_ref().is_some_and(|current|
+                    std::fs::canonicalize(&path).ok().as_ref() == Some(current));
+                let load_error = kiln_models::library::normalize_gguf_load_path(&path).err();
+                let repair_missing = kiln_models::library::missing_split_shards_for_download(&path);
+                let native_stream_candidate = load_error.is_none() &&
+                    native_stream_candidate(&path);
+                json!({
+                    "load_error": load_error,
+                    "repair_missing": repair_missing,
+                    "native_stream_candidate": native_stream_candidate,
+                    "name": model.name,
+                    "path": model.path,
+                    "size_bytes": model.size_bytes,
+                    "source": model.source,
+                    "aliases": model.aliases,
+                    "valid_gguf": model.valid_gguf,
+                    "active": active
+                })
+            }).collect()
+    }).await.map_err(|e| error_response((
+        StatusCode::INTERNAL_SERVER_ERROR, format!("model scan failed: {e}")
+    )))?;
     Ok(Json(json!({ "models": models })))
 }
 
