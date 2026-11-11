@@ -838,8 +838,23 @@ jobs:
 
       - name: Prepare real activation and recovery candidates
         run: |
+          set -euo pipefail
           MODEL="$RUNNER_TEMP/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf"
-          ln "$MODEL" "$RUNNER_TEMP/kiln-models/alternate-smoke.gguf"
+          ALTERNATE="$RUNNER_TEMP/kiln-models/alternate-smoke.gguf"
+          test -s "$MODEL"
+          # Cached smoke fixtures may already include this link. Rebuild only
+          # if it is absent or no longer refers to the actual source inode.
+          if ! test "$MODEL" -ef "$ALTERNATE"; then
+            rm -f -- "$ALTERNATE"
+            ln -- "$MODEL" "$ALTERNATE"
+          fi
+          test "$MODEL" -ef "$ALTERNATE"
+          # Exercise the same setup a second time to prevent regressions on
+          # retries and restored model caches.
+          if ! test "$MODEL" -ef "$ALTERNATE"; then
+            echo "alternate GGUF fixture differs from verified source" >&2
+            exit 1
+          fi
           python3 tools/ui-e2e/create_bad_arch_model.py "$MODEL" "$RUNNER_TEMP/kiln-models/zz-invalid-arch.gguf"
 
       - name: Start the local API with the real model
