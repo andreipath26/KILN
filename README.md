@@ -89,6 +89,10 @@ The Linux CI smoke test now keeps one actual native MoE model loaded while exerc
 
 GitHub Actions runs a lightweight `fast-checks` job alongside the native real-model integration job. It validates Python evidence/feasibility utilities, shell script syntax, and local browser JavaScript syntax without compiling the pinned llama.cpp submodule or downloading GGUF weights. The long native test job retains workspace, real-model parity, release, and UI smoke gates. Both jobs must pass before CI is green; this split avoids duplicating the fast tests in the long-running job.
 
+## Safe model-switch source preflight
+
+Before evicting the currently running model during a switch, KILN validates the replacement GGUF's source files. For a conventional split GGUF, every named shard must be a readable regular file and its size must be included in the checked aggregate. If a shard is missing or unreadable, activation rejects the new model **without unloading the old session**. The normal loader performs the same verification when it actually opens the requested model; this is an availability safeguard, not a guarantee that unsupported architecture or out-of-memory failures can always restore the prior session.
+
 ## Repeatable real-model CI fixtures
 
 The smoke workflow reuses verified GGUF files by hard link for alternate-model and Ollama-manifest checks. Restored caches may already contain these paths, so fixture setup compares inode identity and only repairs a missing or stale link; it does not copy or modify source model weights. This avoids failing an otherwise successful native integration run because a cache-restored test link already exists.
