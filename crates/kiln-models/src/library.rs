@@ -526,6 +526,69 @@ fn verify_existing_gguf(path: &Path, sha256: &str, expected_size: Option<u64>) -
     Ok(())
 }
 
+/// Select only the exact numbered GGUF shards of one quantization/folder.
+/// Missing shards are an error, not a reason to silently download part 2
+/// and call it a complete model.
+pub fn complete_split_shard_files(file: &str, available: &[String]) -> Result<Vec<String>, String> {
+    if !valid_repo_file(file) { return Err("selected file must be a safe GGUF repository path".into()); }
+    let Some((prefix, _, total)) = split_gguf_parts(Path::new(file)) else {
+        return Ok(vec![file.to_owned()]);
+    };
+    let base = prefix.to_str().ok_or("GGUF split filename is not UTF-8")?;
+    let candidates: HashSet<&str> = available.iter().map(String::as_str).collect();
+    let mut selected = Vec::with_capacity(total as usize);
+    for index in 1..=total {
+        let part = format!("{base}-{index:05}-of-{total:05}.gguf");
+        if !candidates.contains(part.as_str()) {
+            return Err(format!("repository does not contain complete split GGUF; missing {part}"));
+        }
+        selected.push(part);
+    }
+    Ok(selected)
+}
+
+/// Complete public split-GGUF transfer: verifies the remote shard listing
+/// before initiating any downloads, and then individually SHA-256 verifies
+/// all original GGUF files. Already-verified parts are reused in place.
+pub fn pull_complete_hugging_face_gguf(repo: &str, file: &str) -> Result<Vec<PathBuf>, String> {
+    if !valid_repo_id(repo) || !valid_repo_file(file) {
+        return Err("expected public repository owner/name and safe GGUF file path".into());
+    }
+    let info_url = format!("https://huggingface.co/api/models/{}?blobs=true",url_encode(repo));
+    let metadata: Value = serde_json::from_str(&get_https_text(&info_url)?)
+        .map_err(|e| format!("invalid Hugging Face metadata: {e}"))?;
+    if metadata.get("gated").is_some_and(|value| match value {
+        Value::Bool(value) => *value,
+        Value::String(value) => value != "false",
+        _ => false,
+    }) {
+        return Err("model repository is gated; KILN requires provider authorization".into());
+    }
+    let entries = metadata.get("siblings").and_then(Value::as_array)
+        .ok_or("model repository did not return a file list")?;
+    let files: Vec<String> = entries.iter()
+        .filter_map(|item| item.get("rfilename").and_then(Value::as_str))
+        .map(str::to_owned).collect();
+    let selected = complete_split_shard_files(file,&files)?;
+    // Preflight that every file has a trustworthy digest. A missing digest
+    // in shard N must fail before KILN downloads shards 1..N-1.
+    for file in &selected {
+        let entry = entries.iter().find(|x| x.get("rfilename").and_then(Value::as_str)==Some(file))
+            .ok_or_else(|| format!("model shard {file} disappeared from metadata"))?;
+        let digest = sha256_from_metadata(entry)
+            .ok_or_else(|| format!("cannot verify shard {file}: no SHA-256 in remote metadata"))?;
+        if digest.len()!=64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(format!("invalid SHA-256 metadata for shard {file}"));
+        }
+    }
+    let mut installed = Vec::with_capacity(selected.len());
+    for part in selected {
+        installed.push(pull_hugging_face(repo,&part)
+            .map_err(|e| format!("split download stopped at {part} after {} verified shards: {e}",installed.len()))?);
+    }
+    Ok(installed)
+}
+
 pub fn pull_hugging_face(repo: &str, file: &str) -> Result<PathBuf, String> {
     pull_hugging_face_with_progress(repo, file, &AtomicBool::new(false), |_, _| true)
 }
@@ -840,6 +903,23 @@ mod tests {
         assert!(valid_repo_file("nested/model.Q4_K_M.gguf"));
         assert!(!valid_repo_file("../outside.gguf"));
         assert!(!valid_repo_file("model.bin"));
+    }
+
+    #[test]
+    fn split_download_selection_is_exact_and_fails_on_missing_parts() {
+        use super::complete_split_shard_files;
+        let source = vec![
+            "quant/model-A-Q2_K-00001-of-00002.gguf".into(),
+            "quant/model-A-Q2_K-00002-of-00002.gguf".into(),
+            "quant/model-A-Q4_K-00001-of-00002.gguf".into(),
+            "unrelated.gguf".into(),
+        ];
+        let parts=complete_split_shard_files("quant/model-A-Q2_K-00002-of-00002.gguf",&source).unwrap();
+        assert_eq!(parts,&source[..2]);
+        let err=complete_split_shard_files("quant/model-A-Q4_K-00001-of-00002.gguf",&source).unwrap_err();
+        assert!(err.contains("quant/model-A-Q4_K-00002-of-00002.gguf"));
+        assert_eq!(complete_split_shard_files("unrelated.gguf",&source).unwrap(),vec!["unrelated.gguf"]);
+        assert!(complete_split_shard_files("../escape.gguf",&source).is_err());
     }
 
     #[test]
