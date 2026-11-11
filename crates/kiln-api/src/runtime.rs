@@ -172,6 +172,9 @@ fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, Str
                 prefix.with_file_name(format!("{base}-{n:05}-of-{count:05}.gguf"))
             ).ok().map(|m| m.len())).sum::<u64>()
         } else { metadata.len() };
+        if force_stream && !cfg!(target_os = "linux") {
+            return Err("native CPU expert streaming is currently Linux-only".into());
+        }
         if force_stream && is_split {
             return Err("native single-file MoE streaming does not yet support split GGUFs; use the automatic lazy mapped loader when all shards are present".into());
         }
