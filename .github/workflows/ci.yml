@@ -595,69 +595,6 @@ jobs:
           print("Read-only real-GGUF hardware preflight smoke passed")
           PY
 
-      - name: Archive real-model MoE routing and source-parity evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: phase5-real-moe-evidence
-          if-no-files-found: warn
-          retention-days: 14
-          path: |
-            ${{ runner.temp }}/real-moe-router.tsv
-            ${{ runner.temp }}/real-moe-router.json
-            ${{ runner.temp }}/real-moe-inference.json
-            ${{ runner.temp }}/moe-cli-stream.txt
-            ${{ runner.temp }}/moe-cli-stream-evidence.txt
-            ${{ runner.temp }}/real-moe-release-inference.json
-            ${{ runner.temp }}/kiln-package-build.log
-            ${{ runner.temp }}/kiln-pre-package-status.txt
-            ${{ runner.temp }}/kiln-install-proof.txt
-            ${{ runner.temp }}/kiln-installed-help.txt
-            ${{ runner.temp }}/kiln-installed-stream-help.txt
-            ${{ runner.temp }}/kiln-installed-api.log
-            ${{ runner.temp }}/kiln-installed-api-version.json
-            ${{ runner.temp }}/kiln-installed-real-moe-stream.txt
-            ${{ runner.temp }}/kiln-installed-real-moe-stream-evidence.txt
-            ${{ runner.temp }}/kiln-installed-quality.json
-            ${{ runner.temp }}/kiln-installed-quality-verdict.json
-            ${{ runner.temp }}/kiln-portable-release/*.json
-            ${{ runner.temp }}/kiln-portable-release/*.sha256
-            ${{ runner.temp }}/real-moe-page-advice.json
-            ${{ runner.temp }}/real-moe-lazy-ab.json
-            ${{ runner.temp }}/moe-fused-candidates.json
-            ${{ runner.temp }}/real-moe-fused-selections.json
-            ${{ runner.temp }}/real-moe-fused.index.json
-            ${{ runner.temp }}/real-moe-fused.integrity.json
-            ${{ runner.temp }}/real-moe-fused.components.json
-            ${{ runner.temp }}/real-moe-pack-result.json
-            ${{ runner.temp }}/real-moe-fused-replay.json
-            ${{ runner.temp }}/real-moe-stream-index.tsv
-            ${{ runner.temp }}/real-moe-stream-index-result.json
-            ${{ runner.temp }}/real-moe-auto-stream-index.tsv
-            ${{ runner.temp }}/real-moe-auto-stream-index-result.json
-            ${{ runner.temp }}/real-moe-explicit-stream-index.tsv
-            ${{ runner.temp }}/real-moe-explicit-stream-index-result.json
-            ${{ runner.temp }}/real-moe-stream-audit.tsv
-            ${{ runner.temp }}/real-moe-external-compute.json
-            ${{ runner.temp }}/real-moe-uncached-compute.json
-            ${{ runner.temp }}/real-moe-uncached-audit.tsv
-            ${{ runner.temp }}/real-moe-stream-script-result.json
-            ${{ runner.temp }}/moe-quality-text.txt
-            ${{ runner.temp }}/moe-quality-baseline.json
-            ${{ runner.temp }}/moe-quality-external.json
-            ${{ runner.temp }}/moe-quality-external-audit.tsv
-            ${{ runner.temp }}/real-moe-stream-script-proof/*.json
-            ${{ runner.temp }}/real-moe-stream-script-proof/*.tsv
-            ${{ runner.temp }}/kiln-model-plan.json
-            ${{ runner.temp }}/moe-plan.json
-            ${{ runner.temp }}/quality-reference.json
-            ${{ runner.temp }}/quality-candidate.json
-            ${{ runner.temp }}/quality-self-parity.json
-            ${{ runner.temp }}/quality-external-audit.tsv
-            ${{ runner.temp }}/moe-plan-by-name.json
-            ${{ runner.temp }}/moe-cli-stream-audit.tsv
-            ${{ runner.temp }}/moe-cli-stream.txt
-
       - name: Smoke-test Phase 3.5 real-model benchmark commands
         env:
           KILN_TEST_MODEL_PATH: ${{ runner.temp }}/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf
@@ -1048,3 +985,66 @@ jobs:
       - name: Stop the local API
         if: always()
         run: if [ -f "$RUNNER_TEMP/kiln-api.pid" ]; then kill "$(cat "$RUNNER_TEMP/kiln-api.pid")" || true; fi
+
+      - name: Archive real-model MoE routing and source-parity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase5-real-moe-evidence
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/real-moe-router.tsv
+            ${{ runner.temp }}/real-moe-router.json
+            ${{ runner.temp }}/real-moe-inference.json
+            ${{ runner.temp }}/moe-cli-stream.txt
+            ${{ runner.temp }}/moe-cli-stream-evidence.txt
+            ${{ runner.temp }}/real-moe-release-inference.json
+            ${{ runner.temp }}/kiln-package-build.log
+            ${{ runner.temp }}/kiln-pre-package-status.txt
+            ${{ runner.temp }}/kiln-install-proof.txt
+            ${{ runner.temp }}/kiln-installed-help.txt
+            ${{ runner.temp }}/kiln-installed-stream-help.txt
+            ${{ runner.temp }}/kiln-installed-api.log
+            ${{ runner.temp }}/kiln-installed-api-version.json
+            ${{ runner.temp }}/kiln-installed-real-moe-stream.txt
+            ${{ runner.temp }}/kiln-installed-real-moe-stream-evidence.txt
+            ${{ runner.temp }}/kiln-installed-quality.json
+            ${{ runner.temp }}/kiln-installed-quality-verdict.json
+            ${{ runner.temp }}/kiln-portable-release/*.json
+            ${{ runner.temp }}/kiln-portable-release/*.sha256
+            ${{ runner.temp }}/real-moe-page-advice.json
+            ${{ runner.temp }}/real-moe-lazy-ab.json
+            ${{ runner.temp }}/moe-fused-candidates.json
+            ${{ runner.temp }}/real-moe-fused-selections.json
+            ${{ runner.temp }}/real-moe-fused.index.json
+            ${{ runner.temp }}/real-moe-fused.integrity.json
+            ${{ runner.temp }}/real-moe-fused.components.json
+            ${{ runner.temp }}/real-moe-pack-result.json
+            ${{ runner.temp }}/real-moe-fused-replay.json
+            ${{ runner.temp }}/real-moe-stream-index.tsv
+            ${{ runner.temp }}/real-moe-stream-index-result.json
+            ${{ runner.temp }}/real-moe-auto-stream-index.tsv
+            ${{ runner.temp }}/real-moe-auto-stream-index-result.json
+            ${{ runner.temp }}/real-moe-explicit-stream-index.tsv
+            ${{ runner.temp }}/real-moe-explicit-stream-index-result.json
+            ${{ runner.temp }}/real-moe-stream-audit.tsv
+            ${{ runner.temp }}/real-moe-external-compute.json
+            ${{ runner.temp }}/real-moe-uncached-compute.json
+            ${{ runner.temp }}/real-moe-uncached-audit.tsv
+            ${{ runner.temp }}/real-moe-stream-script-result.json
+            ${{ runner.temp }}/moe-quality-text.txt
+            ${{ runner.temp }}/moe-quality-baseline.json
+            ${{ runner.temp }}/moe-quality-external.json
+            ${{ runner.temp }}/moe-quality-external-audit.tsv
+            ${{ runner.temp }}/real-moe-stream-script-proof/*.json
+            ${{ runner.temp }}/real-moe-stream-script-proof/*.tsv
+            ${{ runner.temp }}/kiln-model-plan.json
+            ${{ runner.temp }}/moe-plan.json
+            ${{ runner.temp }}/quality-reference.json
+            ${{ runner.temp }}/quality-candidate.json
+            ${{ runner.temp }}/quality-self-parity.json
+            ${{ runner.temp }}/quality-external-audit.tsv
+            ${{ runner.temp }}/moe-plan-by-name.json
+            ${{ runner.temp }}/moe-cli-stream-audit.tsv
+            ${{ runner.temp }}/moe-cli-stream.txt
