@@ -250,6 +250,21 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Real per-expert slab I/O from complete multi-shard fused MoE GGUF.
+    /// Measures explicit reads, not native inference or physical SSD traffic.
+    ExpertIoSplit {
+        /// First shard or any shard in a complete GGUF set.
+        #[arg(long)]
+        source_gguf: PathBuf,
+        /// Number of verified expert slabs to read in source order.
+        #[arg(long, default_value_t = 64)]
+        requests: usize,
+        /// Maximum total bytes to explicitly read in this run.
+        #[arg(long, default_value_t = 256)]
+        max_read_mib: u64,
+        #[arg(long)]
+        json: bool,
+    },
     /// Measure bounded random and sequential reads from a real model/expert blob.
     ExpertIo {
         /// Path to a model file or expert sidecar containing indexed expert ranges.
@@ -978,6 +993,79 @@ fn run_expert_cache(
         note: "Real file reads on this host. If --index-file is supplied, each trace key maps through that validated ExpertTable to a variable-length byte range; otherwise fixed-size synthetic layer-0 blocks are used. OS page cache is uncontrolled, estimated backing bytes are summed requested range lengths on cache misses (not physical-device counters), and caller-owned buffers are outside the cache budget. This is not an inference benchmark or a target-hardware claim unless run on the target machine.".to_string(),
         patterns,
     })
+}
+
+/// Run an actual bounded per-expert read benchmark from distinct, original
+/// GGUF shard file descriptors. The model's weights remain intact on disk.
+fn benchmark_split_expert_io(
+    path: &std::path::Path, requests: usize, max_read_mib: u64
+) -> Result<serde_json::Value, String> {
+    if requests == 0 || requests > 100_000 {
+        return Err("requests must be between 1 and 100000".into());
+    }
+    if max_read_mib == 0 || max_read_mib > 4096 {
+        return Err("max-read-mib must be between 1 and 4096".into());
+    }
+    let reader = kiln_io::SplitGgufExpertReader::open(path)?
+        .ok_or("source model is not a split GGUF")?;
+    let inventory = reader.inventory();
+    if !inventory.unsupported_expert_tensors.is_empty() {
+        return Err("model has unsupported expert tensor encodings; refusing an incomplete benchmark".into());
+    }
+    if inventory.fused_expert_slabs.is_empty() {
+        return Err("no complete, metadata-verified fused three-projection expert layout across all GGUF shards".into());
+    }
+    let cap = max_read_mib.checked_mul(1_048_576)
+        .ok_or("maximum read budget overflow")?;
+    let mut cumulative = 0u64;
+    let mut selected = 0usize;
+    let mut shard_requests = vec![0u64; inventory.shards.len()];
+    let mut checksum = 0u64;
+    let start = Instant::now();
+    // Use a bounded reusable caller buffer rather than one allocation per
+    // selected expert. The cap includes both aggregate I/O and max slab size.
+    let mut buffer = Vec::new();
+    for slab in inventory.fused_expert_slabs.iter().take(requests) {
+        if slab.byte_length > 64*1_048_576 {
+            return Err("expert slab exceeds 64 MiB per-request working-set limit".into());
+        }
+        if slab.byte_length > cap.saturating_sub(cumulative) { break; }
+        let n = usize::try_from(slab.byte_length)
+            .map_err(|_| "expert byte length exceeds platform usize")?;
+        buffer.resize(n,0);
+        reader.read_fused_expert_into(
+            slab.layer,slab.expert_id,&slab.tensor_name,&mut buffer
+        )?;
+        // Touch returned data to catch zero-fill or obviously dropped reads;
+        // a low-overhead checksum is not integrity authentication.
+        if let Some(first) = buffer.first() { checksum = checksum.wrapping_add(u64::from(*first)); }
+        if let Some(last) = buffer.last() { checksum = checksum.wrapping_add(u64::from(*last)); }
+        cumulative = cumulative.checked_add(slab.byte_length).ok_or("read accounting overflow")?;
+        shard_requests[slab.shard_number as usize-1] += 1;
+        selected += 1;
+    }
+    if selected == 0 { return Err("no verified expert slab fits the configured read budget".into()); }
+    let elapsed = start.elapsed().as_secs_f64();
+    let gib_per_sec = if elapsed > 0.0 {
+        cumulative as f64 / 1_073_741_824.0 / elapsed
+    } else { 0.0 };
+    Ok(serde_json::json!({
+        "workload":"verified_split_gguf_fused_expert_io",
+        "source_model":path,
+        "original_shards_unchanged":true,
+        "source_shards":inventory.shard_count,
+        "verified_expert_slabs":inventory.fused_expert_slabs.len(),
+        "requests_completed":selected,
+        "bytes_read_explicit":cumulative,
+        "source_shard_read_counts":shard_requests,
+        "elapsed_seconds":elapsed,
+        "explicit_read_gib_per_second":gib_per_sec,
+        "sample_checksum":checksum,
+        "peak_caller_buffer_bytes":buffer.capacity(),
+        "native_multi_source_streaming_ready":false,
+        "physical_ssd_bytes_verified":false,
+        "note":"Reads only verified individual expert slabs from original GGUF files; OS page cache uncontrolled; no native model inference, quality or target hardware acceptance is implied"
+    }))
 }
 
 const MAX_EXPERT_INDEX_BYTES: u64 = 128 * 1024 * 1024;
@@ -2041,6 +2129,20 @@ async fn main() {
                 ),
                 Err(error) => {
                     eprintln!("sidecar integrity check failed: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::ExpertIoSplit { source_gguf, requests, max_read_mib, json } => {
+            match benchmark_split_expert_io(&source_gguf,requests,max_read_mib) {
+                Ok(report) if json => println!("{}",serde_json::to_string_pretty(&report).unwrap()),
+                Ok(report) => println!(
+                    "KILN split GGUF selected expert I/O: {} slabs, {} explicit bytes, {:.3} GiB/s (page cache uncontrolled; not native inference)",
+                    report["requests_completed"],report["bytes_read_explicit"],
+                    report["explicit_read_gib_per_second"].as_f64().unwrap_or(0.0)
+                ),
+                Err(e) => {
+                    eprintln!("split expert I/O failed: {e}");
                     std::process::exit(2);
                 }
             }
