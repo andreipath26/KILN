@@ -224,7 +224,7 @@ mod tests {
         assert_eq!(found.expert_sources.len(),2);
         assert_eq!(found.expert_sources[0].shard_number,1);
         assert_eq!(found.expert_sources[1].shard_number,2);
-        assert_eq!(found.expert_sources[1].byte_length,128);
+        assert_eq!(found.expert_sources[1].byte_length,256);
         assert!(!found.native_multi_source_streaming_ready);
         assert_eq!(std::fs::read(&first).unwrap(),initial);
         std::fs::remove_file(&second).unwrap();
