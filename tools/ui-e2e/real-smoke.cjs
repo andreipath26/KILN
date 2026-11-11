@@ -33,6 +33,8 @@ async function main() {
     assert.ok(profileText.includes("Estimated model residency budget"), "UI exposes conservative model-loading limit");
     assert.match(await page.locator("#session-details").textContent(),
       /Standard \/ mmap model loading/, "UI shows the actual current engine mode");
+    assert.match(await page.locator("#session-details").textContent(),
+      /Native expert cache/, "UI provides a cache diagnostics row");
     await page.locator("#max-tokens").fill("16");
     await page.locator("#max-tokens").dispatchEvent("change");
     await page.getByRole("tab", { name: "Simple" }).click();
