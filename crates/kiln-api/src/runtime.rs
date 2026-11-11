@@ -338,6 +338,47 @@ mod session_reuse_tests {
 }
 
 #[cfg(test)]
+mod source_preflight_tests {
+    use super::*;
+
+    #[test]
+    fn missing_split_shards_reject_activation_without_unloading_active_session() {
+        let unique = format!(
+            "kiln-phase5-activation-preflight-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        );
+        let root = std::env::temp_dir().join(unique);
+        std::fs::create_dir(&root).unwrap();
+        let active = root.join("current.gguf");
+        let first = root.join("next-00001-of-00002.gguf");
+        let second = root.join("next-00002-of-00002.gguf");
+        std::fs::write(&active, b"resident").unwrap();
+        std::fs::write(&first, b"one").unwrap();
+
+        let state = ApiState::unconfigured();
+        let fixture = RuntimeSession {
+            dispatcher: None, stream_worker: None, streaming: true,
+            model_name: "current".to_owned(), model_path: active.clone(), eos_token: -1,
+        };
+        *state.runtime.lock().unwrap() = Some(fixture);
+        assert_eq!(model_source_bytes(&active).unwrap(), (8, false));
+        assert!(model_source_bytes(&first).unwrap_err().contains("incomplete split GGUF"));
+        let error = state.activate(first.clone(), true).unwrap_err();
+        assert!(error.contains("incomplete split GGUF"));
+        let runtime = state.runtime.lock().unwrap();
+        assert_eq!(runtime.as_ref().unwrap().model_name, "current");
+        assert_eq!(runtime.as_ref().unwrap().model_path, active);
+        drop(runtime);
+
+        std::fs::write(&second, b"two2").unwrap();
+        assert_eq!(model_source_bytes(&first).unwrap(), (7, true));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
 mod memory_routing_tests {
     use super::*;
 
