@@ -284,7 +284,9 @@ impl<'a> Reader<'a> {
     }
 
     fn string(&mut self) -> Result<String, GgufError> {
-        let len = self.u64()? as usize;
+        let size = self.u64()?;
+        let len = usize::try_from(size)
+            .map_err(|_| GgufError::Metadata("GGUF string length exceeds addressable memory".into()))?;
         self.need(len)?;
         let s = std::str::from_utf8(&self.bytes[self.pos..self.pos + len])
             .map_err(|e| GgufError::Metadata(format!("invalid UTF-8: {}", e)))?
@@ -325,7 +327,10 @@ pub fn parse_metadata(
     start_offset: usize,
     kv_count: u64,
 ) -> Result<(std::collections::HashMap<String, GgufValue>, usize), GgufError> {
-    let mut reader = Reader::new(&bytes[start_offset..]);
+    let slice = bytes.get(start_offset..).ok_or(GgufError::TruncatedFile {
+        needed: start_offset, got: bytes.len(),
+    })?;
+    let mut reader = Reader::new(slice);
     let mut map = std::collections::HashMap::new();
 
     for i in 0..kv_count {
@@ -597,7 +602,14 @@ impl GgufFile {
         }
 
         // Round the offset up to the alignment boundary.
-        let data_offset = align_up(after_tensor_table as u64, alignment);
+        let data_offset = align_up(after_tensor_table as u64, alignment)
+            .ok_or_else(|| GgufError::Alignment("GGUF data offset overflow".into()))?;
+        if data_offset > bytes.len() as u64 {
+            return Err(GgufError::TruncatedFile {
+                needed: usize::try_from(data_offset).unwrap_or(usize::MAX),
+                got: bytes.len(),
+            });
+        }
 
         // Verify that every tensor with a known dtype fits within the
         // file. Tensors with unknown dtypes are skipped. The loader
@@ -608,7 +620,18 @@ impl GgufFile {
         for t in &tensors {
             let byte_size = match t.byte_size() {
                 Some(n) => n,
-                None if matches!(t.dtype, GgufType::Unknown(_)) => continue,
+                None if matches!(t.dtype, GgufType::Unknown(_)) => {
+                    // Preserve unknown formats for diagnostics, but their
+                    // starting offset still must belong to this file.
+                    let start = data_offset.checked_add(t.offset)
+                        .ok_or_else(|| GgufError::Tensor(format!(
+                            "unknown tensor '{}' offset overflow",t.name)))?;
+                    if start > bytes.len() as u64 {
+                        return Err(GgufError::Tensor(format!(
+                            "unknown tensor '{}' starts past end of GGUF",t.name)));
+                    }
+                    continue;
+                },
                 None => return Err(GgufError::Tensor(format!(
                     "tensor '{}' has invalid, non-aligned or overflowing dimensions",
                     t.name
@@ -682,11 +705,10 @@ impl GgufFile {
 }
 
 /// Round `value` up to the nearest multiple of `alignment`.
-fn align_up(value: u64, alignment: u64) -> u64 {
-    if alignment == 0 {
-        return value;
-    }
-    (value + alignment - 1) & !(alignment - 1)
+fn align_up(value: u64, alignment: u64) -> Option<u64> {
+    if alignment == 0 { return Some(value); }
+    value.checked_add(alignment - 1)
+        .map(|rounded| rounded & !(alignment - 1))
 }
 
 #[cfg(test)]
@@ -895,12 +917,19 @@ mod tests {
     }
 
     #[test]
+    fn bad_offsets_do_not_panic_in_parsers() {
+        assert!(parse_metadata(&[0u8;4], 100, 1).is_err());
+        assert!(parse_tensor_table(&[0u8;4], 100, 1).is_err());
+        assert_eq!(align_up(u64::MAX,32),None);
+    }
+
+    #[test]
     fn align_up_basics() {
-        assert_eq!(align_up(0, 32), 0);
-        assert_eq!(align_up(1, 32), 32);
-        assert_eq!(align_up(32, 32), 32);
-        assert_eq!(align_up(33, 32), 64);
-        assert_eq!(align_up(0, 1), 0);
+        assert_eq!(align_up(0, 32), Some(0));
+        assert_eq!(align_up(1, 32), Some(32));
+        assert_eq!(align_up(32, 32), Some(32));
+        assert_eq!(align_up(33, 32), Some(64));
+        assert_eq!(align_up(0, 1), Some(0));
     }
 
     /// Build a minimal valid GGUF file in memory and write it to a
