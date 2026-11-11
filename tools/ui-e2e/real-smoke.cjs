@@ -14,6 +14,26 @@ async function main() {
     const response = await page.goto(baseUrl, { waitUntil: "networkidle" });
     assert.equal(response.status(), 200);
     await page.getByRole("heading", { name: "Talk to your model" }).waitFor();
+    const groupTest = await page.evaluate(() => {
+      const artifacts = [
+        { path: "quant/model-Q2_K-00001-of-00002.gguf" },
+        { path: "quant/model-Q2_K-00002-of-00002.gguf" },
+        { path: "quant/model-Q4_K-00001-of-00002.gguf" },
+      ];
+      return {
+        complete: splitArtifactGroup(artifacts, artifacts[1].path),
+        incomplete: splitArtifactGroup(artifacts, artifacts[2].path),
+        standalone: splitArtifactGroup(artifacts, "single.gguf"),
+      };
+    });
+    assert.deepEqual(groupTest.complete, [
+      "quant/model-Q2_K-00001-of-00002.gguf",
+      "quant/model-Q2_K-00002-of-00002.gguf",
+    ], "remote model UI groups complete GGUF shards");
+    assert.deepEqual(groupTest.incomplete, [
+      "quant/model-Q4_K-00001-of-00002.gguf",
+    ], "remote model UI does not claim partial groups are complete");
+    assert.deepEqual(groupTest.standalone, ["single.gguf"]);
     await page.getByText("SmolLM2-135M-Instruct.Q4_K_M.gguf", { exact: true }).waitFor();
     assert.equal(await page.locator("#send-button").isDisabled(), false);
 
