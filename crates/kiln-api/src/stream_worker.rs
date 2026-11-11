@@ -208,11 +208,11 @@ mod recoverable_request_tests {
         // A simulated JSONL child verifies the framing contract without
         // loading any GGUF or claiming native parity.
         let script = concat!(
-            "printf '%s\\n' ",
-            "'{\\"event\\":\\"reject\\",\\"message\\":\\"prompt exceeds context\\"}' ",
-            "'{\\"event\\":\\"done\\"}' ",
-            "'{\\"event\\":\\"chunk\\",\\"text\\":\\"okay\\"}' ",
-            "'{\\"event\\":\\"done\\"}'; ",
+            r#"printf '%s\n' "#,
+            r#"'{"event":"reject","message":"prompt exceeds context"}' "#,
+            r#"'{"event":"done"}' "#,
+            r#"'{"event":"chunk","text":"okay"}' "#,
+            r#"'{"event":"done"}'; "#,
             "cat >/dev/null"
         );
         let mut child = Command::new("sh").arg("-c").arg(script)
