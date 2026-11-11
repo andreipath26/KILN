@@ -124,7 +124,7 @@ mod tests {
                 SplitExpertSource{tensor_name:"down".into(),shard_number:2,
                     source_path:b.clone(),source_byte_offset:10,byte_length:8},
             ],
-            unsupported_expert_tensors:vec![],native_multi_source_streaming_ready:false,
+            fused_expert_slabs:vec![],unsupported_expert_tensors:vec![],native_multi_source_streaming_ready:false,
         };
         let reader=SplitGgufExpertReader::from_inventory(inventory).unwrap();
         let mut up=[0u8;10];let mut down=[0u8;8];
@@ -154,7 +154,7 @@ mod tests {
         let mut inv=SplitGgufInventory{entrypoint:file.clone(),shard_count:1,
             total_file_bytes:12,total_tensor_count:1,architecture:None,
             shards:vec![shard],expert_sources:vec![component.clone()],
-            unsupported_expert_tensors:vec![],native_multi_source_streaming_ready:false};
+            fused_expert_slabs:vec![],unsupported_expert_tensors:vec![],native_multi_source_streaming_ready:false};
         assert!(SplitGgufExpertReader::from_inventory(inv.clone()).is_err());
         inv.expert_sources[0].source_byte_offset=0;
         inv.expert_sources.push(inv.expert_sources[0].clone());
