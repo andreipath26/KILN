@@ -92,6 +92,11 @@ impl ApiState {
                 }
             }
         }
+        // Validate source shard presence and combined size while the prior
+        // model is still live. A missing split GGUF part is an input error,
+        // not a reason to unload a usable resident or streamed session.
+        model_source_bytes(&path)?;
+
         let previous = {
             let mut runtime = self.runtime.lock()
                 .map_err(|_| "runtime state lock is poisoned".to_string())?;
@@ -212,32 +217,40 @@ where
     })
 }
 
-fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, String> {
-    let metadata = std::fs::metadata(&path)
-        .map_err(|e| format!("model path {} is not readable: {}", path.display(), e))?;
+/// Validate and size all source shards before model activation. Keep the
+/// original path's split filename: canonicalizing symlinked GGUF blobs may
+/// discard the numbered shard suffix.
+fn model_source_bytes(path: &std::path::Path) -> Result<(u64, bool), String> {
+    let metadata = std::fs::metadata(path)
+        .map_err(|e| format!("model path {} is not readable: {e}", path.display()))?;
     if !metadata.is_file() {
         return Err(format!("model path {} is not a file", path.display()));
     }
+    if let Some((prefix, _, count)) = kiln_models::library::split_gguf_parts(path) {
+        let base = prefix.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        let bytes = checked_total_shard_bytes((1..=count).map(|n| {
+            let shard = prefix.with_file_name(format!("{base}-{n:05}-of-{count:05}.gguf"));
+            let info = std::fs::metadata(&shard).map_err(|e|
+                format!("incomplete split GGUF: cannot read shard {}: {e}", shard.display())
+            )?;
+            if !info.is_file() {
+                return Err(format!("split GGUF shard is not a regular file: {}", shard.display()));
+            }
+            Ok(info.len())
+        }))?;
+        Ok((bytes, true))
+    } else {
+        Ok((metadata.len(), false))
+    }
+}
 
-        let profile = SystemProfile::load_or_probe();
-        let available = available_ram_bytes().unwrap_or_else(|| {
-            u64::from(profile.ram_gb).saturating_mul(1_073_741_824)
-        });
-        let resident_budget = resident_budget_bytes(available);
-        let is_split = kiln_models::library::split_gguf_parts(&path).is_some();
-        let total_size = if let Some((prefix, _, count)) = kiln_models::library::split_gguf_parts(&path) {
-            let base = prefix.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            checked_total_shard_bytes((1..=count).map(|n| {
-                let shard = prefix.with_file_name(format!("{base}-{n:05}-of-{count:05}.gguf"));
-                let info = std::fs::metadata(&shard).map_err(|e|
-                    format!("incomplete split GGUF: cannot read shard {}: {e}", shard.display())
-                )?;
-                if !info.is_file() {
-                    return Err(format!("split GGUF shard is not a regular file: {}", shard.display()));
-                }
-                Ok(info.len())
-            }))?
-        } else { metadata.len() };
+fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, String> {
+    let (total_size, is_split) = model_source_bytes(&path)?;
+    let profile = SystemProfile::load_or_probe();
+    let available = available_ram_bytes().unwrap_or_else(|| {
+        u64::from(profile.ram_gb).saturating_mul(1_073_741_824)
+    });
+    let resident_budget = resident_budget_bytes(available);
         if force_stream && !cfg!(target_os = "linux") {
             return Err("native CPU expert streaming is currently Linux-only".into());
         }
