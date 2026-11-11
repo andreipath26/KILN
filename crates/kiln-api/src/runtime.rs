@@ -25,6 +25,18 @@ pub(crate) struct ApiState {
     pub download_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
+/// Reusing a loaded model avoids expensive shutdown, SSD reads, mmap
+/// setup, lost KV state and a second risk of OOM. An explicit transition from
+/// resident to streaming still requires reopening through the native worker.
+fn reuse_existing_session(
+    current_path: &std::path::Path,
+    requested_path: &std::path::Path,
+    already_streaming: bool,
+    force_stream: bool,
+) -> bool {
+    current_path == requested_path && (!force_stream || already_streaming)
+}
+
 impl ApiState {
     pub fn unconfigured() -> Self {
         Self {
@@ -62,6 +74,24 @@ impl ApiState {
     pub fn activate(&self, path: PathBuf, force_stream: bool) -> Result<String, String> {
         let _activation = self.activation_lock.lock()
             .map_err(|_| "model activation lock is poisoned".to_string())?;
+        // This check executes while activation is serialized, and never
+        // creates a second native worker for an already-active GGUF.
+        // Canonicalize paths to avoid a relative/symlink alias causing a
+        // needless reload of exactly the same model.
+        let normalized_path = std::fs::canonicalize(&path)
+            .map_err(|e| format!("cannot activate model {}: {e}",path.display()))?;
+        {
+            let runtime = self.runtime.lock()
+                .map_err(|_| "runtime state lock is poisoned".to_string())?;
+            if let Some(active) = runtime.as_ref() {
+                let current_canonical = std::fs::canonicalize(&active.model_path).ok();
+                if current_canonical.as_deref().is_some_and(|current|
+                    reuse_existing_session(current, &normalized_path, active.streaming, force_stream)
+                ) {
+                    return Ok(active.model_name.clone());
+                }
+            }
+        }
         let previous = {
             let mut runtime = self.runtime.lock()
                 .map_err(|_| "runtime state lock is poisoned".to_string())?;
@@ -70,7 +100,10 @@ impl ApiState {
             ))
         };
 
-        match load_session(path.clone(), force_stream) {
+        // The original named GGUF shard path must remain intact here:
+        // canonicalizing a symlink to a content-addressed HF blob may erase
+        // its conventional split-GGUF suffix before shard detection.
+        match load_session(path, force_stream) {
             Ok(session) => {
                 let name = session.model_name.clone();
                 *self.runtime.lock().map_err(|_| "runtime state lock is poisoned".to_string())? = Some(session);
@@ -256,6 +289,21 @@ fn load_session(path: PathBuf, force_stream: bool) -> Result<RuntimeSession, Str
                 model_path: path,
                 eos_token,
             })
+}
+
+#[cfg(test)]
+mod session_reuse_tests {
+    use super::reuse_existing_session;
+    use std::path::Path;
+    #[test]
+    fn same_model_does_not_restart_the_streamed_worker() {
+        let model=Path::new("/models/big-00001-of-00002.gguf");
+        assert!(reuse_existing_session(model, model, true, false));
+        assert!(reuse_existing_session(model, model, true, true));
+        assert!(!reuse_existing_session(model, model, false, true));
+        assert!(reuse_existing_session(model, model, false, false));
+        assert!(!reuse_existing_session(model, Path::new("/models/other.gguf"), true, false));
+    }
 }
 
 #[cfg(test)]

@@ -55,6 +55,10 @@ KILN_MODEL_PATH=/path/to/model.gguf cargo run -p kiln-cli -- serve
 
 Open **http://127.0.0.1:11435/**. The UI supports local model inventory, public GGUF search/download, model activation and chat. The API is loopback-only; authenticated remote access and automatic heterogeneous hardware placement are not shipped.
 
+## Reusing an active model
+
+Selecting a GGUF that is **already active** through the local UI does not tear down and reload its native inference session. KILN compares canonical source paths and preserves the existing model, native expert hot cache and execution mode, avoiding unnecessary storage reads and startup delays. Explicitly requesting streaming for a model currently running in standard mode still performs a deliberate mode switch. This optimization does not introduce an automatic background model download or alter local weight files.
+
 ## Oversized models in the local web UI
 
 When you select **Use model**, KILN estimates a conservative resident-memory budget using Linux `MemAvailable` and, where present, remaining cgroup memory headroom. It reserves room for the OS, inference context and other allocations; comparing a GGUF with **total installed RAM alone** is insufficient. On Linux, an oversized **compatible single-file fused MoE GGUF** is launched through the experimental native on-demand expert streaming engine, with the model kept in a separate worker process for chat and generation. The Advanced tab identifies the active inference mode. An explicit **Try streaming** option is available for smaller compatible MoE files as well. Streaming remains experimental and is not proof of usable speed, bounded physical RAM, or support for every GGUF architecture.
