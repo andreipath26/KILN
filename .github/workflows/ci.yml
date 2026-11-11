@@ -137,7 +137,14 @@ jobs:
           OLLAMA_ROOT="$RUNNER_TEMP/kiln-ollama-manifest-smoke"
           mkdir -p "$OLLAMA_ROOT/blobs" "$OLLAMA_ROOT/manifests/registry.ollama.ai/library/integration-fixture"
           DIGEST="$(sha256sum "$MODEL" | cut -d ' ' -f 1)"
-          ln "$MODEL" "$OLLAMA_ROOT/blobs/sha256-$DIGEST"
+          BLOB="$OLLAMA_ROOT/blobs/sha256-$DIGEST"
+          # Preserve zero-copy identity even when a restored fixture already
+          # exists; an unrelated stale blob must not pass the identity check.
+          if ! test "$MODEL" -ef "$BLOB"; then
+            rm -f -- "$BLOB"
+            ln -- "$MODEL" "$BLOB"
+          fi
+          test "$MODEL" -ef "$BLOB"
           python3 - "$OLLAMA_ROOT" "$DIGEST" <<'PY'
           import json
           import pathlib
@@ -838,8 +845,20 @@ jobs:
 
       - name: Prepare real activation and recovery candidates
         run: |
+          set -euo pipefail
           MODEL="$RUNNER_TEMP/kiln-models/QuantFactory--SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct.Q4_K_M.gguf"
-          ln "$MODEL" "$RUNNER_TEMP/kiln-models/alternate-smoke.gguf"
+          ALTERNATE="$RUNNER_TEMP/kiln-models/alternate-smoke.gguf"
+          test -s "$MODEL"
+          # Cached smoke fixtures may already include this link. Rebuild only
+          # if it is absent or no longer refers to the actual source inode.
+          if ! test "$MODEL" -ef "$ALTERNATE"; then
+            rm -f -- "$ALTERNATE"
+            ln -- "$MODEL" "$ALTERNATE"
+          fi
+          test "$MODEL" -ef "$ALTERNATE"
+          # Recheck the already-created link on the rerun path without
+          # rewriting it; only source inode identity proves zero-copy reuse.
+          test "$MODEL" -ef "$ALTERNATE"
           python3 tools/ui-e2e/create_bad_arch_model.py "$MODEL" "$RUNNER_TEMP/kiln-models/zz-invalid-arch.gguf"
 
       - name: Start the local API with the real model
