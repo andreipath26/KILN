@@ -65,9 +65,21 @@ fn push_token_bytes(pending: &mut Vec<u8>, raw: &[u8]) -> Result<Option<String>,
         }
         Err(error) if error.error_len().is_some() =>
             Err("native tokenizer emitted invalid UTF-8 bytes".into()),
-        Err(_) if pending.len() > 4 =>
-            Err("native tokenizer emitted an overlong incomplete UTF-8 sequence".into()),
-        Err(_) => Ok(None),
+        Err(error) => {
+            // A token piece can contain an arbitrary-length valid prefix and
+            // only the first bytes of a multi-byte suffix. Emit the complete
+            // prefix and retain ONLY the incomplete codepoint (at most 3 bytes).
+            // Bounding the whole pending buffer would incorrectly reject valid
+            // text such as "hello " followed by the first two bytes of '€'.
+            let valid_len = error.valid_up_to();
+            let completed = std::str::from_utf8(&pending[..valid_len])
+                .expect("validated UTF-8 prefix").to_owned();
+            pending.drain(..valid_len);
+            if pending.len() > 3 {
+                return Err("native tokenizer emitted an overlong incomplete UTF-8 sequence".into());
+            }
+            Ok((!completed.is_empty()).then_some(completed))
+        }
     }
 }
 
@@ -168,6 +180,33 @@ mod protocol_tests {
         finish_token_bytes(&pending).unwrap();
         assert_eq!(push_token_bytes(&mut pending, b"ok").unwrap(), Some("ok".into()));
         assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn token_utf8_assembler_emits_valid_prefix_before_incomplete_suffix() {
+        let mut pending = Vec::new();
+        assert_eq!(push_token_bytes(&mut pending, b"hello \\xE2\\x82").unwrap(),
+            Some("hello ".into()));
+        assert_eq!(pending, vec![0xE2, 0x82]);
+        assert_eq!(push_token_bytes(&mut pending, &[0xAC]).unwrap(), Some("€".into()));
+        assert!(pending.is_empty());
+
+        let mut pending = Vec::new();
+        assert_eq!(push_token_bytes(&mut pending, "abc😀".as_bytes()).unwrap(),
+            Some("abc😀".into()));
+        assert_eq!(push_token_bytes(&mut pending, b"first \\xF0\\x9F").unwrap(),
+            Some("first ".into()));
+        assert_eq!(pending, vec![0xF0, 0x9F]);
+        assert_eq!(push_token_bytes(&mut pending, &[0x98, 0x80]).unwrap(),
+            Some("😀".into()));
+        finish_token_bytes(&pending).unwrap();
+    }
+
+    #[test]
+    fn token_utf8_assembler_rejects_invalid_tail_after_complete_prefix() {
+        let mut pending = Vec::new();
+        assert!(push_token_bytes(&mut pending, b"valid \\xFF").unwrap_err()
+            .contains("invalid UTF-8"));
     }
 
     #[test]
