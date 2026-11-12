@@ -61,6 +61,10 @@ kiln_llama_t kiln_llama_load(const char* model_path, const struct kiln_llama_par
         llama_model_free(model);
         return NULL;
     }
+    if (llama_model_is_diffusion(model)) {
+        // Masked diffusion requires every position to attend across the full sequence.
+        llama_set_causal_attn(ctx, false);
+    }
 
     const struct llama_vocab* vocab = llama_model_get_vocab(model);
     int32_t n_vocab = llama_vocab_n_tokens(vocab);
@@ -137,6 +141,8 @@ int32_t kiln_llama_diffusion_step(
         return -2;
     }
 
+    // Keep the call self-contained if another operation has changed context mode.
+    llama_set_causal_attn(k->ctx, false);
     llama_set_clad_attention_capture(k->ctx, true);
 
     k->batch.n_tokens = n_tokens;
