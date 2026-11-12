@@ -730,23 +730,21 @@ jobs:
           PY
 
       - name: Capture direct-source real MoE expert I/O from native router trace
-        env:
-          KILN_MODELS_DIR: \${{ runner.temp }}/kiln-models
         run: |
           set -euo pipefail
-          MODEL="$KILN_MODELS_DIR/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
+          MODEL="$RUNNER_TEMP/kiln-models/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
           OUT="$RUNNER_TEMP/direct-source-moe-io"
           mkdir -p "$OUT"
-          target/debug/kiln-bench expert-export-gguf-stream-index \\
-            --source-gguf "$MODEL" --auto-verified \\
+          target/debug/kiln-bench expert-export-gguf-stream-index \
+            --source-gguf "$MODEL" --auto-verified \
             --output-file "$OUT/native-index.tsv" --json > "$OUT/index-report.json"
-          KILN_MOE_ROUTER_TRACE="$OUT/router-operators.tsv" \\
-            target/debug/kiln bench "$MODEL" --native-greedy --tokens 8 \\
-            --warmup 0 --runs 1 --threads 2 --batch 128 --ubatch 64 --json \\
+          KILN_MOE_ROUTER_TRACE="$OUT/router-operators.tsv" \
+            target/debug/kiln bench "$MODEL" --native-greedy --tokens 8 \
+            --warmup 0 --runs 1 --threads 2 --batch 128 --ubatch 64 --json \
             > "$OUT/router-capture.json" 2> "$OUT/router-capture.log"
           test -s "$OUT/router-operators.tsv"
-          python3 scripts/capture_direct_gguf_expert_io.py "$MODEL" \\
-            "$OUT/native-index.tsv" "$OUT/index-report.json" "$OUT/router-operators.tsv" \\
+          python3 scripts/capture_direct_gguf_expert_io.py "$MODEL" \
+            "$OUT/native-index.tsv" "$OUT/index-report.json" "$OUT/router-operators.tsv" \
             --max-read-mib 64 --output "$OUT/direct-source-io.json"
           python3 - "$OUT/direct-source-io.json" "$OUT/index-report.json" <<'PY'
           import json,sys
