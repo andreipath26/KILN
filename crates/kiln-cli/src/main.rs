@@ -197,6 +197,9 @@ enum Commands {
         /// Confidence threshold used to propose parallel token commits.
         #[arg(long, default_value_t = 0.70)]
         threshold: f32,
+        /// Decoder: CLAD attention clusters or vanilla top-confidence transfer schedule.
+        #[arg(long, value_parser = ["clad", "confidence"], default_value = "clad")]
+        decoder: String,
         /// CPU worker threads; defaults to available parallelism.
         #[arg(long)]
         threads: Option<usize>,
@@ -992,7 +995,7 @@ async fn main() {
             }
         }
         Commands::Diffuse {
-            model, prompt, prompt_file, max_tokens, steps, block_length, threshold, threads, json,
+            model, prompt, prompt_file, max_tokens, steps, block_length, threshold, decoder, threads, json,
         } => {
             let cases = if let Some(path) = prompt_file {
                 if !json {
@@ -1034,7 +1037,7 @@ async fn main() {
             match cases {
                 Ok(cases) => {
                     if let Err(error) = phase6_diffusion::run_cases(
-                        &model, &cases, max_tokens, steps, block_length, threshold, threads, json,
+                        &model, &cases, max_tokens, steps, block_length, threshold, threads, json, &decoder,
                     ) {
                         eprintln!("diffuse: {error}");
                         std::process::exit(2);
