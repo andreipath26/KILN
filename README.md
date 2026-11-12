@@ -181,7 +181,7 @@ python3 scripts/run_phase6_clad_suite.py \
   --decoder confidence --answers-jsonl artifacts/phase6-confidence.jsonl \
   --output artifacts/phase6-confidence.json --repeats 3 --threads 4
 
-# Use the model SHA-256 from the first result as the pinned same-checkpoint baseline.
+# Replace these placeholders with model.sha256 and implementation_revision from the confidence report.
 python3 scripts/run_phase6_clad_suite.py \
   --kiln target/release/kiln --model /path/to/llada-8b-instruct.gguf \
   --decoder clad --reference-jsonl artifacts/phase6-confidence.jsonl \
