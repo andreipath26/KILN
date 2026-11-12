@@ -137,23 +137,24 @@ int32_t kiln_llama_apply_user_template(
 
 int32_t kiln_llama_diffusion_step(
     kiln_llama_t h, const int32_t* tokens, int32_t n_tokens,
-    int32_t* predicted_tokens, float* confidence, float* attention,
-    size_t attention_capacity)
+    int32_t capture_attention, int32_t* predicted_tokens, float* confidence,
+    float* attention, size_t attention_capacity)
 {
     struct kiln_llama* k = (struct kiln_llama*) h;
-    if (!k || !tokens || !predicted_tokens || !confidence || !attention ||
+    if (!k || !tokens || !predicted_tokens || !confidence || (capture_attention && !attention) ||
         n_tokens <= 0 || n_tokens > k->batch_capacity ||
         !llama_model_is_diffusion(k->model)) {
         return -1;
     }
     const size_t token_count = (size_t) n_tokens;
-    if (token_count > SIZE_MAX / token_count || token_count * token_count > attention_capacity) {
+    if (capture_attention &&
+        (token_count > SIZE_MAX / token_count || token_count * token_count > attention_capacity)) {
         return -2;
     }
 
     // Keep the call self-contained if another operation has changed context mode.
     llama_set_causal_attn(k->ctx, false);
-    llama_set_clad_attention_capture(k->ctx, true);
+    llama_set_clad_attention_capture(k->ctx, capture_attention != 0);
 
     k->batch.n_tokens = n_tokens;
     for (int32_t i = 0; i < n_tokens; ++i) {
@@ -190,6 +191,11 @@ int32_t kiln_llama_diffusion_step(
         if (!(sum > 0.0) || !std::isfinite(sum)) return -6;
         predicted_tokens[pos] = best;
         confidence[pos] = (float) (1.0 / sum);
+    }
+
+    k->n_past = 0;
+    if (!capture_attention) {
+        return 0;
     }
 
     const uint32_t attention_tokens = llama_get_clad_attention_tokens(k->ctx);
