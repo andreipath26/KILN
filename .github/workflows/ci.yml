@@ -46,6 +46,9 @@ jobs:
           python3 -m unittest scripts.test_convert_moe_router_trace -v
           python3 -m unittest scripts.test_route_usage_history -v
 
+      - name: Test Phase 6 factual capture utility
+        run: python3 -m unittest scripts.test_run_phase6_clad_suite -v
+
       - name: Test Phase 3.5 evidence summary and capture scripts
         run: |
           python3 -m unittest scripts.test_summarize_phase35 -v
