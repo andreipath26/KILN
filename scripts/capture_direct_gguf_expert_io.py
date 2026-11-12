@@ -188,6 +188,10 @@ def capture(model: Path, index: Path, index_report: Path, trace: Path, runs: int
     if source_identity_after != source_identity_before:
         raise ValueError("source GGUF changed during direct-source trace replay")
     model_sha = sha256_file(model)
+    source_hashed = model.stat()
+    hashed_identity = (source_hashed.st_dev, source_hashed.st_ino, source_hashed.st_size, source_hashed.st_mtime_ns)
+    if hashed_identity != source_identity_before:
+        raise ValueError("source GGUF changed while hashing provenance")
     index_sha = hashlib.sha256(index.read_bytes()).hexdigest()
     trace_sha = hashlib.sha256(trace.read_bytes()).hexdigest()
     return {
@@ -214,7 +218,7 @@ def capture(model: Path, index: Path, index_report: Path, trace: Path, runs: int
         "interpretation": (
             "Direct reads of the indexed original GGUF in recorded CPU MAT_ID operator order. "
             "The model SHA-256 is computed after timed reads to avoid prewarming the file. "
-        "The trace-producing inference may have warmed OS page cache; cache state is uncontrolled. "
+            "The trace-producing inference may have warmed OS page cache; cache state is uncontrolled. "
             "This does not measure physical SSD traffic, inference throughput, cache overlap, total system "
             "memory, model quality, or Tier 0 acceptance."
         ),
