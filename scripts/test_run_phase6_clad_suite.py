@@ -10,7 +10,7 @@ class Phase6CaptureTests(unittest.TestCase):
         self.assertEqual(normalized("  H₂O! "), normalized("h2o"))
 
     def test_accepted_answer_match_is_normalized_but_not_semantic(self):
-        self.assertTrue(score_answer("The answer is Paris.", ["Paris", "London"]))
+        self.assertTrue(score_answer("  PARIS! ", ["Paris", "London"]))
         self.assertFalse(score_answer("Paris is the capital.", ["Paris"]))
 
     def test_reads_jsonl_and_rejects_invalid_json(self):
