@@ -1,6 +1,6 @@
 # KILN MASTER ROADMAP AND RULES SET
 
-**Version:** 9.4 — Phase 5 native cache policy control  
+**Version:** 9.5 — Phase 6 diffusion implementation track  
 **Last updated:** 2026-11-12  
 **Status:** Active master roadmap  
 **Repository:** https://github.com/andreipath26/KILN  
@@ -83,12 +83,12 @@ The latest supplied project state records these statuses. Reconfirm against Git,
 | 3.5 | Dense-path speed run | **In progress / next execution phase** | Controlled baseline, profiling, prompt cache, speculation, thread and batch settings. |
 | 4 | Ternary weights / TQ1.0 path | Complete in supplied status | Verify effective storage and runtime representation. |
 | 4.5 | Sanity and quality guarantees | Complete in supplied status | Keep quality checks for lossy representations. |
-| 5 | MoE expert streaming across heterogeneous compute and tiered memory | **Core mission phase; full feasibility/end-to-end gates pending** | Merged PRs #41–44, #47, #49, #52, #53, #55 and #56 added GGUF sidecar, cache, guarded I/O, async reader, Linux io_uring and `cpu_moe_streamed` byte-operation dispatch components. The CPU-only Tier 0 route is the minimum acceptance slice. Actual llama.cpp MoE graph integration and real-model Dell acceptance remain open. |
-| 6 | Diffusion | Future / not started | Separate research track; not a drop-in autoregressive optimization. |
+| 5 | MoE expert streaming across heterogeneous compute and tiered memory | **Core mission phase; Dell feasibility and end-to-end gates pending** | Sidecar/cache/predictor/I/O components and the experimental native selected-expert llama.cpp graph path are present. Keep the Rust `cpu_moe_streamed` operation backend distinct. CPU-only Tier 0 is the minimum acceptance slice; Qwen3-30B-A3B speed, RSS, storage traffic and quality remain unmeasured on the Dell. |
+| 6 | Diffusion | **Implementation active; Tier 0 acceptance pending** | `kiln diffuse` uses LLaDA's chat template, non-causal full-sequence passes, and opt-in final-four-layer attention export for CLAD. A JSONL factual suite and capture workflow are being integrated. LLaDA-8B ≥6 tok/s and factual quality versus vanilla LLaDA remain unmeasured. |
 | 7 | Hardware abstraction | Future / not started | Preserve common runtime contract and hardware-specific options. |
 | 8 | Productization | Future / not started | Packaging, support, quality, performance and user-facing acceptance. |
 
-Phase 5 remains the central mission, but Phase 3.5 is the immediate execution priority. Do not skip the dense-path baseline or storage feasibility gate because MoE code compiles.
+Phase 5 remains the central mission. Current execution is the explicitly authorized Phase 6 diffusion implementation while Phase 5 hardware acceptance remains open; this does not close Phase 3.5 or Phase 5. Resume their pending baselines and gates when the required target hardware is available.
 
 ### Phase 3.5 recorded baseline and target
 
@@ -237,6 +237,18 @@ Research block-aligned expert/token sorting: grouping expert requests and aligni
 Validate the exact model/checkpoint, tokenizer and runtime revision. Exact prefetching should not change outputs; approximate expert surrogates can and require quality evaluation. Record model revision, quantization, evaluation data, seeds/settings, output correctness and uncertainty. Measure sustained speed, prompt processing, memory peak, cache behavior, bytes/token, quality and a same-hardware baseline.
 
 **Phase 5 exit gate:** reproducible end-to-end result on the required model/hardware, sustained speed, memory peak, measured data movement, cache/prefetch behavior, quality and fair baseline. A build, microbenchmark or cache-hit result alone does not complete Phase 5.
+
+### Phase 6 — LLaDA diffusion and CLAD implementation track (authorized 2026-11-12)
+
+The current Phase 6 implementation target is a native KILN masked-diffusion path for LLaDA-8B using Cluster-Level Attention-Guided Parallel Decoding (CLAD), exposed as `kiln diffuse`. This execution is authorized while Phase 5 Dell acceptance remains open; it does not reorder or waive any Phase 3.5/5 gate.
+
+- The llama.cpp fork exports an opt-in query-major attention map averaged over heads and LLaDA's final four layers. Ordinary inference leaves the export disabled.
+- KILN formats prompts with the model's GGUF chat template, evaluates a full non-causal masked sequence, and commits confidence-qualified clusters after CLAD attention-conflict filtering. Unsupported models and incomplete masks fail closed.
+- The fixed suite is `benchmarks/phase6/factual.jsonl`; `scripts/run_phase6_clad_suite.py` runs it in one loaded model session per repetition and records per-prompt output/rate, model and suite hashes, machine provenance and peak RSS. A pinned vanilla LLaDA result file can be supplied for same-case exact-answer comparison.
+- **Tier 0 acceptance target:** at least 6 generated tokens/s on the Dell Latitude 7490 using a pinned LLaDA-8B-Instruct GGUF and fixed factual suite. Record median and spread over repeated runs, excluding model load from the decode interval while retaining whole-process peak RSS.
+- The operational quality comparison is factual exact/accepted-answer accuracy on identical prompt IDs against vanilla LLaDA; require no more than a one percentage-point drop and manually review misses. Exact-match scoring is a screening metric, not a semantic judge.
+- Code presence, fork CI, or non-Dell performance does not satisfy Phase 6. Do not claim acceptance until the pinned model, Tier 0 machine, complete suite, throughput and quality evidence are recorded.
+
 
 ## 8. KV cache and long-context research
 
@@ -770,3 +782,10 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Pinned the fork integration in KILN and extended the real tiny-MoE CI smoke to run identical LRU/LFU prompts and require exact generated-text parity.
 - This establishes policy selection and output parity only. The policy has no claimed performance gain. The native cache is per tensor slab; the separate Python replay simulator groups slabs into whole-expert modeled fills and is not a live-cache measurement.
 - Dell Latitude 7490 throughput, cache benefit, physical storage bytes/token, total peak RSS, model quality and Phase 5 acceptance remain open; they require the acceptance machine and representative model.
+
+
+### 2026-11-12 — Phase 6 CLAD implementation started
+
+- Added the native `kiln diffuse` path for LLaDA masked diffusion with model chat-template formatting, full non-causal sequence evaluation, confidence proposals, and CLAD attention-cluster conflict filtering. The llama.cpp fork exports final-four-layer/head-averaged LLaDA attention only when the KILN path enables it.
+- Added JSONL prompt-suite execution that loads the model once, returns per-case JSON, and reports the process peak RSS where Linux exposes it. Added a 12-item fixed factual suite and a capture utility that records artifact hashes, configuration, machine identity, repeated decode rates and optional vanilla-LLaDA exact-answer comparison.
+- This is implementation preparation, not acceptance evidence. Fork CI must pass; compile/runtime integration must be verified; Dell Latitude 7490 LLaDA-8B throughput (≥6 tok/s), RSS and quality gates remain open. Phase 5 acceptance remains independently open.
