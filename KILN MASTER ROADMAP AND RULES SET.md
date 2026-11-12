@@ -1,6 +1,6 @@
 # KILN MASTER ROADMAP AND RULES SET
 
-**Version:** 9.3 — Phase 5 trace evidence expansion  
+**Version:** 9.4 — Phase 5 native cache policy control  
 **Last updated:** 2026-11-12  
 **Status:** Active master roadmap  
 **Repository:** https://github.com/andreipath26/KILN  
@@ -763,3 +763,10 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Added regression coverage for variable-size eviction/accounting, LFU retention, adaptive cold-scan rejection, disabled-cache behavior, provenance binding and route-event grouping.
 - Extended hosted CI to run the unit suite and replay the actual tiny real-MoE fixture through multiple budgets and policies, asserting byte-cap invariants.
 - Updated the README and Phase 5 guide with the new capability and limitations. The trace lacks token-boundary markers, and native graph execution is not integrated with KILN's Rust cache, so this remains a deterministic policy simulation—not hardware performance or Gate 5B/Phase 5 acceptance.
+
+### 2026-11-12 — Native streamed MoE cache LFU policy
+
+- Added opt-in `KILN_MOE_STREAM_CACHE_POLICY=lfu` to the pinned llama.cpp fork's native graph-selected expert cache; LRU remains the default. LFU uses saturating slab-hit counters, protects pinned entries, and evicts least-frequent unpinned slabs with oldest-touch tie-break.
+- Pinned the fork integration in KILN and extended the real tiny-MoE CI smoke to run identical LRU/LFU prompts and require exact generated-text parity.
+- This establishes policy selection and output parity only. The policy has no claimed performance gain. The native cache is per tensor slab; the separate Python replay simulator groups slabs into whole-expert modeled fills and is not a live-cache measurement.
+- Dell Latitude 7490 throughput, cache benefit, physical storage bytes/token, total peak RSS, model quality and Phase 5 acceptance remain open; they require the acceptance machine and representative model.
