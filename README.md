@@ -11,7 +11,7 @@ KILN is an open-source local inference runtime in active development, intended f
 - Public Hugging Face GGUF search and explicit model-file downloads, with integrity checks.
 - `kiln plan MODEL [--json]`: read-only GGUF/system memory and CPU feasibility preflight. It is a diagnostic, **not** a guarantee that a model will load or run at a particular speed.
 - **Experimental Linux CPU MoE streaming:** `kiln stream MODEL` resolves a compatible fused-expert GGUF, creates a temporary verified source index, and starts an isolated inference child using selected expert slabs read directly from the **original GGUF**. This is real opt-in graph compute, not just synthetic I/O simulation. It supports bounded native expert caching, optional parallel reads, and fail-closed stream audit checks; it does not require duplicating model weights.
-- Phase 5 engineering tools for real router-ID traces, expert index/sidecar validation, asynchronous I/O, cache experiments, and model quality/throughput evidence.
+- Phase 5 engineering tools for real router-ID traces, byte-bounded LRU/LFU/adaptive cache replay, expert index/sidecar validation, asynchronous I/O, and model quality/throughput evidence. Trace simulation compares policies on captured routes; it does not measure runtime-cache behavior or hardware performance.
 
 **What this does not mean:** The streamed path is not automatically enabled for every model, architecture or operating system. Ordinary `kiln run` remains the default inference path; incompatible expert layouts are rejected for automatic streaming. The existing `cpu_moe_streamed` byte-dispatch components and native GGML selected-expert computation are separate mechanisms, and neither is a general hardware-deployment acceptance certificate.
 
