@@ -18,6 +18,7 @@ mod llama_forward;
 mod model_library;
 mod phase35_kv_bench;
 mod phase35_spec_bench;
+mod phase6_diffusion;
 mod model_plan;
 mod experimental_stream;
 mod stream_stdio;
@@ -173,6 +174,32 @@ enum Commands {
         /// Loopback IP to bind to. Only 127.0.0.1 or ::1 is accepted; remote access is unsupported.
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
+    },
+    /// Run Phase 6 LLaDA diffusion with CLAD attention-guided parallel decoding.
+    Diffuse {
+        /// Path to a LLaDA diffusion GGUF model.
+        model: String,
+        /// One factual or other single-turn prompt.
+        #[arg(long)]
+        prompt: String,
+        /// Maximum number of output tokens (must be a multiple of block length).
+        #[arg(long, default_value_t = 128)]
+        max_tokens: usize,
+        /// Total denoising steps (default: max tokens, matching CLAD's reference schedule).
+        #[arg(long)]
+        steps: Option<usize>,
+        /// Diffusion block length.
+        #[arg(long, default_value_t = 32)]
+        block_length: usize,
+        /// Confidence threshold used to propose parallel token commits.
+        #[arg(long, default_value_t = 0.70)]
+        threshold: f32,
+        /// CPU worker threads; defaults to available parallelism.
+        #[arg(long)]
+        threads: Option<usize>,
+        /// Emit structured JSON with decode speed and generation metadata.
+        #[arg(long)]
+        json: bool,
     },
     /// Start an interactive chat session using the llama.cpp runtime.
     Run {
@@ -959,6 +986,16 @@ async fn main() {
                     eprintln!("pipeline error: {}", e);
                     std::process::exit(1);
                 }
+            }
+        }
+        Commands::Diffuse {
+            model, prompt, max_tokens, steps, block_length, threshold, threads, json,
+        } => {
+            if let Err(error) = phase6_diffusion::run(
+                &model, &prompt, max_tokens, steps, block_length, threshold, threads, json,
+            ) {
+                eprintln!("diffuse: {error}");
+                std::process::exit(2);
             }
         }
         Commands::Run { model, max_tokens, keep_context, native_greedy, spec_type, lazy_moe_experts } => {
