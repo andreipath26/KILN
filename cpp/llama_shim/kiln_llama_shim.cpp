@@ -18,6 +18,7 @@ struct kiln_llama {
     int32_t n_vocab;
     int32_t n_past;
     int32_t batch_capacity;
+    bool shift_logits;
     struct llama_batch batch;
 };
 
@@ -79,6 +80,10 @@ kiln_llama_t kiln_llama_load(const char* model_path, const struct kiln_llama_par
     k->ctx     = ctx;
     k->vocab   = vocab;
     k->n_vocab = n_vocab;
+    char shift_logits_value[8] = {};
+    k->shift_logits =
+        llama_model_meta_val_str(model, "diffusion.shift_logits", shift_logits_value, sizeof(shift_logits_value)) < 0 ||
+        strcmp(shift_logits_value, "true") == 0;
     k->n_past = 0;
     /* Keep the reusable batch at least as large as the configured
      * context batch, otherwise valid caller batches can be rejected
@@ -110,6 +115,11 @@ int32_t kiln_llama_mask_token(kiln_llama_t h) {
     struct kiln_llama* k = (struct kiln_llama*)h;
     if (!k || !llama_model_is_diffusion(k->model)) return -1;
     return llama_vocab_mask(k->vocab);
+}
+
+int32_t kiln_llama_shift_logits(kiln_llama_t h) {
+    struct kiln_llama* k = (struct kiln_llama*)h;
+    return k && llama_model_is_diffusion(k->model) ? (k->shift_logits ? 1 : 0) : -1;
 }
 
 int32_t kiln_llama_apply_user_template(
@@ -160,7 +170,8 @@ int32_t kiln_llama_diffusion_step(
     }
 
     for (int32_t pos = 0; pos < n_tokens; ++pos) {
-        const float* row = llama_get_logits_ith(k->ctx, pos);
+        const int32_t logits_pos = k->shift_logits && pos > 0 ? pos - 1 : pos;
+        const float* row = llama_get_logits_ith(k->ctx, logits_pos);
         if (!row) return -4;
         int32_t best = 0;
         float maximum = row[0];
