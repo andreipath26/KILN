@@ -79,6 +79,16 @@ def system_memory_kib() -> int | None:
     return None
 
 
+def available_memory_kib() -> int | None:
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1])
+    except (OSError, ValueError):
+        pass
+    return None
+
+
 def git_revision() -> str | None:
     if os.environ.get("KILN_REVISION"):
         return os.environ["KILN_REVISION"]
@@ -102,6 +112,7 @@ def main() -> int:
     parser.add_argument("--block-length", type=int, default=32)
     parser.add_argument("--threshold", type=float, default=0.70)
     parser.add_argument("--threads", type=int, default=None)
+    parser.add_argument("--quantization", help="model quantization label for the evidence record")
     parser.add_argument("--reference-jsonl", type=Path, help="vanilla LLaDA results: JSONL {id, answer}")
     args = parser.parse_args()
 
@@ -156,6 +167,7 @@ def main() -> int:
     if args.threads is not None:
         command.extend(["--threads", str(args.threads)])
 
+    available_at_start_kib = available_memory_kib()
     runs = []
     for repeat in range(args.repeats):
         completed = subprocess.run(command, capture_output=True, text=True)
@@ -221,6 +233,7 @@ def main() -> int:
             "cpu": cpu_description(),
             "logical_cpus": os.cpu_count(),
             "mem_total_kib": system_memory_kib(),
+            "mem_available_at_start_kib": available_at_start_kib,
         },
         "configuration": {
             "max_tokens": args.max_tokens,
@@ -228,6 +241,7 @@ def main() -> int:
             "block_length": args.block_length,
             "threshold": args.threshold,
             "threads": args.threads,
+            "quantization": args.quantization,
             "repeats": args.repeats,
             "model_load_excluded_from_decode_timer": True,
         },
