@@ -172,6 +172,7 @@ pub fn run_cases(
                 "case_id": case_id,
                 "method": "CLAD",
                 "model": model,
+                "threads": threads,
                 "input_tokens": input.len(),
                 "generated_tokens": generated_tokens,
                 "steps": steps,
