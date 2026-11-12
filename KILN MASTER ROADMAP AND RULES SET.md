@@ -764,7 +764,6 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Extended hosted CI to run the unit suite and replay the actual tiny real-MoE fixture through multiple budgets and policies, asserting byte-cap invariants.
 - Updated the README and Phase 5 guide with the new capability and limitations. The trace lacks token-boundary markers, and native graph execution is not integrated with KILN's Rust cache, so this remains a deterministic policy simulation—not hardware performance or Gate 5B/Phase 5 acceptance.
 
-
 ### 2026-11-12 — Native streamed MoE cache LFU policy
 
 - Added opt-in `KILN_MOE_STREAM_CACHE_POLICY=lfu` to the pinned llama.cpp fork's native graph-selected expert cache; LRU remains the default. LFU uses saturating slab-hit counters, protects pinned entries, and evicts least-frequent unpinned slabs with oldest-touch tie-break.
