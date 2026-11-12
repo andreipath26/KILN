@@ -179,7 +179,7 @@ Phase 5 aims to stream MoE experts through the memory hierarchy while retaining 
 - **Phase 5.2/5.3:** PRs #15, #31, #47, #49, #52, #53 and #55 add bounded expert-file reads, byte-bounded cache/admission, authoritative-router Commit Guard behavior, bounded asynchronous prefetch, and a Linux io_uring reader with buffered fallback.
 - **Phase 5.4:** PR #56 registers `MoEStreamBackend` (`cpu_moe_streamed`) for token-scoped expert-byte operations. A real-file test covers predictions, misses, router order, and stale epochs.
 - **Lazy-mmap baseline:** PR #70 adds an opt-in llama.cpp shared-loader path for standard routed-expert tensor types across supported MoE architectures, with `kiln run`, `kiln chat`, and `kiln bench` entry points. It keeps the original GGUF and uses llama.cpp mmap/page-cache behavior; it does not connect the KILN sidecar, cache, predictor, prefetch, or `cpu_moe_streamed` to model compute, and it is not Gate 5A evidence.
-- **Integration boundary:** These are real code and test milestones, not end-to-end streamed inference. The stock llama.cpp model graph does not call the new expert operations or materialize sidecar tensor components into its compute path. Dell real-model speed, physical RSS, SSD traffic per token, quality, and Phase 5 exit criteria remain open.
+- **Integration boundary (reconciled after PR #81):** The pinned llama.cpp CPU graph now has an experimental selected-expert path for supported complete fused MoE layouts, including verified single-file and split-GGUF source mappings. This native graph path is distinct from the Rust `cpu_moe_streamed` byte-operation backend and the Phase 5.1 sidecar/cache experiments; those components are not thereby connected to model compute. Hosted CI includes small real-GGUF native parity coverage, but this does not establish Tier 0 feasibility or acceptance. Dell real-model speed, physical RSS, SSD traffic per token, model quality, and the Phase 5 exit criteria remain open.
 
 
 
@@ -740,3 +740,9 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 
 - Reused the split-GGUF source metadata/overflow validation in a dedicated preflight before `ApiState::activate` detaches and unloads an active model. An unavailable source shard is rejected while the active session is left intact; the loader uses the same checked validation to avoid drift.
 - Added no-model unit regression with a synthetic active streaming session, incomplete two-shard replacement, and restored shard sizing. Unsupported architecture, OOM after a valid preflight, and Tier 0 inference acceptance remain separate unverified gates.
+
+### 2026-11-12 — Phase 5 native graph integration status reconciled
+
+- PR #81 merged the experimental pinned llama.cpp CPU path that executes graph-selected fused MoE experts from verified single-file and supported complete multi-shard GGUF source mappings. This is separate from the Rust `cpu_moe_streamed` byte-operation backend and the GGUF sidecar/cache experiments.
+- CI parity on small real-GGUF fixtures confirms the exercised layouts only. It does not establish Qwen3-30B-A3B Tier 0 throughput, total peak RSS, physical SSD bytes per token, WikiText-2 quality, or the Phase 5 exit gate.
+- Phase 5 remains open; continue to require measured Gate 5A feasibility and end-to-end Gate 5D acceptance before making deployment claims.
