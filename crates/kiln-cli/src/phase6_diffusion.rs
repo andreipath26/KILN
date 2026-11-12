@@ -379,8 +379,9 @@ mod tests {
             super::select_confidence_transfers(&masked, &confidence, 8, 4, 0),
             vec![2, 6]
         );
+        let remaining = vec![0, 1, 3, 4, 5, 7];
         assert_eq!(
-            super::select_confidence_transfers(&masked, &confidence, 8, 4, 1),
+            super::select_confidence_transfers(&remaining, &confidence, 8, 4, 1),
             vec![4, 7]
         );
     }
