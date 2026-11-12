@@ -179,9 +179,12 @@ enum Commands {
     Diffuse {
         /// Path to a LLaDA diffusion GGUF model.
         model: String,
-        /// One factual or other single-turn prompt.
+        /// One factual or other single-turn prompt (mutually exclusive with --prompt-file).
+        #[arg(long, required_unless_present = "prompt_file", conflicts_with = "prompt_file")]
+        prompt: Option<String>,
+        /// JSONL file of {"id":"...","prompt":"..."} records; loads the model once for the suite.
         #[arg(long)]
-        prompt: String,
+        prompt_file: Option<std::path::PathBuf>,
         /// Maximum number of output tokens (must be a multiple of block length).
         #[arg(long, default_value_t = 128)]
         max_tokens: usize,
@@ -989,13 +992,58 @@ async fn main() {
             }
         }
         Commands::Diffuse {
-            model, prompt, max_tokens, steps, block_length, threshold, threads, json,
+            model, prompt, prompt_file, max_tokens, steps, block_length, threshold, threads, json,
         } => {
-            if let Err(error) = phase6_diffusion::run(
-                &model, &prompt, max_tokens, steps, block_length, threshold, threads, json,
-            ) {
-                eprintln!("diffuse: {error}");
-                std::process::exit(2);
+            let cases = if let Some(path) = prompt_file {
+                if !json {
+                    eprintln!("diffuse: --prompt-file requires --json so each result retains its case ID");
+                    std::process::exit(2);
+                }
+                (|| -> Result<Vec<(String, String)>, String> {
+                    let contents = std::fs::read_to_string(&path)
+                        .map_err(|e| format!("could not read {}: {e}", path.display()))?;
+                    let mut cases = Vec::new();
+                    let mut ids = std::collections::HashSet::new();
+                    for (line_index, line) in contents.lines().enumerate() {
+                        if line.trim().is_empty() {
+                            continue;
+                        }
+                        let record: serde_json::Value = serde_json::from_str(line)
+                            .map_err(|e| format!("JSONL line {} is invalid: {e}", line_index + 1))?;
+                        let id = record.get("id").and_then(serde_json::Value::as_str)
+                            .filter(|id| !id.trim().is_empty())
+                            .ok_or_else(|| format!("JSONL line {} needs a non-empty string 'id'", line_index + 1))?;
+                        let text = record.get("prompt").and_then(serde_json::Value::as_str)
+                            .filter(|prompt| !prompt.trim().is_empty())
+                            .ok_or_else(|| format!("JSONL line {} needs a non-empty string 'prompt'", line_index + 1))?;
+                        if !ids.insert(id.to_owned()) {
+                            return Err(format!("duplicate prompt ID '{id}'"));
+                        }
+                        cases.push((id.to_owned(), text.to_owned()));
+                    }
+                    if cases.is_empty() {
+                        return Err("prompt suite contains no prompt records".into());
+                    }
+                    Ok(cases)
+                })()
+            } else {
+                prompt.map(|text| vec![(String::from("prompt-1"), text)])
+                    .ok_or_else(|| "--prompt is required unless --prompt-file is provided".to_owned())
+            };
+
+            match cases {
+                Ok(cases) => {
+                    if let Err(error) = phase6_diffusion::run_cases(
+                        &model, &cases, max_tokens, steps, block_length, threshold, threads, json,
+                    ) {
+                        eprintln!("diffuse: {error}");
+                        std::process::exit(2);
+                    }
+                }
+                Err(error) => {
+                    eprintln!("diffuse: {error}");
+                    std::process::exit(2);
+                }
             }
         }
         Commands::Run { model, max_tokens, keep_context, native_greedy, spec_type, lazy_moe_experts } => {
