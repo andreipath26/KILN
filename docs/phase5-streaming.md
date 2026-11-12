@@ -71,7 +71,7 @@ python3 scripts/capture_direct_gguf_expert_io.py "$MODEL" \
   --output "$OUT/direct-source-io.json"
 ```
 
-The script preserves operator order and repeated events, caps input and replay size, records model/index/trace provenance, and refuses malformed, overlapping or out-of-file ranges. It reports page-cache-influenced file-read throughput only; it does not satisfy cold SSD, full inference, RAM, quality or Tier 0 acceptance gates. An empty trace means the model/build did not produce the expected CPU operator events and the capture must be treated as incomplete.
+The script preserves operator order and repeated events, caps each expert read at 64 MiB plus total replay size, records model/index/trace provenance, and refuses malformed, overlapping or out-of-file ranges. It reports page-cache-influenced file-read throughput only; it does not satisfy cold SSD, full inference, RAM, quality or Tier 0 acceptance gates. An empty trace means the model/build did not produce the expected CPU operator events and the capture must be treated as incomplete.
 
 For a supported complete **split** GGUF, `kiln-bench expert-io-split --source-gguf <first-shard.gguf> --requests 64 --max-read-mib 256 --json` reads verified fused-expert slabs from the original shard files without packing a sidecar. It is a bounded source-order sample (interleaved across shards), not a router-trace replay, block-size sweep, cold-SSD test, or end-to-end inference result. Treat each capture according to its actual layout and workload; use the preceding direct-source replay procedure for supported single-file models.
 
