@@ -27,6 +27,7 @@ pub fn run(
         threshold,
         requested_threads,
         json,
+        "clad",
     )
 }
 
@@ -39,7 +40,11 @@ pub fn run_cases(
     threshold: f32,
     requested_threads: Option<usize>,
     json: bool,
+    decoder: &str,
 ) -> Result<(), String> {
+    if decoder != "clad" && decoder != "confidence" {
+        return Err("--decoder must be 'clad' or 'confidence'".into());
+    }
     if max_tokens == 0 || block_length == 0 || max_tokens % block_length != 0 {
         return Err("--max-tokens must be a positive multiple of --block-length".into());
     }
@@ -107,7 +112,7 @@ pub fn run_cases(
         for block in 0..blocks {
             let start = input.len() + block * block_length;
             let end = start + block_length;
-            for _ in 0..steps_per_block {
+            for step in 0..steps_per_block {
                 let masked: Vec<usize> = (start..end)
                     .filter(|&pos| sequence[pos] == mask)
                     .collect();
@@ -117,21 +122,32 @@ pub fn run_cases(
 
                 let (proposals, confidence, attention) = ctx.diffusion_step(&sequence)
                     .map_err(|e| format!("{case_id}: native diffusion step failed: {e}"))?;
-                let mut candidates: Vec<usize> = masked.iter().copied()
-                    .filter(|&pos| confidence[pos] >= threshold)
-                    .collect();
-                if let Some(&best) = masked.iter().max_by(|&&a, &&b| {
-                    confidence[a].total_cmp(&confidence[b]).then_with(|| b.cmp(&a))
-                }) {
-                    if !candidates.contains(&best) {
-                        candidates.push(best);
+                let mut selected = if decoder == "clad" {
+                    let mut candidates: Vec<usize> = masked.iter().copied()
+                        .filter(|&pos| confidence[pos] >= threshold)
+                        .collect();
+                    if let Some(&best) = masked.iter().max_by(|&&a, &&b| {
+                        confidence[a].total_cmp(&confidence[b]).then_with(|| b.cmp(&a))
+                    }) {
+                        if !candidates.contains(&best) {
+                            candidates.push(best);
+                        }
                     }
-                }
-                candidates.sort_unstable();
+                    candidates.sort_unstable();
 
-                let mut selected = filter_clad_candidates(
-                    &candidates, &attention, total, start, block_length,
-                );
+                    filter_clad_candidates(
+                        &candidates, &attention, total, start, block_length,
+                    )
+                } else {
+                    let transfer_count = block_length / steps_per_block
+                        + usize::from(step < block_length % steps_per_block);
+                    let mut ordered = masked.clone();
+                    ordered.sort_by(|&a, &b| {
+                        confidence[b].total_cmp(&confidence[a]).then_with(|| a.cmp(&b))
+                    });
+                    ordered.truncate(transfer_count);
+                    ordered
+                };
                 if selected.is_empty() {
                     if let Some(&best) = masked.iter().max_by(|&&a, &&b| {
                         confidence[a].total_cmp(&confidence[b]).then_with(|| b.cmp(&a))
@@ -172,7 +188,8 @@ pub fn run_cases(
             println!("{}", serde_json::json!({
                 "phase": 6,
                 "case_id": case_id,
-                "method": "CLAD",
+                "method": if decoder == "clad" { "CLAD" } else { "llama.cpp-confidence" },
+                "decoder": decoder,
                 "model": model,
                 "threads": threads,
                 "shift_logits": shift_logits,
@@ -191,7 +208,7 @@ pub fn run_cases(
         } else {
             println!("{answer}");
             eprintln!(
-                "KILN Phase 6 CLAD: {generated_tokens} tokens in {:.2}s ({tok_per_second:.2} tok/s); {steps} steps, block {block_length}, threshold {threshold:.2}",
+                "KILN Phase 6 {decoder}: {generated_tokens} tokens in {:.2}s ({tok_per_second:.2} tok/s); {steps} steps, block {block_length}, threshold {threshold:.2}",
                 elapsed_seconds
             );
         }
