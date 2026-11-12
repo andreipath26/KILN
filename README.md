@@ -178,10 +178,19 @@ cargo run --release -p kiln-cli -- diffuse /path/to/llada-8b-instruct.gguf \
 
 python3 scripts/run_phase6_clad_suite.py \
   --kiln target/release/kiln --model /path/to/llada-8b-instruct.gguf \
+  --decoder confidence --answers-jsonl artifacts/phase6-confidence.jsonl \
+  --output artifacts/phase6-confidence.json --repeats 3 --threads 4
+
+# Use the model SHA-256 from the first result as the pinned same-checkpoint baseline.
+python3 scripts/run_phase6_clad_suite.py \
+  --kiln target/release/kiln --model /path/to/llada-8b-instruct.gguf \
+  --decoder clad --reference-jsonl artifacts/phase6-confidence.jsonl \
+  --reference-model-sha256 <MODEL_SHA256> \
+  --reference-runtime "KILN confidence decoder @ <KILN_REVISION>" \
   --output artifacts/phase6-clad.json --repeats 3 --threads 4
 ```
 
-To score against a same-prompt vanilla LLaDA run, pass a JSONL file of `{"id":"...","answer":"..."}` rows with `--reference-jsonl`, plus `--reference-model-sha256` matching the KILN GGUF and `--reference-runtime` with the pinned baseline implementation/version. The capture includes model/suite hashes, machine details, per-prompt output and decode rate, rate spread, peak RSS, and exact accepted-answer scoring. Exact match needs manual review; neither the script nor a host CI result certifies Tier 0 acceptance. The Phase 6 target remains ≥6 tok/s on the Dell Latitude 7490 with no more than a one percentage-point factual exact-answer accuracy drop against the pinned vanilla baseline. See the [Phase 6 guide](docs/phase6-diffusion.md).
+The `confidence` decoder is the same-model greedy baseline; it applies the standard blockwise top-confidence transfer schedule without CLAD attention filtering. Generate its `id`/`answer` JSONL with `--answers-jsonl`, then pass it to the CLAD run with `--reference-jsonl`, the matching model hash, and pinned `--reference-runtime` provenance. The capture includes model/suite hashes, machine details, per-prompt output and decode rate, rate spread, peak RSS, and exact accepted-answer scoring. Exact match needs manual review; neither the script nor a host CI result certifies Tier 0 acceptance. The Phase 6 target remains ≥6 tok/s on the Dell Latitude 7490 with no more than a one percentage-point factual exact-answer accuracy drop against the pinned vanilla baseline. See the [Phase 6 guide](docs/phase6-diffusion.md).
 
 ## Update an installed KILN (Linux)
 
