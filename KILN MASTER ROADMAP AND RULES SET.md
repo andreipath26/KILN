@@ -1,6 +1,6 @@
 # KILN MASTER ROADMAP AND RULES SET
 
-**Version:** 9.2 — documentation consolidation  
+**Version:** 9.3 — Phase 5 trace evidence expansion  
 **Last updated:** 2026-11-12  
 **Status:** Active master roadmap  
 **Repository:** https://github.com/andreipath26/KILN  
@@ -754,3 +754,12 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Added a CI integration against the existing tiny real MoE GGUF fixture. This exercises index export, native trace capture, and direct-source replay; it validates software behavior only.
 - Integrated the capture into `scripts/capture_moe_router_phase5a.sh`: it runs exact trace replay for supported single-file GGUFs and a bounded original-shard I/O sample for split GGUFs, preserving the existing sidecar diagnostic as a separate report.
 - This does not establish cold physical SSD bandwidth, Dell Latitude 7490 throughput/RSS, Qwen3-30B-A3B acceptance, model quality, or Phase 5 completion. Gate 5A and end-to-end Gate 5D remain open.
+
+
+### 2026-11-12 — Phase 5 byte-budgeted real-trace cache policy replay
+
+- Added `scripts/replay_moe_cache_trace.py`: it validates the verified native source index, export report and raw CPU MAT_ID route trace, groups source tensor slabs by `(layer, expert_id)`, and simulates no-cache, LRU, LFU and adaptive admission against configurable byte budgets.
+- Reports preserve raw operator-event order and distinguish per-tensor logical demand bytes from modeled full-expert fill bytes on cache misses. Variable expert sizes come from verified GGUF source ranges; the tool does not infer fixed expert sizes.
+- Added regression coverage for variable-size eviction/accounting, LFU retention, adaptive cold-scan rejection, disabled-cache behavior, provenance binding and route-event grouping.
+- Extended hosted CI to run the unit suite and replay the actual tiny real-MoE fixture through multiple budgets and policies, asserting byte-cap invariants.
+- Updated the README and Phase 5 guide with the new capability and limitations. The trace lacks token-boundary markers, and native graph execution is not integrated with KILN's Rust cache, so this remains a deterministic policy simulation—not hardware performance or Gate 5B/Phase 5 acceptance.
