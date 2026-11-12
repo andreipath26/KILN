@@ -65,6 +65,31 @@ python3 scripts/convert_moe_router_trace.py "$OUT/actual-router.tsv" \
 python3 scripts/route_usage_history.py --trace "$OUT/actual-router.json" \
   --model-sha256 "$(sha256sum "$MODEL" | awk '{print $1}')" \
   --out "$OUT/route-usage-history.json" > "$OUT/route-history-summary.json"
+# Capture direct native-source I/O for supported single-file MoE GGUFs. The
+# split-GGUF reader has its own bounded source-range probe and is not coerced
+# into the single-file index format.
+target/release/kiln plan "$MODEL" --json > "$OUT/model-plan.json"
+IS_SPLIT="$(python3 - "$OUT/model-plan.json" <<'PY'
+import json,sys
+plan=json.load(open(sys.argv[1],encoding="utf-8"))
+split=plan.get("split_gguf")
+print("yes" if isinstance(split,dict) and split.get("shard_count",0)>1 else "no")
+PY
+)"
+if [[ "$IS_SPLIT" == "yes" ]]; then
+  echo "split GGUF: use the verified multi-source range capture; direct single-file replay skipped" \
+    > "$OUT/direct-source-io-status.txt"
+else
+  target/release/kiln-bench expert-export-gguf-stream-index \
+    --source-gguf "$MODEL" --auto-verified \
+    --output-file "$OUT/direct-source-index.tsv" --json \
+    > "$OUT/direct-source-index-report.json"
+  python3 scripts/capture_direct_gguf_expert_io.py "$MODEL" \
+    "$OUT/direct-source-index.tsv" "$OUT/direct-source-index-report.json" "$RAW_TRACE" \
+    --max-read-mib 1024 \
+    --output "$OUT/direct-source-io.json" \
+    > "$OUT/direct-source-io-summary.json"
+fi
 bash scripts/run_tier0_gate5a.sh "$BLOB" "$INDEX" "$OUT/io-evidence" "$OUT/actual-router.json"
 echo "Actual CPU MoE route and indexed expert I/O captures: $OUT"
 echo "NOTE: This DOES NOT prove streamed inference, cold SSD throughput, or Tier 0 acceptance."
