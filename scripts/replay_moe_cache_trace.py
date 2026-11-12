@@ -12,11 +12,22 @@ import json
 import re
 from pathlib import Path
 
-from scripts.capture_direct_gguf_expert_io import (
-    load_index,
-    load_trace,
-    validate_index_report,
-)
+try:
+    from scripts.capture_direct_gguf_expert_io import (
+        load_index,
+        load_trace,
+        validate_index_report,
+    )
+except ModuleNotFoundError as error:
+    if error.name != "scripts":
+        raise
+    # Direct CLI execution places this script's directory, not the repository
+    # root, at sys.path[0].
+    from capture_direct_gguf_expert_io import (
+        load_index,
+        load_trace,
+        validate_index_report,
+    )
 
 TENSOR_RE = re.compile(r"^blk\.(\d+)\.[A-Za-z0-9_.-]+$")
 
