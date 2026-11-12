@@ -105,13 +105,31 @@ def sha256_file(path: Path) -> str:
     return value.hexdigest()
 
 
-def capture(model: Path, index: Path, trace: Path, runs: int,
+def validate_index_report(path: Path, model: Path, index: Path, entry_count: int) -> str:
+    if path.stat().st_size > MAX_INPUT_BYTES:
+        raise ValueError("index report exceeds 256 MiB")
+    report = json.loads(path.read_text(encoding="utf-8"))
+    if report.get("status") != "original_gguf_external_expert_offsets_verified":
+        raise ValueError("index report does not confirm verified original-GGUF offsets")
+    if Path(report.get("unchanged_model_file", "")).resolve() != model:
+        raise ValueError("index report was generated for a different model path")
+    if Path(report.get("output", "")).resolve() != index:
+        raise ValueError("index report refers to a different native index path")
+    if report.get("entries") != entry_count or report.get("requires_duplicate_sidecar") is not False:
+        raise ValueError("index report does not match the loaded direct-source index")
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def capture(model: Path, index: Path, index_report: Path, trace: Path, runs: int,
             maximum_events: int, maximum_bytes: int) -> dict:
-    model, index, trace = (p.resolve(strict=True) for p in (model, index, trace))
-    if not all(p.is_file() for p in (model, index, trace)):
-        raise ValueError("model, index and trace must be regular files")
+    model, index, index_report, trace = (
+        p.resolve(strict=True) for p in (model, index, index_report, trace)
+    )
+    if not all(p.is_file() for p in (model, index, index_report, trace)):
+        raise ValueError("model, native index, index report and trace must be regular files")
     source_stat = model.stat()
     entries = load_index(index, source_stat.st_size)
+    report_sha = validate_index_report(index_report, model, index, len(entries))
     trace_events = load_trace(trace, entries, maximum_events)
 
     replay = []
@@ -180,6 +198,8 @@ def capture(model: Path, index: Path, trace: Path, runs: int,
         "model_mtime_ns": source_stat.st_mtime_ns,
         "native_index_path": str(index),
         "native_index_sha256": index_sha,
+        "native_index_report_path": str(index_report),
+        "native_index_report_sha256": report_sha,
         "router_trace_path": str(trace),
         "router_trace_sha256": trace_sha,
         "indexed_tensor_expert_ranges": len(entries),
@@ -205,6 +225,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("model", type=Path, help="original single-file MoE GGUF")
     parser.add_argument("native_index", type=Path, help="verified native GGUF TSV index")
+    parser.add_argument("index_report", type=Path, help="JSON report from the native index export")
     parser.add_argument("router_trace", type=Path, help="raw KILN_MOE_ROUTER_TRACE TSV")
     parser.add_argument("--output", required=True, type=Path, help="new JSON report path")
     parser.add_argument("--runs", type=int, default=1)
@@ -221,7 +242,7 @@ def main() -> int:
         parser.error(f"refusing to overwrite output: {args.output}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     try:
-        report = capture(args.model, args.native_index, args.router_trace,
+        report = capture(args.model, args.native_index, args.index_report, args.router_trace,
                          args.runs, args.max_events, args.max_read_mib * 1024 * 1024)
     except (OSError, UnicodeError, ValueError) as error:
         parser.error(str(error))
