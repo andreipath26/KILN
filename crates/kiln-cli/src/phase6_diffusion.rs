@@ -71,6 +71,8 @@ pub fn run_cases(
             threads,
         )),
     ).map_err(|e| format!("failed to load diffusion GGUF: {e}"))?;
+    let shift_logits = ctx.diffusion_shift_logits()
+        .map_err(|e| format!("failed to read LLaDA diffusion metadata: {e}"))?;
 
     if cases.is_empty() {
         return Err("prompt suite contains no cases".into());
@@ -173,6 +175,7 @@ pub fn run_cases(
                 "method": "CLAD",
                 "model": model,
                 "threads": threads,
+                "shift_logits": shift_logits,
                 "input_tokens": input.len(),
                 "generated_tokens": generated_tokens,
                 "steps": steps,
