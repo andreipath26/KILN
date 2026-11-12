@@ -34,10 +34,10 @@ The experimental native graph-selected expert cache supports a runtime eviction-
 
 ```sh
 # LRU is the default
-kiln stream --model "$MODEL" --prompt "..." --tokens 128
+printf "Hello from KILN\n/exit\n" | kiln stream "$MODEL" --max-tokens 128
 
 # Opt into LFU for this process
-KILN_MOE_STREAM_CACHE_POLICY=lfu kiln stream --model "$MODEL" --prompt "..." --tokens 128
+printf "Hello from KILN\n/exit\n" | KILN_MOE_STREAM_CACHE_POLICY=lfu kiln stream "$MODEL" --max-tokens 128
 ```
 
 The policy applies to the native fork's byte-bounded, per-tensor-slab cache. LRU remains the default. LFU counts repeated slab cache hits with a saturating counter, evicts the least-frequently-used unpinned slab first, and uses oldest touch as its tie-break. Entries currently pinned by the active graph cannot be evicted. Any policy value other than `lru` or `lfu` disables cache reuse/admission; exact graph-selected source reads remain available.
