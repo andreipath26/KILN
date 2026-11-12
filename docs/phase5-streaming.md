@@ -28,6 +28,24 @@ Evaluate the exact active expert set for each token/layer using real router trac
 
 The ≥80% at k=2 figure is a feasibility target, not a completion certificate. Predictor work advances only after storage feasibility and must be evaluated against simple baselines and end-to-end miss/wasted-I/O costs. See [training and evaluation protocol](training-pipeline-design.md).
 
+## Native streamed-cache eviction policy
+
+The experimental native graph-selected expert cache supports a runtime eviction-policy A/B:
+
+```sh
+# LRU is the default
+kiln stream --model "$MODEL" --prompt "..." --tokens 128
+
+# Opt into LFU for this process
+KILN_MOE_STREAM_CACHE_POLICY=lfu kiln stream --model "$MODEL" --prompt "..." --tokens 128
+```
+
+The policy applies to the native fork's byte-bounded, per-tensor-slab cache. LRU remains the default. LFU counts repeated slab cache hits with a saturating counter, evicts the least-frequently-used unpinned slab first, and uses oldest touch as its tie-break. Entries currently pinned by the active graph cannot be evicted. Any policy value other than `lru` or `lfu` disables cache reuse/admission; exact graph-selected source reads remain available.
+
+This control changes cache residency only: it does not alter routing, expert weights, math, or output semantics. KILN CI runs the same tiny real-MoE prompt and token limit under LRU and LFU and requires byte-for-byte matching generated text. That is a correctness/parity check, not a performance comparison. No LFU speedup, hit-rate improvement, or RAM reduction is claimed until paired measurements on the acceptance machine.
+
+Do not conflate this live slab cache with `scripts/replay_moe_cache_trace.py`: that offline simulator groups source slabs into whole-expert fills and replays raw operator events. It does not execute the native cache policy. Both are diagnostics; only full-model measurements can establish latency, storage traffic, RSS, quality, or Phase 5 acceptance.
+
 ## I/O and cache controls
 
 Keep queues, bytes and speculative reads bounded. A cancellation/epoch guard must prevent stale or uncommitted reads from being used. Compare synchronous buffered reads, portable asynchronous fallback and Linux io_uring under the same pinned traces/model/storage. Measure latency tails, queue depth, useful versus wasted bytes, memory contention and time actually hidden by compute. Linux-specific I/O is one implementation, not the cross-platform contract.
