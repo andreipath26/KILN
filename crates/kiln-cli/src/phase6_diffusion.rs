@@ -120,7 +120,7 @@ pub fn run_cases(
                     break;
                 }
 
-                let (proposals, confidence, attention) = ctx.diffusion_step(&sequence)
+                let (proposals, confidence, attention) = ctx.diffusion_step(&sequence, decoder == "clad")
                     .map_err(|e| format!("{case_id}: native diffusion step failed: {e}"))?;
                 let mut selected = if decoder == "clad" {
                     let mut candidates: Vec<usize> = masked.iter().copied()
