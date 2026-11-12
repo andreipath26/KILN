@@ -59,6 +59,7 @@ extern "C" {
     fn kiln_llama_free(h: *mut c_void);
     fn kiln_llama_n_vocab(h: *mut c_void) -> c_int;
     fn kiln_llama_mask_token(h: *mut c_void) -> c_int;
+    fn kiln_llama_shift_logits(h: *mut c_void) -> c_int;
     fn kiln_llama_apply_user_template(
         h: *mut c_void, prompt: *const c_char, prompt_len: c_int,
         out: *mut c_char, out_cap: c_int,
@@ -191,6 +192,15 @@ impl LlamaContext {
         let token = unsafe { kiln_llama_mask_token(self.handle) };
         if token < 0 { Err(LlamaError::Decode("loaded model is not a supported diffusion model".into())) }
         else { Ok(token) }
+    }
+
+    /// Read the LLaDA position-to-logit mapping from model metadata.
+    pub fn diffusion_shift_logits(&self) -> Result<bool, LlamaError> {
+        match unsafe { kiln_llama_shift_logits(self.handle) } {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(LlamaError::Decode("loaded model has no diffusion logit-shift setting".into())),
+        }
     }
 
     /// Format a one-turn user prompt with the model's native chat template.
