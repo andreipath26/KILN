@@ -1,6 +1,6 @@
 # KILN MASTER ROADMAP AND RULES SET
 
-**Version:** 9.5 — Phase 6 diffusion implementation track  
+**Version:** 9.6 — Phase 6 software implementation complete; Tier 0 acceptance pending  
 **Last updated:** 2026-11-12  
 **Status:** Active master roadmap  
 **Repository:** https://github.com/andreipath26/KILN  
@@ -84,7 +84,7 @@ The latest supplied project state records these statuses. Reconfirm against Git,
 | 4 | Ternary weights / TQ1.0 path | Complete in supplied status | Verify effective storage and runtime representation. |
 | 4.5 | Sanity and quality guarantees | Complete in supplied status | Keep quality checks for lossy representations. |
 | 5 | MoE expert streaming across heterogeneous compute and tiered memory | **Core mission phase; Dell feasibility and end-to-end gates pending** | Sidecar/cache/predictor/I/O components and the experimental native selected-expert llama.cpp graph path are present. Keep the Rust `cpu_moe_streamed` operation backend distinct. CPU-only Tier 0 is the minimum acceptance slice; Qwen3-30B-A3B speed, RSS, storage traffic and quality remain unmeasured on the Dell. |
-| 6 | Diffusion | **Implementation active; Tier 0 acceptance pending** | `kiln diffuse` uses LLaDA's chat template, non-causal full-sequence passes, and opt-in final-four-layer attention export for CLAD. A JSONL factual suite and capture workflow are being integrated. LLaDA-8B ≥6 tok/s and factual quality versus the paired same-model confidence baseline remains unmeasured. |
+| 6 | Diffusion | **Software implementation complete; integration CI and Tier 0 acceptance pending** | `kiln diffuse`, paired CLAD/confidence decoding, fixed factual suite and evidence capture are implemented. KILN is pinned to the merged attention-export fork commit; pinned-head CI is running. Dell LLaDA-8B ≥6 tok/s and same-model factual quality remain unmeasured. |
 | 7 | Hardware abstraction | Future / not started | Preserve common runtime contract and hardware-specific options. |
 | 8 | Productization | Future / not started | Packaging, support, quality, performance and user-facing acceptance. |
 
@@ -784,8 +784,8 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Dell Latitude 7490 throughput, cache benefit, physical storage bytes/token, total peak RSS, model quality and Phase 5 acceptance remain open; they require the acceptance machine and representative model.
 
 
-### 2026-11-12 — Phase 6 CLAD implementation started
+### 2026-11-12 — Phase 6 CLAD software implementation complete (Tier 0 acceptance pending)
 
 - Added the native `kiln diffuse` path for LLaDA masked diffusion with model chat-template formatting, full non-causal sequence evaluation, confidence proposals, and CLAD attention-cluster conflict filtering. The llama.cpp fork exports final-four-layer/head-averaged LLaDA attention only when the KILN path enables it.
 - Added JSONL prompt-suite execution that loads the model once, returns per-case JSON, and reports the process peak RSS where Linux exposes it. Added a 12-item fixed factual suite and a capture utility that records artifact hashes, configuration, machine identity, repeated decode rates and paired confidence-decoder exact-answer comparison on the same GGUF.
-- This is implementation preparation, not acceptance evidence. Fork CI must pass; compile/runtime integration must be verified; Dell Latitude 7490 LLaDA-8B throughput (≥6 tok/s), RSS and quality gates remain open. Phase 5 acceptance remains independently open.
+- The software implementation is complete: native LLaDA masked diffusion, non-causal attention, metadata-based logit alignment, opt-in CLAD attention export, paired confidence decoding, one-load suite execution, and reproducible speed/RSS/quality capture are integrated. Fork PR #9 was merged at `0a851f9234c8f79266b2246b05e7c2c3f7f53046`; its Linux/Windows/ARM64, WebGPU, wasm/style and server checks passed. KILN CI is running against the pinned merged fork commit. Dell Latitude 7490 LLaDA-8B throughput (≥6 tok/s), RSS, quality gates, and Phase 5 acceptance remain open.
