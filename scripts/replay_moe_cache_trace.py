@@ -10,7 +10,6 @@ import argparse
 import hashlib
 import json
 import re
-from collections import OrderedDict
 from pathlib import Path
 
 from scripts.capture_direct_gguf_expert_io import (
@@ -20,6 +19,14 @@ from scripts.capture_direct_gguf_expert_io import (
 )
 
 TENSOR_RE = re.compile(r"^blk\.(\d+)\.[A-Za-z0-9_.-]+$")
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def expert_sizes(entries: dict[tuple[str, int], tuple[int, int]]) -> dict[tuple[int, int], int]:
@@ -180,10 +187,10 @@ def replay(model: Path, index: Path, report: Path, trace: Path,
     return {
         "status": "real_router_trace_byte_cache_simulation",
         "model_path": str(model),
-        "model_sha256": hashlib.sha256(model.read_bytes()).hexdigest(),
-        "native_index_sha256": hashlib.sha256(index.read_bytes()).hexdigest(),
+        "model_sha256": sha256_file(model),
+        "native_index_sha256": sha256_file(index),
         "native_index_report_sha256": report_sha,
-        "router_trace_sha256": hashlib.sha256(trace.read_bytes()).hexdigest(),
+        "router_trace_sha256": sha256_file(trace),
         "indexed_expert_count": len(sizes),
         "indexed_expert_bytes_total": sum(sizes.values()),
         "trace_events": len(requests),
