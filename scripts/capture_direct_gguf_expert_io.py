@@ -94,6 +94,15 @@ def percentile(values: list[float], fraction: float) -> float:
     return ordered[max(0, math.ceil(fraction * len(ordered)) - 1)]
 
 
+def sha256_file(path: Path) -> str:
+    import hashlib
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            value.update(chunk)
+    return value.hexdigest()
+
+
 def capture(model: Path, index: Path, trace: Path, runs: int,
             maximum_events: int, maximum_bytes: int) -> dict:
     model, index, trace = (p.resolve(strict=True) for p in (model, index, trace))
@@ -150,6 +159,7 @@ def capture(model: Path, index: Path, trace: Path, runs: int,
         "status": "direct_source_trace_replay_diagnostic",
         "model_path": str(model),
         "model_size_bytes": source_stat.st_size,
+        "model_sha256_after_replay": sha256_file(model),
         "model_mtime_ns": source_stat.st_mtime_ns,
         "native_index_path": str(index),
         "native_index_sha256": index_sha,
@@ -167,7 +177,8 @@ def capture(model: Path, index: Path, trace: Path, runs: int,
         "host": {"system": platform.platform(), "machine": platform.machine()},
         "interpretation": (
             "Direct reads of the indexed original GGUF in recorded CPU MAT_ID operator order. "
-            "The trace-producing inference may have warmed OS page cache; cache state is uncontrolled. "
+            "The model SHA-256 is computed after timed reads to avoid prewarming the file. "
+        "The trace-producing inference may have warmed OS page cache; cache state is uncontrolled. "
             "This does not measure physical SSD traffic, inference throughput, cache overlap, total system "
             "memory, model quality, or Tier 0 acceptance."
         ),
