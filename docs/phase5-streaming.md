@@ -67,7 +67,7 @@ KILN_MOE_ROUTER_TRACE="$OUT/router-operators.tsv" \
   --warmup 0 --runs 1 --threads 4 --batch 128 --ubatch 128 --json \
   > "$OUT/router-capture.json" 2> "$OUT/router-capture.log"
 python3 scripts/capture_direct_gguf_expert_io.py "$MODEL" \
-  "$OUT/native-index.tsv" "$OUT/router-operators.tsv" \
+  "$OUT/native-index.tsv" "$OUT/index-report.json" "$OUT/router-operators.tsv" \
   --output "$OUT/direct-source-io.json"
 ```
 
