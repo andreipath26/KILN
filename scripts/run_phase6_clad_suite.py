@@ -199,6 +199,8 @@ def main() -> int:
             raise RuntimeError(f"run {repeat + 1}: output IDs do not exactly match the suite")
         for case in suite:
             result = by_id[case["id"]]
+            if result.get("decoder") != args.decoder:
+                raise RuntimeError(f"{case['id']}: decoder mismatch in KILN result")
             if not isinstance(result.get("answer"), str) or not isinstance(result.get("decode_tokens_per_second"), (int, float)):
                 raise RuntimeError(f"{case['id']}: missing answer or decode speed in KILN JSON")
             result["gold_match"] = score_answer(result["answer"], case["reference_answers"])
