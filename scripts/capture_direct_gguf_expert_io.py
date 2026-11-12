@@ -23,6 +23,7 @@ from pathlib import Path
 
 MAX_INPUT_BYTES = 256 * 1024 * 1024
 MAX_EVENTS = 1_000_000
+MAX_RANGE_BYTES = 64 * 1024 * 1024
 TENSOR_RE = re.compile(r"^blk\.(\d+)\.[A-Za-z0-9_.-]+$")
 
 
@@ -45,8 +46,8 @@ def load_index(path: Path, source_size: int) -> dict[tuple[str, int], tuple[int,
                 raise ValueError(f"index line {number}: invalid tensor name or numeric field")
             expert, offset, length = map(int, values)
             end = offset + length
-            if length <= 0 or end > source_size:
-                raise ValueError(f"index line {number}: empty or out-of-file byte range")
+            if length <= 0 or length > MAX_RANGE_BYTES or end > source_size:
+                raise ValueError(f"index line {number}: empty, oversized, or out-of-file byte range")
             key = (tensor, expert)
             if key in entries:
                 raise ValueError(f"index line {number}: duplicate tensor/expert mapping")
@@ -126,6 +127,11 @@ def capture(model: Path, index: Path, trace: Path, runs: int,
     descriptor = os.open(model, os.O_RDONLY)
     run_reports = []
     try:
+        opened_stat = os.fstat(descriptor)
+        identity = (source_stat.st_dev, source_stat.st_ino, source_stat.st_size, source_stat.st_mtime_ns)
+        opened_identity = (opened_stat.st_dev, opened_stat.st_ino, opened_stat.st_size, opened_stat.st_mtime_ns)
+        if opened_identity != identity:
+            raise ValueError("source GGUF changed before trace replay")
         for run_number in range(1, runs + 1):
             latency_us = []
             by_tensor: Counter[str] = Counter()
@@ -151,6 +157,10 @@ def capture(model: Path, index: Path, trace: Path, runs: int,
                 "request_latency_us_p95": percentile(latency_us, 0.95),
                 "events_by_tensor": dict(sorted(by_tensor.items())),
             })
+        final_fd_stat = os.fstat(descriptor)
+        final_identity = (final_fd_stat.st_dev, final_fd_stat.st_ino, final_fd_stat.st_size, final_fd_stat.st_mtime_ns)
+        if final_identity != identity:
+            raise ValueError("source GGUF changed during trace replay")
     finally:
         os.close(descriptor)
 
