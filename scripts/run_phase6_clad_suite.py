@@ -114,6 +114,8 @@ def main() -> int:
     parser.add_argument("--threads", type=int, default=None)
     parser.add_argument("--quantization", help="model quantization label for the evidence record")
     parser.add_argument("--reference-jsonl", type=Path, help="vanilla LLaDA results: JSONL {id, answer}")
+    parser.add_argument("--reference-model-sha256", help="baseline checkpoint hash; must equal the KILN model hash")
+    parser.add_argument("--reference-runtime", help="vanilla decoder implementation and pinned revision")
     args = parser.parse_args()
 
     for label, path in (("KILN executable", args.kiln), ("model", args.model), ("suite", args.suite)):
@@ -142,6 +144,10 @@ def main() -> int:
 
     baseline = None
     if args.reference_jsonl:
+        if not args.reference_model_sha256 or not re.fullmatch(r"[0-9a-fA-F]{64}", args.reference_model_sha256):
+            parser.error("--reference-jsonl requires a 64-character --reference-model-sha256")
+        if not args.reference_runtime:
+            parser.error("--reference-jsonl requires --reference-runtime provenance")
         baseline_rows = read_jsonl(args.reference_jsonl)
         baseline = {}
         for row in baseline_rows:
@@ -167,6 +173,10 @@ def main() -> int:
     if args.threads is not None:
         command.extend(["--threads", str(args.threads)])
 
+    model_sha256 = sha256_file(args.model)
+    if args.reference_jsonl and args.reference_model_sha256.lower() != model_sha256:
+        parser.error("vanilla baseline checkpoint hash must match the KILN GGUF SHA-256")
+    suite_sha256 = sha256_file(args.suite)
     available_at_start_kib = available_memory_kib()
     runs = []
     for repeat in range(args.repeats):
@@ -220,13 +230,21 @@ def main() -> int:
         "model": {
             "path": str(args.model.resolve()),
             "size_bytes": args.model.stat().st_size,
-            "sha256": sha256_file(args.model),
+            "sha256": model_sha256,
         },
         "suite": {
             "path": str(args.suite.resolve()),
-            "sha256": sha256_file(args.suite),
+            "sha256": suite_sha256,
             "case_ids": [row["id"] for row in suite],
         },
+        "vanilla_reference": (
+            None if args.reference_jsonl is None else {
+                "results_path": str(args.reference_jsonl.resolve()),
+                "results_sha256": sha256_file(args.reference_jsonl),
+                "model_sha256": args.reference_model_sha256.lower(),
+                "runtime": args.reference_runtime,
+            }
+        ),
         "machine": {
             "platform": platform.platform(),
             "kernel": platform.release(),
@@ -253,7 +271,7 @@ def main() -> int:
             "reference_accuracy": reference_accuracy,
             "quality_delta_percentage_points": quality_delta_percentage_points,
             "quality_gate_pass": (
-                None if quality_delta_percentage_points is None
+                None if quality_delta_percentage_points is None or args.reference_model_sha256 is None
                 else quality_delta_percentage_points >= -1.0
             ),
             "speed_gate_pass": statistics.median(speeds) >= 6.0,
