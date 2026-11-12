@@ -12,6 +12,7 @@ KILN is an open-source local inference runtime in active development, intended f
 - `kiln plan MODEL [--json]`: read-only GGUF/system memory and CPU feasibility preflight. It is a diagnostic, **not** a guarantee that a model will load or run at a particular speed.
 - **Experimental Linux CPU MoE streaming:** `kiln stream MODEL` resolves a compatible fused-expert GGUF, creates a temporary verified source index, and starts an isolated inference child using selected expert slabs read directly from the **original GGUF**. This is real opt-in graph compute, not just synthetic I/O simulation. It supports bounded native expert caching, optional parallel reads, and fail-closed stream audit checks; it does not require duplicating model weights.
 - Phase 5 engineering tools for real router-ID traces, byte-bounded LRU/LFU/adaptive cache replay, expert index/sidecar validation, asynchronous I/O, and model quality/throughput evidence. Trace simulation compares policies on captured routes; it does not measure runtime-cache behavior or hardware performance.
+- **Experimental Phase 6 LLaDA diffusion:** `kiln diffuse` runs native masked decoding with CLAD attention-guided parallel commits. JSONL suites reuse one loaded model session and the factual capture workflow records repeatable evidence; Dell speed and quality remain unvalidated.
 - The native streamed MoE slab cache also has an experimental opt-in LFU replacement policy: set `KILN_MOE_STREAM_CACHE_POLICY=lfu` before `kiln stream`. LRU remains the default; LFU preserves router-selected output but has no claimed speed benefit until a controlled target-hardware A/B.
 
 **What this does not mean:** The streamed path is not automatically enabled for every model, architecture or operating system. Ordinary `kiln run` remains the default inference path; incompatible expert layouts are rejected for automatic streaming. The existing `cpu_moe_streamed` byte-dispatch components and native GGML selected-expert computation are separate mechanisms, and neither is a general hardware-deployment acceptance certificate.
@@ -160,6 +161,28 @@ For long chats, the streamed worker caps generated tokens to the remaining model
 
 The native audit distinguishes operand bytes delivered, explicit `pread` bytes and cache hits. Those counters are **not** proof of physical SSD reads, cold-storage throughput or lower end-to-end memory usage. Use pinned models, repeatable quality baselines and target-hardware measurements before comparing speed, RAM and accuracy. See the [Phase 5 streaming guide](docs/phase5-streaming.md) and [master roadmap](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md) for test methodologies and acceptance criteria.
 
+## Experimental LLaDA diffusion (Phase 6)
+
+The dedicated `diffuse` command runs LLaDA masked diffusion with CLAD's attention-guided cluster commits. It is separate from autoregressive `run`; unsupported diffusion models fail closed. To run one prompt:
+
+```sh
+cargo run --release -p kiln-cli -- diffuse /path/to/llada-8b-instruct.gguf \
+  --prompt "Answer with only the capital city of France." --max-tokens 32 --json
+```
+
+For the fixed 12-prompt factual suite, KILN loads the model once and emits one JSON result per prompt:
+
+```sh
+cargo run --release -p kiln-cli -- diffuse /path/to/llada-8b-instruct.gguf \
+  --prompt-file benchmarks/phase6/factual.jsonl --max-tokens 32 --block-length 32 --json
+
+python3 scripts/run_phase6_clad_suite.py \
+  --kiln target/release/kiln --model /path/to/llada-8b-instruct.gguf \
+  --output artifacts/phase6-clad.json --repeats 3 --threads 4
+```
+
+To score against a same-prompt vanilla LLaDA run, pass a JSONL file of `{"id":"...","answer":"..."}` rows with `--reference-jsonl`. The capture includes model/suite hashes, machine details, per-prompt output and decode rate, rate spread, peak RSS, and exact accepted-answer scoring. Exact match needs manual review; neither the script nor a host CI result certifies Tier 0 acceptance. The Phase 6 target remains ≥6 tok/s on the Dell Latitude 7490 with no more than a one percentage-point factual exact-answer accuracy drop against the pinned vanilla baseline. See the [Phase 6 guide](docs/phase6-diffusion.md).
+
 ## Update an installed KILN (Linux)
 
 For a user-scoped KILN binary installed at `~/.local/bin/kiln`:
@@ -204,6 +227,7 @@ KILN's research acceptance target includes a 70B-class sparse MoE workload (~4B 
 - [Quantization policy](docs/quantization-policy.md)
 - [Phase 3.5 measurement guide](docs/phase35-measurement.md)
 - [Phase 5 streaming guide](docs/phase5-streaming.md)
+- [Phase 6 diffusion guide](docs/phase6-diffusion.md)
 - [Predictor training and evaluation](docs/training-pipeline-design.md)
 - [UMF and expert sidecar status](docs/umf-design.md)
 - [Runtime loading and release design](docs/runtime-loading-design.md)
