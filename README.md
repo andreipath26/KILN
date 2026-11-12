@@ -185,8 +185,8 @@ python3 scripts/run_phase6_clad_suite.py \
 python3 scripts/run_phase6_clad_suite.py \
   --kiln target/release/kiln --model /path/to/llada-8b-instruct.gguf \
   --decoder clad --reference-jsonl artifacts/phase6-confidence.jsonl \
-  --reference-model-sha256 <MODEL_SHA256> \
-  --reference-runtime "KILN confidence decoder @ <KILN_REVISION>" \
+  --reference-model-sha256 "MODEL_SHA256_FROM_FIRST_CAPTURE" \
+  --reference-runtime "KILN confidence decoder @ KILN_REVISION" \
   --output artifacts/phase6-clad.json --repeats 3 --threads 4
 ```
 
