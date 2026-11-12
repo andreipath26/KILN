@@ -75,6 +75,20 @@ The script preserves operator order and repeated events, caps each expert read a
 
 The existing `scripts/capture_moe_router_phase5a.sh` now includes this direct-source capture in its evidence bundle: it emits the exact operator-trace replay for supported single-file GGUFs, or a bounded original-shard sample for split GGUFs, alongside the existing ExpertTable/sidecar probe. The direct-source artifact is named `direct-source-io.json`; `direct-source-io-status.txt` identifies the split sample interpretation.
 
+### Byte-budgeted cache policy replay on real router traces
+
+The native trace and verified source index can also drive a deterministic cache-policy simulation with variable expert sizes:
+
+```sh
+python3 scripts/replay_moe_cache_trace.py "$MODEL" \
+  "$OUT/native-index.tsv" "$OUT/index-report.json" "$OUT/router-operators.tsv" \
+  --cache-mib 64 256 512 --output "$OUT/cache-trace-policy.json"
+```
+
+The simulator groups indexed tensor slabs by `(layer, expert_id)`, uses the summed source bytes as each expert's cache-fill size, and preserves each raw operator event's order. It reports per-policy hits, misses, logical tensor bytes, modeled full-expert fill bytes on misses, final resident bytes and evictions for no-cache, LRU, LFU and adaptive admission.
+
+This fills a software comparison gap: the existing synthetic simulator uses fixed-size experts and generated traces, while this tool uses captured router selections and verified variable-size source ranges. The raw router format has no token-boundary field, so repeated projection events within one token may count as cache hits. The output is a policy simulation, not execution of the live cache inside the native graph, physical SSD traffic, latency, throughput, RSS, or Tier 0 acceptance. Use it to compare policy behavior on a pinned trace before deciding what target-hardware experiments to run.
+
 For a supported complete **split** GGUF, `kiln-bench expert-io-split --source-gguf <first-shard.gguf> --requests 64 --max-read-mib 256 --json` reads verified fused-expert slabs from the original shard files without packing a sidecar. It is a bounded source-order sample (interleaved across shards), not a router-trace replay, block-size sweep, cold-SSD test, or end-to-end inference result. Treat each capture according to its actual layout and workload; use the preceding direct-source replay procedure for supported single-file models.
 
 ## Stop/go rule
