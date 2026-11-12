@@ -73,6 +73,8 @@ python3 scripts/capture_direct_gguf_expert_io.py "$MODEL" \
 
 The script preserves operator order and repeated events, caps each expert read at 64 MiB plus total replay size, records model/index/trace provenance, and refuses malformed, overlapping or out-of-file ranges. It reports page-cache-influenced file-read throughput only; it does not satisfy cold SSD, full inference, RAM, quality or Tier 0 acceptance gates. An empty trace means the model/build did not produce the expected CPU operator events and the capture must be treated as incomplete.
 
+The existing `scripts/capture_moe_router_phase5a.sh` now includes this direct-source capture in its evidence bundle: it emits the exact operator-trace replay for supported single-file GGUFs, or a bounded original-shard sample for split GGUFs, alongside the existing ExpertTable/sidecar probe. The direct-source artifact is named `direct-source-io.json`; `direct-source-io-status.txt` identifies the split sample interpretation.
+
 For a supported complete **split** GGUF, `kiln-bench expert-io-split --source-gguf <first-shard.gguf> --requests 64 --max-read-mib 256 --json` reads verified fused-expert slabs from the original shard files without packing a sidecar. It is a bounded source-order sample (interleaved across shards), not a router-trace replay, block-size sweep, cold-SSD test, or end-to-end inference result. Treat each capture according to its actual layout and workload; use the preceding direct-source replay procedure for supported single-file models.
 
 ## Stop/go rule
