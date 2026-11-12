@@ -46,6 +46,7 @@ int32_t kiln_llama_diffusion_step(
     kiln_llama_t h,
     const int32_t* tokens,
     int32_t n_tokens,
+    int32_t capture_attention,
     int32_t* predicted_tokens,
     float* confidence,
     float* attention,
