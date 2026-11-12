@@ -53,7 +53,29 @@ This is a buffered read probe. OS page cache is uncontrolled, and Linux process 
 
 **Index-format and source-layout boundary.** `run_tier0_gate5a.sh` and `kiln-bench expert-io --index-file` consume a JSON `ExpertTable` that maps each `(layer, expert_id)` to one contiguous range in the measured blob. The native `expert-export-gguf-stream-index --auto-verified` command emits a `KILN-MOE-STREAM-1` TSV of individually named projection slabs from the original single-file GGUF; that TSV is not an `ExpertTable` and must not be passed to `--index-file`. The sidecar `expert-pack-fused` workflow can produce an `ExpertTable`, but it copies the selected slabs to a new blob, so its I/O figures describe that sidecar layout rather than direct reads from the native source GGUF.
 
-For a supported complete **split** GGUF, `kiln-bench expert-io-split --source-gguf <first-shard.gguf> --requests 64 --max-read-mib 256 --json` reads verified fused-expert slabs from the original shard files without packing a sidecar. It is a bounded source-order sample (interleaved across shards), not a router-trace replay, block-size sweep, cold-SSD test, or end-to-end inference result. Treat each capture according to its actual layout and workload; the direct-source single-file router-trace I/O path remains a separate tooling gap.
+For supported **single-file** layouts, the direct-source replay tool consumes the native verified TSV index and the raw router trace, so it reads the exact tensor/expert slabs from the original GGUF without creating a sidecar. Generate both artifacts from the same pinned model and build:
+
+```sh
+MODEL=/path/to/model.gguf
+OUT="phase5a-direct-$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$OUT"
+target/release/kiln-bench expert-export-gguf-stream-index \
+  --source-gguf "$MODEL" --auto-verified \
+  --output-file "$OUT/native-index.tsv" --json > "$OUT/index-report.json"
+KILN_MOE_ROUTER_TRACE="$OUT/router-operators.tsv" \
+  target/release/kiln bench "$MODEL" --native-greedy --tokens 32 \
+  --warmup 0 --runs 1 --threads 4 --batch 128 --ubatch 128 --json \
+  > "$OUT/router-capture.json" 2> "$OUT/router-capture.log"
+python3 scripts/capture_direct_gguf_expert_io.py "$MODEL" \
+  "$OUT/native-index.tsv" "$OUT/index-report.json" "$OUT/router-operators.tsv" \
+  --output "$OUT/direct-source-io.json"
+```
+
+The script preserves operator order and repeated events, caps each expert read at 64 MiB plus total replay size, records model/index/trace provenance, and refuses malformed, overlapping or out-of-file ranges. It reports page-cache-influenced file-read throughput only; it does not satisfy cold SSD, full inference, RAM, quality or Tier 0 acceptance gates. An empty trace means the model/build did not produce the expected CPU operator events and the capture must be treated as incomplete.
+
+The existing `scripts/capture_moe_router_phase5a.sh` now includes this direct-source capture in its evidence bundle: it emits the exact operator-trace replay for supported single-file GGUFs, or a bounded original-shard sample for split GGUFs, alongside the existing ExpertTable/sidecar probe. The direct-source artifact is named `direct-source-io.json`; `direct-source-io-status.txt` identifies the split sample interpretation.
+
+For a supported complete **split** GGUF, `kiln-bench expert-io-split --source-gguf <first-shard.gguf> --requests 64 --max-read-mib 256 --json` reads verified fused-expert slabs from the original shard files without packing a sidecar. It is a bounded source-order sample (interleaved across shards), not a router-trace replay, block-size sweep, cold-SSD test, or end-to-end inference result. Treat each capture according to its actual layout and workload; use the preceding direct-source replay procedure for supported single-file models.
 
 ## Stop/go rule
 

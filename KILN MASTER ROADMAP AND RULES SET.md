@@ -1,7 +1,7 @@
 # KILN MASTER ROADMAP AND RULES SET
 
 **Version:** 9.2 — documentation consolidation  
-**Last updated:** 2026-11-07  
+**Last updated:** 2026-11-12  
 **Status:** Active master roadmap  
 **Repository:** https://github.com/andreipath26/KILN  
 **Runtime fork:** https://github.com/andreipath26/kiln-llama
@@ -746,3 +746,11 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - PR #81 merged the experimental pinned llama.cpp CPU path that executes graph-selected fused MoE experts from verified single-file and supported complete multi-shard GGUF source mappings. This is separate from the Rust `cpu_moe_streamed` byte-operation backend and the GGUF sidecar/cache experiments.
 - CI parity on small real-GGUF fixtures confirms the exercised layouts only. It does not establish Qwen3-30B-A3B Tier 0 throughput, total peak RSS, physical SSD bytes per token, WikiText-2 quality, or the Phase 5 exit gate.
 - Phase 5 remains open; continue to require measured Gate 5A feasibility and end-to-end Gate 5D acceptance before making deployment claims.
+
+### 2026-11-12 — Direct-source Phase 5A trace-replay tooling
+
+- Added a bounded diagnostic utility that consumes the verified native single-file GGUF expert index, its export report, and raw CPU MAT_ID operator trace, then replays tensor/expert reads from the original GGUF in recorded order without a sidecar.
+- The capture validates source/index/trace identity and byte ranges, caps each request at 64 MiB and the replay at a configured total budget, and records provenance, request latency, and page-cache-influenced throughput.
+- Added a CI integration against the existing tiny real MoE GGUF fixture. This exercises index export, native trace capture, and direct-source replay; it validates software behavior only.
+- Integrated the capture into `scripts/capture_moe_router_phase5a.sh`: it runs exact trace replay for supported single-file GGUFs and a bounded original-shard I/O sample for split GGUFs, preserving the existing sidecar diagnostic as a separate report.
+- This does not establish cold physical SSD bandwidth, Dell Latitude 7490 throughput/RSS, Qwen3-30B-A3B acceptance, model quality, or Phase 5 completion. Gate 5A and end-to-end Gate 5D remain open.
