@@ -31,6 +31,24 @@ void kiln_llama_free(kiln_llama_t h);
 
 int32_t kiln_llama_n_vocab(kiln_llama_t h);
 
+/* LLaDA helpers for the opt-in Phase 6 diffusion path. */
+int32_t kiln_llama_mask_token(kiln_llama_t h);
+/* Apply the model's native chat template to a single user prompt.
+ * Returns required/written bytes excluding NUL, negative on unsupported/error. */
+int32_t kiln_llama_apply_user_template(
+    kiln_llama_t h, const char* prompt, int32_t prompt_len,
+    char* out, int32_t out_cap);
+/* Run one full non-causal denoising forward pass and return top-1 candidates,
+ * their probabilities, and the captured [query][key] CLAD attention matrix. */
+int32_t kiln_llama_diffusion_step(
+    kiln_llama_t h,
+    const int32_t* tokens,
+    int32_t n_tokens,
+    int32_t* predicted_tokens,
+    float* confidence,
+    float* attention,
+    size_t attention_capacity);
+
 /* Returns number of tokens written, or negative on error. */
 int32_t kiln_llama_tokenize(
     kiln_llama_t h,
