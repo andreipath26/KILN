@@ -33,6 +33,8 @@ int32_t kiln_llama_n_vocab(kiln_llama_t h);
 
 /* LLaDA helpers for the opt-in Phase 6 diffusion path. */
 int32_t kiln_llama_mask_token(kiln_llama_t h);
+/* Returns 1 when model metadata/default shifts diffusion logits, otherwise 0. */
+int32_t kiln_llama_shift_logits(kiln_llama_t h);
 /* Apply the model's native chat template to a single user prompt.
  * Returns required/written bytes excluding NUL, negative on unsupported/error. */
 int32_t kiln_llama_apply_user_template(
