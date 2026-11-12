@@ -226,7 +226,7 @@ fn select_confidence_transfers(
         return Vec::new();
     }
     let transfer_count = block_length / steps_per_block
-        + usize::from(step < block_length % steps_per_block);
+        + if step < block_length % steps_per_block { 1 } else { 0 };
     let mut ordered = masked.to_vec();
     ordered.sort_by(|&a, &b| {
         confidence[b].total_cmp(&confidence[a]).then_with(|| a.cmp(&b))
