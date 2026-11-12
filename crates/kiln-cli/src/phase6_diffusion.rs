@@ -253,6 +253,7 @@ fn filter_clad_candidates(
     }
 
     let mut selected_cluster = vec![false; count];
+    let mut conflict_graph = vec![false; count * count];
     for i in 0..count {
         let j = top1[i];
         if top1[j] != i {
@@ -267,6 +268,8 @@ fn filter_clad_candidates(
         if !is_conflict {
             continue;
         }
+        conflict_graph[i * count + j] = true;
+        conflict_graph[j * count + i] = true;
         let weight_i = clusters[i].1 - clusters[i].0 + 1;
         let weight_j = clusters[j].1 - clusters[j].0 + 1;
         if weight_i >= weight_j {
@@ -276,7 +279,7 @@ fn filter_clad_candidates(
         }
     }
     for i in 0..count {
-        if (0..count).all(|j| i == j || score[i * count + j] == 0.0) {
+        if (0..count).all(|j| !conflict_graph[i * count + j]) {
             selected_cluster[i] = true;
         }
     }
