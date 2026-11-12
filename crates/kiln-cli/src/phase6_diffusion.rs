@@ -139,14 +139,9 @@ pub fn run_cases(
                         &candidates, &attention, total, start, block_length,
                     )
                 } else {
-                    let transfer_count = block_length / steps_per_block
-                        + usize::from(step < block_length % steps_per_block);
-                    let mut ordered = masked.clone();
-                    ordered.sort_by(|&a, &b| {
-                        confidence[b].total_cmp(&confidence[a]).then_with(|| a.cmp(&b))
-                    });
-                    ordered.truncate(transfer_count);
-                    ordered
+                    select_confidence_transfers(
+                        &masked, &confidence, block_length, steps_per_block, step,
+                    )
                 };
                 if selected.is_empty() {
                     if let Some(&best) = masked.iter().max_by(|&&a, &&b| {
@@ -215,6 +210,29 @@ pub fn run_cases(
 
     }
     Ok(())
+}
+
+/// Select the standard greedy confidence-based transfer quota for one diffusion step.
+fn select_confidence_transfers(
+    masked: &[usize],
+    confidence: &[f32],
+    block_length: usize,
+    steps_per_block: usize,
+    step: usize,
+) -> Vec<usize> {
+    if steps_per_block == 0 || step >= steps_per_block
+        || masked.iter().any(|&position| position >= confidence.len())
+    {
+        return Vec::new();
+    }
+    let transfer_count = block_length / steps_per_block
+        + usize::from(step < block_length % steps_per_block);
+    let mut ordered = masked.to_vec();
+    ordered.sort_by(|&a, &b| {
+        confidence[b].total_cmp(&confidence[a]).then_with(|| a.cmp(&b))
+    });
+    ordered.truncate(transfer_count.min(masked.len()));
+    ordered
 }
 
 /// Apply CLAD's cluster dependency filter to the currently proposed positions.
@@ -352,6 +370,38 @@ fn filter_clad_candidates(
 #[cfg(test)]
 mod tests {
     use super::filter_clad_candidates;
+
+    #[test]
+    fn confidence_decoder_uses_even_blockwise_transfer_quotas_and_top_confidence() {
+        let masked: Vec<usize> = (0..8).collect();
+        let confidence = vec![0.1, 0.2, 0.9, 0.4, 0.7, 0.3, 0.8, 0.5];
+        assert_eq!(
+            super::select_confidence_transfers(&masked, &confidence, 8, 4, 0),
+            vec![2, 6]
+        );
+        assert_eq!(
+            super::select_confidence_transfers(&masked, &confidence, 8, 4, 1),
+            vec![4, 7]
+        );
+    }
+
+    #[test]
+    fn confidence_decoder_distributes_odd_quota_to_early_steps() {
+        let masked: Vec<usize> = (0..5).collect();
+        let confidence = vec![0.2, 0.9, 0.1, 0.8, 0.3];
+        assert_eq!(
+            super::select_confidence_transfers(&masked, &confidence, 5, 3, 0).len(),
+            2
+        );
+        assert_eq!(
+            super::select_confidence_transfers(&masked, &confidence, 5, 3, 1).len(),
+            2
+        );
+        assert_eq!(
+            super::select_confidence_transfers(&masked, &confidence, 5, 3, 2).len(),
+            1
+        );
+    }
 
     #[test]
     fn independent_candidates_are_committed_together() {
