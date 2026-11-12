@@ -244,9 +244,9 @@ The current Phase 6 implementation target is a native KILN masked-diffusion path
 
 - The llama.cpp fork exports an opt-in query-major attention map averaged over heads and LLaDA's final four layers. Ordinary inference leaves the export disabled.
 - KILN formats prompts with the model's GGUF chat template, evaluates a full non-causal masked sequence, and commits confidence-qualified clusters after CLAD attention-conflict filtering. Unsupported models and incomplete masks fail closed.
-- The fixed suite is `benchmarks/phase6/factual.jsonl`; `scripts/run_phase6_clad_suite.py` runs it in one loaded model session per repetition and records per-prompt output/rate, model and suite hashes, machine provenance and peak RSS. A pinned vanilla LLaDA result file can be supplied for same-case exact-answer comparison.
+- The fixed suite is `benchmarks/phase6/factual.jsonl`; `scripts/run_phase6_clad_suite.py` runs it in one loaded model session per repetition and records per-prompt output/rate, model and suite hashes, machine provenance and peak RSS. The paired KILN `confidence` decoder supplies a same-model greedy, blockwise top-confidence baseline; a reference file binds its answer rows to the same checkpoint hash.
 - **Tier 0 acceptance target:** at least 6 generated tokens/s on the Dell Latitude 7490 using a pinned LLaDA-8B-Instruct GGUF and fixed factual suite. Record median and spread over repeated runs, excluding model load from the decode interval while retaining whole-process peak RSS.
-- The operational quality comparison is factual exact/accepted-answer accuracy on identical prompt IDs against vanilla LLaDA; require no more than a one percentage-point drop and manually review misses. Exact-match scoring is a screening metric, not a semantic judge.
+- The operational quality comparison is factual exact/accepted-answer accuracy on identical prompt IDs against the pinned same-model confidence decoder (CLAD filtering disabled); require no more than a one percentage-point drop and manually review misses. Exact-match scoring is a screening metric, not a semantic judge.
 - Code presence, fork CI, or non-Dell performance does not satisfy Phase 6. Do not claim acceptance until the pinned model, Tier 0 machine, complete suite, throughput and quality evidence are recorded.
 
 
