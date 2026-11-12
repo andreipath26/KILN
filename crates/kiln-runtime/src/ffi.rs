@@ -66,7 +66,7 @@ extern "C" {
     ) -> c_int;
     fn kiln_llama_diffusion_step(
         h: *mut c_void, tokens: *const c_int, n_tokens: c_int,
-        predicted_tokens: *mut c_int, confidence: *mut f32,
+        capture_attention: c_int, predicted_tokens: *mut c_int, confidence: *mut f32,
         attention: *mut f32, attention_capacity: usize,
     ) -> c_int;
     fn kiln_llama_tokenize(
@@ -240,23 +240,32 @@ impl LlamaContext {
     /// Run a full non-causal diffusion forward pass, returning top-1 token
     /// proposals, their probabilities, and the CLAD attention matrix.
     pub fn diffusion_step(
-        &mut self, tokens: &[i32],
+        &mut self, tokens: &[i32], capture_attention: bool,
     ) -> Result<(Vec<i32>, Vec<f32>, Vec<f32>), LlamaError> {
         if tokens.is_empty() || tokens.len() > self.batch_capacity || tokens.len() > self.context_capacity {
             return Err(LlamaError::Decode("diffusion sequence must fit configured context and batch".into()));
         }
         let n = c_int::try_from(tokens.len())
             .map_err(|_| LlamaError::Decode("diffusion sequence exceeds C ABI length".into()))?;
-        let attention_capacity = tokens.len().checked_mul(tokens.len())
-            .ok_or_else(|| LlamaError::Decode("attention matrix size overflow".into()))?;
+        let attention_capacity = if capture_attention {
+            tokens.len().checked_mul(tokens.len())
+                .ok_or_else(|| LlamaError::Decode("attention matrix size overflow".into()))?
+        } else {
+            0
+        };
         let mut predicted = vec![0i32; tokens.len()];
         let mut confidence = vec![0f32; tokens.len()];
         let mut attention = vec![0f32; attention_capacity];
+        let attention_ptr = if capture_attention {
+            attention.as_mut_ptr()
+        } else {
+            std::ptr::null_mut()
+        };
         let rc = unsafe {
             kiln_llama_diffusion_step(
-                self.handle, tokens.as_ptr(), n,
+                self.handle, tokens.as_ptr(), n, if capture_attention { 1 } else { 0 },
                 predicted.as_mut_ptr(), confidence.as_mut_ptr(),
-                attention.as_mut_ptr(), attention.len(),
+                attention_ptr, attention.len(),
             )
         };
         if rc != 0 {
