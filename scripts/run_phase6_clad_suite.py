@@ -111,6 +111,8 @@ def main() -> int:
     parser.add_argument("--steps", type=int, default=None)
     parser.add_argument("--block-length", type=int, default=32)
     parser.add_argument("--threshold", type=float, default=0.70)
+    parser.add_argument("--decoder", choices=("clad", "confidence"), default="clad")
+    parser.add_argument("--answers-jsonl", type=Path, help="also write ID/answer rows for use as a pinned quality baseline")
     parser.add_argument("--threads", type=int, default=None)
     parser.add_argument("--quantization", help="model quantization label for the evidence record")
     parser.add_argument("--reference-jsonl", type=Path, help="vanilla LLaDA results: JSONL {id, answer}")
@@ -166,6 +168,7 @@ def main() -> int:
         "--max-tokens", str(args.max_tokens),
         "--block-length", str(args.block_length),
         "--threshold", str(args.threshold),
+        "--decoder", args.decoder,
         "--json",
     ]
     steps = args.steps if args.steps is not None else args.max_tokens
@@ -222,7 +225,8 @@ def main() -> int:
     output = {
         "schema_version": 1,
         "phase": 6,
-        "method": "KILN CLAD",
+        "method": "KILN Phase 6 decoder",
+        "decoder": args.decoder,
         "captured_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "implementation_revision": git_revision(),
         "kiln_version": version,
@@ -280,7 +284,17 @@ def main() -> int:
         "runs": runs,
     }
     args.output.write_text(json.dumps(output, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(json.dumps({"output": str(args.output.resolve()), "summary": output["summary"]}, indent=2))
+    if args.answers_jsonl:
+        first_run_answers = [
+            {"id": row["case_id"], "answer": row["answer"]}
+            for row in runs[0]["cases"]
+        ]
+        args.answers_jsonl.parent.mkdir(parents=True, exist_ok=True)
+        args.answers_jsonl.write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in first_run_answers),
+            encoding="utf-8",
+        )
+    print(json.dumps({"output": str(args.output.resolve()), "answers_jsonl": str(args.answers_jsonl.resolve()) if args.answers_jsonl else None, "summary": output["summary"]}, indent=2))
     return 0
 
 
