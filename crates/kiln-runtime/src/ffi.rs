@@ -58,6 +58,17 @@ extern "C" {
     fn kiln_llama_load(path: *const c_char, params: *const LlamaParamsRaw) -> *mut c_void;
     fn kiln_llama_free(h: *mut c_void);
     fn kiln_llama_n_vocab(h: *mut c_void) -> c_int;
+    fn kiln_llama_mask_token(h: *mut c_void) -> c_int;
+    fn kiln_llama_shift_logits(h: *mut c_void) -> c_int;
+    fn kiln_llama_apply_user_template(
+        h: *mut c_void, prompt: *const c_char, prompt_len: c_int,
+        out: *mut c_char, out_cap: c_int,
+    ) -> c_int;
+    fn kiln_llama_diffusion_step(
+        h: *mut c_void, tokens: *const c_int, n_tokens: c_int,
+        capture_attention: c_int, predicted_tokens: *mut c_int, confidence: *mut f32,
+        attention: *mut f32, attention_capacity: usize,
+    ) -> c_int;
     fn kiln_llama_tokenize(
         h: *mut c_void,
         text: *const c_char,
@@ -175,6 +186,95 @@ impl LlamaContext {
     }
 
     pub fn n_vocab(&self) -> i32 { self.n_vocab }
+
+    /// Return the model's diffusion mask token; fails for autoregressive models.
+    pub fn mask_token(&self) -> Result<i32, LlamaError> {
+        let token = unsafe { kiln_llama_mask_token(self.handle) };
+        if token < 0 { Err(LlamaError::Decode("loaded model is not a supported diffusion model".into())) }
+        else { Ok(token) }
+    }
+
+    /// Read the LLaDA position-to-logit mapping from model metadata.
+    pub fn diffusion_shift_logits(&self) -> Result<bool, LlamaError> {
+        match unsafe { kiln_llama_shift_logits(self.handle) } {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(LlamaError::Decode("loaded model has no diffusion logit-shift setting".into())),
+        }
+    }
+
+    /// Format a one-turn user prompt with the model's native chat template.
+    pub fn format_user_prompt(&self, prompt: &str) -> Result<String, LlamaError> {
+        let cprompt = CString::new(prompt).map_err(|e| LlamaError::Tokenize(e.to_string()))?;
+        let prompt_len = c_int::try_from(prompt.len())
+            .map_err(|_| LlamaError::Tokenize("prompt exceeds the C ABI length limit".into()))?;
+        let mut cap = prompt.len().checked_mul(2).and_then(|n| n.checked_add(512))
+            .ok_or_else(|| LlamaError::Tokenize("formatted prompt length overflow".into()))?;
+        cap = cap.max(1024);
+        for _ in 0..3 {
+            let native_cap = c_int::try_from(cap)
+                .map_err(|_| LlamaError::Tokenize("formatted prompt exceeds C ABI capacity".into()))?;
+            let mut buf = vec![0u8; cap];
+            let n = unsafe {
+                kiln_llama_apply_user_template(
+                    self.handle, cprompt.as_ptr(), prompt_len,
+                    buf.as_mut_ptr() as *mut c_char, native_cap,
+                )
+            };
+            if n < 0 {
+                return Err(LlamaError::Tokenize(format!("model chat template failed ({n})")));
+            }
+            let written = n as usize;
+            if written >= cap {
+                cap = written.checked_add(1)
+                    .ok_or_else(|| LlamaError::Tokenize("formatted prompt length overflow".into()))?;
+                continue;
+            }
+            buf.truncate(written);
+            return String::from_utf8(buf)
+                .map_err(|e| LlamaError::Tokenize(format!("chat template produced invalid UTF-8: {e}")));
+        }
+        Err(LlamaError::Tokenize("chat template output exceeded retry bound".into()))
+    }
+
+    /// Run a full non-causal diffusion forward pass, returning top-1 token
+    /// proposals, their probabilities, and the CLAD attention matrix.
+    pub fn diffusion_step(
+        &mut self, tokens: &[i32], capture_attention: bool,
+    ) -> Result<(Vec<i32>, Vec<f32>, Vec<f32>), LlamaError> {
+        if tokens.is_empty() || tokens.len() > self.batch_capacity || tokens.len() > self.context_capacity {
+            return Err(LlamaError::Decode("diffusion sequence must fit configured context and batch".into()));
+        }
+        let n = c_int::try_from(tokens.len())
+            .map_err(|_| LlamaError::Decode("diffusion sequence exceeds C ABI length".into()))?;
+        let attention_capacity = if capture_attention {
+            tokens.len().checked_mul(tokens.len())
+                .ok_or_else(|| LlamaError::Decode("attention matrix size overflow".into()))?
+        } else {
+            0
+        };
+        let mut predicted = vec![0i32; tokens.len()];
+        let mut confidence = vec![0f32; tokens.len()];
+        let mut attention = vec![0f32; attention_capacity];
+        let attention_ptr = if capture_attention {
+            attention.as_mut_ptr()
+        } else {
+            std::ptr::null_mut()
+        };
+        let rc = unsafe {
+            kiln_llama_diffusion_step(
+                self.handle, tokens.as_ptr(), n, if capture_attention { 1 } else { 0 },
+                predicted.as_mut_ptr(), confidence.as_mut_ptr(),
+                attention_ptr, attention.len(),
+            )
+        };
+        if rc != 0 {
+            self.n_past = 0;
+            return Err(LlamaError::Decode(format!("native diffusion forward returned {rc}")));
+        }
+        self.n_past = 0;
+        Ok((predicted, confidence, attention))
+    }
     pub fn n_past(&self) -> i32 { self.n_past }
 
     /// Take an explicit, bounded in-memory snapshot of the model's KV,

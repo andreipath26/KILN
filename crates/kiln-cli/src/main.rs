@@ -18,6 +18,7 @@ mod llama_forward;
 mod model_library;
 mod phase35_kv_bench;
 mod phase35_spec_bench;
+mod phase6_diffusion;
 mod model_plan;
 mod experimental_stream;
 mod stream_stdio;
@@ -173,6 +174,38 @@ enum Commands {
         /// Loopback IP to bind to. Only 127.0.0.1 or ::1 is accepted; remote access is unsupported.
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
+    },
+    /// Run Phase 6 LLaDA diffusion with CLAD attention-guided parallel decoding.
+    Diffuse {
+        /// Path to a LLaDA diffusion GGUF model.
+        model: String,
+        /// One factual or other single-turn prompt (mutually exclusive with --prompt-file).
+        #[arg(long, required_unless_present = "prompt_file", conflicts_with = "prompt_file")]
+        prompt: Option<String>,
+        /// JSONL file of {"id":"...","prompt":"..."} records; loads the model once for the suite.
+        #[arg(long)]
+        prompt_file: Option<std::path::PathBuf>,
+        /// Maximum number of output tokens (must be a multiple of block length).
+        #[arg(long, default_value_t = 128)]
+        max_tokens: usize,
+        /// Total denoising steps (default: max tokens, matching CLAD's reference schedule).
+        #[arg(long)]
+        steps: Option<usize>,
+        /// Diffusion block length.
+        #[arg(long, default_value_t = 32)]
+        block_length: usize,
+        /// Confidence threshold used to propose parallel token commits.
+        #[arg(long, default_value_t = 0.70)]
+        threshold: f32,
+        /// Decoder: CLAD attention clusters or vanilla top-confidence transfer schedule.
+        #[arg(long, value_parser = ["clad", "confidence"], default_value = "clad")]
+        decoder: String,
+        /// CPU worker threads; defaults to available parallelism.
+        #[arg(long)]
+        threads: Option<usize>,
+        /// Emit structured JSON with decode speed and generation metadata.
+        #[arg(long)]
+        json: bool,
     },
     /// Start an interactive chat session using the llama.cpp runtime.
     Run {
@@ -958,6 +991,61 @@ async fn main() {
                 Err(e) => {
                     eprintln!("pipeline error: {}", e);
                     std::process::exit(1);
+                }
+            }
+        }
+        Commands::Diffuse {
+            model, prompt, prompt_file, max_tokens, steps, block_length, threshold, decoder, threads, json,
+        } => {
+            let cases = if let Some(path) = prompt_file {
+                if !json {
+                    eprintln!("diffuse: --prompt-file requires --json so each result retains its case ID");
+                    std::process::exit(2);
+                }
+                (|| -> Result<Vec<(String, String)>, String> {
+                    let contents = std::fs::read_to_string(&path)
+                        .map_err(|e| format!("could not read {}: {e}", path.display()))?;
+                    let mut cases = Vec::new();
+                    let mut ids = std::collections::HashSet::new();
+                    for (line_index, line) in contents.lines().enumerate() {
+                        if line.trim().is_empty() {
+                            continue;
+                        }
+                        let record: serde_json::Value = serde_json::from_str(line)
+                            .map_err(|e| format!("JSONL line {} is invalid: {e}", line_index + 1))?;
+                        let id = record.get("id").and_then(serde_json::Value::as_str)
+                            .filter(|id| !id.trim().is_empty())
+                            .ok_or_else(|| format!("JSONL line {} needs a non-empty string 'id'", line_index + 1))?;
+                        let text = record.get("prompt").and_then(serde_json::Value::as_str)
+                            .filter(|prompt| !prompt.trim().is_empty())
+                            .ok_or_else(|| format!("JSONL line {} needs a non-empty string 'prompt'", line_index + 1))?;
+                        if !ids.insert(id.to_owned()) {
+                            return Err(format!("duplicate prompt ID '{id}'"));
+                        }
+                        cases.push((id.to_owned(), text.to_owned()));
+                    }
+                    if cases.is_empty() {
+                        return Err("prompt suite contains no prompt records".into());
+                    }
+                    Ok(cases)
+                })()
+            } else {
+                prompt.map(|text| vec![(String::from("prompt-1"), text)])
+                    .ok_or_else(|| "--prompt is required unless --prompt-file is provided".to_owned())
+            };
+
+            match cases {
+                Ok(cases) => {
+                    if let Err(error) = phase6_diffusion::run_cases(
+                        &model, &cases, max_tokens, steps, block_length, threshold, threads, json, &decoder,
+                    ) {
+                        eprintln!("diffuse: {error}");
+                        std::process::exit(2);
+                    }
+                }
+                Err(error) => {
+                    eprintln!("diffuse: {error}");
+                    std::process::exit(2);
                 }
             }
         }

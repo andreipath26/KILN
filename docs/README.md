@@ -8,6 +8,7 @@ KILN has one authoritative plan: the [master roadmap](../KILN%20MASTER%20ROADMAP
 - [Quantization policy](quantization-policy.md) — the format-support decision record required by KILN-E35.
 - [Phase 3.5 measurement guide](phase35-measurement.md) — dense-path capture, parity, profiling, and result interpretation.
 - [Phase 5 streaming guide](phase5-streaming.md) — sidecar, I/O, cache, predictor, dispatch components, and open integration gates.
+- [Phase 6 diffusion guide](phase6-diffusion.md) — native LLaDA + CLAD command, fixed factual suite, measurement capture and open Tier 0 gates.
 - [Predictor training and evaluation](training-pipeline-design.md) — Phase 5.0 trace requirements and leakage-resistant evaluation.
 - [UMF and expert sidecar status](umf-design.md) — implemented GGUF-preserving sidecar versus unimplemented embedded-container proposal.
 - [Runtime loading and release design](runtime-loading-design.md) — current linked development build and release requirements.

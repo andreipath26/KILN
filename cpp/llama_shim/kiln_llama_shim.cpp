@@ -8,6 +8,8 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <cmath>
+#include <string>
 
 struct kiln_llama {
     struct llama_model*   model;
@@ -16,6 +18,7 @@ struct kiln_llama {
     int32_t n_vocab;
     int32_t n_past;
     int32_t batch_capacity;
+    bool shift_logits;
     struct llama_batch batch;
 };
 
@@ -34,6 +37,10 @@ kiln_llama_t kiln_llama_load(const char* model_path, const struct kiln_llama_par
     }
 
     struct llama_context_params cparams = llama_context_default_params();
+    if (llama_model_is_diffusion(model)) {
+        // CLAD requires materialized attention probabilities rather than a fused kernel.
+        cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+    }
     if (params) {
         if (params->n_ctx > 0)     cparams.n_ctx = (uint32_t)params->n_ctx;
         if (params->n_batch > 0)   cparams.n_batch = (uint32_t)params->n_batch;
@@ -55,6 +62,10 @@ kiln_llama_t kiln_llama_load(const char* model_path, const struct kiln_llama_par
         llama_model_free(model);
         return NULL;
     }
+    if (llama_model_is_diffusion(model)) {
+        // Masked diffusion requires every position to attend across the full sequence.
+        llama_set_causal_attn(ctx, false);
+    }
 
     const struct llama_vocab* vocab = llama_model_get_vocab(model);
     int32_t n_vocab = llama_vocab_n_tokens(vocab);
@@ -69,6 +80,10 @@ kiln_llama_t kiln_llama_load(const char* model_path, const struct kiln_llama_par
     k->ctx     = ctx;
     k->vocab   = vocab;
     k->n_vocab = n_vocab;
+    char shift_logits_value[8] = {};
+    k->shift_logits =
+        llama_model_meta_val_str(model, "diffusion.shift_logits", shift_logits_value, sizeof(shift_logits_value)) < 0 ||
+        strcmp(shift_logits_value, "true") == 0;
     k->n_past = 0;
     /* Keep the reusable batch at least as large as the configured
      * context batch, otherwise valid caller batches can be rejected
@@ -94,6 +109,105 @@ void kiln_llama_free(kiln_llama_t h) {
 int32_t kiln_llama_n_vocab(kiln_llama_t h) {
     struct kiln_llama* k = (struct kiln_llama*)h;
     return k ? k->n_vocab : 0;
+}
+
+int32_t kiln_llama_mask_token(kiln_llama_t h) {
+    struct kiln_llama* k = (struct kiln_llama*)h;
+    if (!k || !llama_model_is_diffusion(k->model)) return -1;
+    return llama_vocab_mask(k->vocab);
+}
+
+int32_t kiln_llama_shift_logits(kiln_llama_t h) {
+    struct kiln_llama* k = (struct kiln_llama*)h;
+    return k && llama_model_is_diffusion(k->model) ? (k->shift_logits ? 1 : 0) : -1;
+}
+
+int32_t kiln_llama_apply_user_template(
+    kiln_llama_t h, const char* prompt, int32_t prompt_len,
+    char* out, int32_t out_cap)
+{
+    struct kiln_llama* k = (struct kiln_llama*)h;
+    if (!k || !prompt || prompt_len < 0 || !out || out_cap <= 0) return -1;
+    const char* tmpl = llama_model_chat_template(k->model, nullptr);
+    if (!tmpl) return -2;
+    const std::string content(prompt, (size_t) prompt_len);
+    const llama_chat_message message = {"user", content.c_str()};
+    return llama_chat_apply_template(tmpl, &message, 1, true, out, out_cap);
+}
+
+int32_t kiln_llama_diffusion_step(
+    kiln_llama_t h, const int32_t* tokens, int32_t n_tokens,
+    int32_t capture_attention, int32_t* predicted_tokens, float* confidence,
+    float* attention, size_t attention_capacity)
+{
+    struct kiln_llama* k = (struct kiln_llama*) h;
+    if (!k || !tokens || !predicted_tokens || !confidence || (capture_attention && !attention) ||
+        n_tokens <= 0 || n_tokens > k->batch_capacity ||
+        !llama_model_is_diffusion(k->model)) {
+        return -1;
+    }
+    const size_t token_count = (size_t) n_tokens;
+    if (capture_attention &&
+        (token_count > SIZE_MAX / token_count || token_count * token_count > attention_capacity)) {
+        return -2;
+    }
+
+    // Keep the call self-contained if another operation has changed context mode.
+    llama_set_causal_attn(k->ctx, false);
+    llama_set_clad_attention_capture(k->ctx, capture_attention != 0);
+
+    k->batch.n_tokens = n_tokens;
+    for (int32_t i = 0; i < n_tokens; ++i) {
+        k->batch.token[i] = tokens[i];
+        k->batch.pos[i] = i;
+        k->batch.n_seq_id[i] = 1;
+        k->batch.seq_id[i][0] = 0;
+        k->batch.logits[i] = 1;
+    }
+    const int32_t decode_rc = llama_decode(k->ctx, k->batch);
+    if (decode_rc != 0) {
+        k->n_past = 0;
+        return -3;
+    }
+
+    for (int32_t pos = 0; pos < n_tokens; ++pos) {
+        const int32_t logits_pos = k->shift_logits && pos > 0 ? pos - 1 : pos;
+        const float* row = llama_get_logits_ith(k->ctx, logits_pos);
+        if (!row) return -4;
+        int32_t best = 0;
+        float maximum = row[0];
+        if (!std::isfinite(maximum)) return -5;
+        for (int32_t token = 1; token < k->n_vocab; ++token) {
+            if (!std::isfinite(row[token])) return -5;
+            if (row[token] > maximum) {
+                maximum = row[token];
+                best = token;
+            }
+        }
+        double sum = 0.0;
+        for (int32_t token = 0; token < k->n_vocab; ++token) {
+            sum += std::exp((double) row[token] - (double) maximum);
+        }
+        if (!(sum > 0.0) || !std::isfinite(sum)) return -6;
+        predicted_tokens[pos] = best;
+        confidence[pos] = (float) (1.0 / sum);
+    }
+
+    k->n_past = 0;
+    if (!capture_attention) {
+        return 0;
+    }
+
+    const uint32_t attention_tokens = llama_get_clad_attention_tokens(k->ctx);
+    if (attention_tokens != (uint32_t) n_tokens) {
+        k->n_past = 0;
+        return -7;
+    }
+    const size_t expected = token_count * token_count;
+    const size_t copied = llama_get_clad_attention(k->ctx, attention, attention_capacity);
+    k->n_past = 0;
+    if (copied != expected) return -8;
+    return 0;
 }
 
 int32_t kiln_llama_tokenize(
