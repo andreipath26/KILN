@@ -77,7 +77,10 @@ print("yes" if isinstance(split,dict) and split.get("shard_count",0)>1 else "no"
 PY
 )"
 if [[ "$IS_SPLIT" == "yes" ]]; then
-  echo "split GGUF: use the verified multi-source range capture; direct single-file replay skipped" \
+  target/release/kiln-bench expert-io-split \
+    --source-gguf "$MODEL" --requests 64 --max-read-mib 256 --json \
+    > "$OUT/direct-source-io.json"
+  echo "split_gguf_bounded_source_order_sample; not router-trace replay or cold-SSD acceptance" \
     > "$OUT/direct-source-io-status.txt"
 else
   target/release/kiln-bench expert-export-gguf-stream-index \
