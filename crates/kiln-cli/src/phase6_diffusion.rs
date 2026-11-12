@@ -18,6 +18,28 @@ pub fn run(
     requested_threads: Option<usize>,
     json: bool,
 ) -> Result<(), String> {
+    run_cases(
+        model,
+        &[(String::from("prompt-1"), prompt.to_owned())],
+        max_tokens,
+        requested_steps,
+        block_length,
+        threshold,
+        requested_threads,
+        json,
+    )
+}
+
+pub fn run_cases(
+    model: &str,
+    cases: &[(String, String)],
+    max_tokens: usize,
+    requested_steps: Option<usize>,
+    block_length: usize,
+    threshold: f32,
+    requested_threads: Option<usize>,
+    json: bool,
+) -> Result<(), String> {
     if max_tokens == 0 || block_length == 0 || max_tokens % block_length != 0 {
         return Err("--max-tokens must be a positive multiple of --block-length".into());
     }
@@ -50,117 +72,126 @@ pub fn run(
         )),
     ).map_err(|e| format!("failed to load diffusion GGUF: {e}"))?;
 
-    let formatted = ctx.format_user_prompt(prompt)
-        .map_err(|e| format!("failed to apply model chat template: {e}"))?;
-    let input = ctx.tokenize(&formatted)
-        .map_err(|e| format!("failed to tokenize formatted prompt: {e}"))?;
-    if input.is_empty() {
-        return Err("chat template produced an empty token sequence".into());
+    if cases.is_empty() {
+        return Err("prompt suite contains no cases".into());
     }
-    let total = input.len().checked_add(max_tokens)
-        .ok_or_else(|| "prompt plus generation length overflow".to_string())?;
-    if total > TIER0_CONTEXT_TOKENS {
-        return Err(format!(
-            "formatted prompt uses {} tokens; with {max_tokens} generated tokens it exceeds the {TIER0_CONTEXT_TOKENS}-token Phase 6 context limit",
-            input.len()
-        ));
-    }
-    let mask = ctx.mask_token()
-        .map_err(|e| format!("Phase 6 requires a supported diffusion model: {e}"))?;
-    let eos = ctx.eos_token();
 
-    let mut sequence = Vec::with_capacity(total);
-    sequence.extend_from_slice(&input);
-    sequence.resize(total, mask);
-    let steps_per_block = steps / blocks;
-    let started = Instant::now();
+    for (case_id, prompt) in cases {
+        let formatted = ctx.format_user_prompt(prompt)
+            .map_err(|e| format!("{case_id}: failed to apply model chat template: {e}"))?;
+        let input = ctx.tokenize(&formatted)
+            .map_err(|e| format!("{case_id}: failed to tokenize formatted prompt: {e}"))?;
+        if input.is_empty() {
+            return Err(format!("{case_id}: chat template produced an empty token sequence"));
+        }
+        let total = input.len().checked_add(max_tokens)
+            .ok_or_else(|| "prompt plus generation length overflow".to_string())?;
+        if total > TIER0_CONTEXT_TOKENS {
+            return Err(format!(
+                "{case_id}: formatted prompt uses {} tokens; with {max_tokens} generated tokens it exceeds the {TIER0_CONTEXT_TOKENS}-token Phase 6 context limit",
+                input.len()
+            ));
+        }
+        let mask = ctx.mask_token()
+            .map_err(|e| format!("{case_id}: Phase 6 requires a supported diffusion model: {e}"))?;
+        let eos = ctx.eos_token();
 
-    for block in 0..blocks {
-        let start = input.len() + block * block_length;
-        let end = start + block_length;
-        for _ in 0..steps_per_block {
-            let masked: Vec<usize> = (start..end)
-                .filter(|&pos| sequence[pos] == mask)
-                .collect();
-            if masked.is_empty() {
-                break;
-            }
+        let mut sequence = Vec::with_capacity(total);
+        sequence.extend_from_slice(&input);
+        sequence.resize(total, mask);
+        let steps_per_block = steps / blocks;
+        let started = Instant::now();
 
-            let (proposals, confidence, attention) = ctx.diffusion_step(&sequence)
-                .map_err(|e| format!("native diffusion step failed: {e}"))?;
-            let mut candidates: Vec<usize> = masked.iter().copied()
-                .filter(|&pos| confidence[pos] >= threshold)
-                .collect();
-            if let Some(&best) = masked.iter().max_by(|&&a, &&b| {
-                confidence[a].total_cmp(&confidence[b]).then_with(|| b.cmp(&a))
-            }) {
-                if !candidates.contains(&best) {
-                    candidates.push(best);
+        for block in 0..blocks {
+            let start = input.len() + block * block_length;
+            let end = start + block_length;
+            for _ in 0..steps_per_block {
+                let masked: Vec<usize> = (start..end)
+                    .filter(|&pos| sequence[pos] == mask)
+                    .collect();
+                if masked.is_empty() {
+                    break;
                 }
-            }
-            candidates.sort_unstable();
 
-            let mut selected = filter_clad_candidates(
-                &candidates, &attention, total, start, block_length,
-            );
-            if selected.is_empty() {
+                let (proposals, confidence, attention) = ctx.diffusion_step(&sequence)
+                    .map_err(|e| format!("{case_id}: native diffusion step failed: {e}"))?;
+                let mut candidates: Vec<usize> = masked.iter().copied()
+                    .filter(|&pos| confidence[pos] >= threshold)
+                    .collect();
                 if let Some(&best) = masked.iter().max_by(|&&a, &&b| {
                     confidence[a].total_cmp(&confidence[b]).then_with(|| b.cmp(&a))
                 }) {
-                    selected.push(best);
+                    if !candidates.contains(&best) {
+                        candidates.push(best);
+                    }
+                }
+                candidates.sort_unstable();
+
+                let mut selected = filter_clad_candidates(
+                    &candidates, &attention, total, start, block_length,
+                );
+                if selected.is_empty() {
+                    if let Some(&best) = masked.iter().max_by(|&&a, &&b| {
+                        confidence[a].total_cmp(&confidence[b]).then_with(|| b.cmp(&a))
+                    }) {
+                        selected.push(best);
+                    }
+                }
+                for position in selected {
+                    sequence[position] = proposals[position];
                 }
             }
-            for position in selected {
-                sequence[position] = proposals[position];
+        }
+
+        let remaining = sequence[input.len()..].iter().filter(|&&token| token == mask).count();
+        if remaining != 0 {
+            return Err(format!(
+                "{case_id}: CLAD stopped with {remaining} masked positions; refusing to return an incomplete answer"
+            ));
+        }
+
+        let elapsed = started.elapsed();
+        let mut answer_bytes = Vec::new();
+        let mut generated_tokens = 0usize;
+        for &token in &sequence[input.len()..] {
+            if token == eos {
+                break;
             }
+            answer_bytes.extend_from_slice(
+                &ctx.token_bytes(token).map_err(|e| format!("{case_id}: token decode failed: {e}"))?
+            );
+            generated_tokens += 1;
         }
-    }
+        let answer = String::from_utf8_lossy(&answer_bytes).into_owned();
+        let elapsed_seconds = elapsed.as_secs_f64().max(f64::MIN_POSITIVE);
+        let tok_per_second = generated_tokens as f64 / elapsed_seconds;
 
-    let remaining = sequence[input.len()..].iter().filter(|&&token| token == mask).count();
-    if remaining != 0 {
-        return Err(format!(
-            "CLAD stopped with {remaining} masked positions; refusing to return an incomplete answer"
-        ));
-    }
-
-    let elapsed = started.elapsed();
-    let mut answer_bytes = Vec::new();
-    let mut generated_tokens = 0usize;
-    for &token in &sequence[input.len()..] {
-        if token == eos {
-            break;
+        if json {
+            println!("{}", serde_json::json!({
+                "phase": 6,
+                "case_id": case_id,
+                "method": "CLAD",
+                "model": model,
+                "input_tokens": input.len(),
+                "generated_tokens": generated_tokens,
+                "steps": steps,
+                "steps_per_block": steps_per_block,
+                "block_length": block_length,
+                "confidence_threshold": threshold,
+                "elapsed_ms": elapsed.as_millis(),
+                "decode_tokens_per_second": tok_per_second,
+                "answer": answer,
+                "peak_rss_kib": super::process_memory_kib().map(|m| m.peak_rss_kib),
+                "hardware_acceptance": false
+            }));
+        } else {
+            println!("{answer}");
+            eprintln!(
+                "KILN Phase 6 CLAD: {generated_tokens} tokens in {:.2}s ({tok_per_second:.2} tok/s); {steps} steps, block {block_length}, threshold {threshold:.2}",
+                elapsed_seconds
+            );
         }
-        answer_bytes.extend_from_slice(
-            &ctx.token_bytes(token).map_err(|e| format!("token decode failed: {e}"))?
-        );
-        generated_tokens += 1;
-    }
-    let answer = String::from_utf8_lossy(&answer_bytes).into_owned();
-    let elapsed_seconds = elapsed.as_secs_f64().max(f64::MIN_POSITIVE);
-    let tok_per_second = generated_tokens as f64 / elapsed_seconds;
 
-    if json {
-        println!("{}", serde_json::json!({
-            "phase": 6,
-            "method": "CLAD",
-            "model": model,
-            "input_tokens": input.len(),
-            "generated_tokens": generated_tokens,
-            "steps": steps,
-            "steps_per_block": steps_per_block,
-            "block_length": block_length,
-            "confidence_threshold": threshold,
-            "elapsed_ms": elapsed.as_millis(),
-            "decode_tokens_per_second": tok_per_second,
-            "answer": answer,
-            "hardware_acceptance": false
-        }));
-    } else {
-        println!("{answer}");
-        eprintln!(
-            "KILN Phase 6 CLAD: {generated_tokens} tokens in {:.2}s ({tok_per_second:.2} tok/s); {steps} steps, block {block_length}, threshold {threshold:.2}",
-            elapsed_seconds
-        );
     }
     Ok(())
 }
