@@ -1,0 +1,12 @@
+{"id":"capital-france","prompt":"Answer with only the capital city of France.","reference_answers":["Paris"]}
+{"id":"gold-symbol","prompt":"Answer with only the chemical symbol for gold.","reference_answers":["Au"]}
+{"id":"leap-year-days","prompt":"Answer with only the number of days in a Gregorian leap year.","reference_answers":["366","three hundred sixty-six"]}
+{"id":"solar-planets","prompt":"Answer with only the number of planets in the Solar System.","reference_answers":["8","eight"]}
+{"id":"earth-moon","prompt":"Answer with only the common name of Earth's natural satellite.","reference_answers":["the Moon","Moon"]}
+{"id":"water-formula","prompt":"Answer with only the chemical formula for water.","reference_answers":["H2O","H₂O"]}
+{"id":"red-planet","prompt":"Answer with only the planet commonly called the Red Planet.","reference_answers":["Mars"]}
+{"id":"hamlet-author","prompt":"Answer with only the author of the play Hamlet.","reference_answers":["William Shakespeare","Shakespeare"]}
+{"id":"largest-ocean","prompt":"Answer with only the largest ocean on Earth.","reference_answers":["Pacific Ocean","the Pacific Ocean","Pacific"]}
+{"id":"sun-star","prompt":"Answer with only the name of the star at the center of our Solar System.","reference_answers":["the Sun","Sun"]}
+{"id":"light-speed","prompt":"Answer with only the approximate speed of light in vacuum, in kilometers per second.","reference_answers":["299,792 km/s","299792 km/s","about 300,000 km/s","300,000 km/s"]}
+{"id":"earth-water-state","prompt":"At standard room temperature, answer with only the common physical state of pure water.","reference_answers":["liquid"]}
