@@ -33,6 +33,8 @@ jobs:
 
       - name: Test synthetic MoE cache simulator
         run: python3 -m unittest scripts.test_synthetic_moe_cache_bench -v
+      - name: Test real-trace byte-bounded MoE cache replay
+        run: python3 -m unittest scripts.test_replay_moe_cache_trace -v
 
       - name: Unit-test controlled candidate-vs-FP16 quality parity assessor
         run: python3 -m unittest scripts.test_compare_quality_parity -v
@@ -757,6 +759,26 @@ jobs:
           assert replay["trace_events_replayed_per_run"]>0
           assert replay["runs"][0]["bytes_read"]>0
           print("Direct-source expert trace replay passed on the real single-file MoE fixture")
+          PY
+          python3 scripts/replay_moe_cache_trace.py "$MODEL" \
+            "$OUT/native-index.tsv" "$OUT/index-report.json" "$OUT/router-operators.tsv" \
+            --cache-mib 8 64 --output "$OUT/cache-trace-policy.json"
+          python3 - "$OUT/cache-trace-policy.json" <<'PY'
+          import json,sys
+          report=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert report["status"]=="real_router_trace_byte_cache_simulation"
+          assert report["trace_order_preserved"] is True
+          assert report["trace_events"]>0
+          assert report["indexed_expert_bytes_total"]>0
+          expected={(capacity,policy) for capacity in (8,64)
+                    for policy in ("none","lru","lfu","adaptive")}
+          observed={(row["cache_capacity_bytes"]//(1024*1024),row["policy"])
+                    for row in report["results"]}
+          assert observed==expected
+          for row in report["results"]:
+              assert row["resident_bytes_at_end"]<=row["cache_capacity_bytes"]
+              assert row["hits"]+row["misses"]==report["trace_events"]
+          print("Real router trace replayed through bounded LRU/LFU/adaptive policies")
           PY
 
       - name: Build and prove portable Linux single-binary release against real MoE GGUF
