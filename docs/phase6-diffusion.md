@@ -10,17 +10,17 @@
 
 The attention export is opt-in and graph-cache aware. It is disabled during ordinary inference and enabled by the KILN diffusion step. Models that do not expose the expected LLaDA attention map fail closed instead of silently switching to a different decoder.
 
-The initial reference configuration is 128 generated positions, four blocks of 32, 128 total denoising steps, greedy proposals, and 0.70 confidence threshold. These are starting settings from the CLAD LLaDA evaluation recipe, not tuned Tier 0 parameters. The current CLI caps the complete prompt-plus-generation sequence at 512 tokens and returns an error when the requested sequence does not fit.
+The initial reference configuration is 128 generated positions, four blocks of 32, 128 total denoising steps, greedy proposals, and 0.70 confidence threshold. These are starting settings from the CLAD LLaDA evaluation recipe, not tuned Tier 0 parameters. The current CLI caps the complete prompt-plus-generation sequence at 512 tokens and returns an error when the requested sequence does not fit. Use `--prompt-file` with JSONL records containing `id` and `prompt` to process a fixed suite after loading the model once; every result is emitted as a separate JSON line containing its `case_id`.
 
 ## Acceptance protocol
 
-Run the same pinned factual prompts under a pinned LLaDA-8B-Instruct GGUF and tokenizer/template. Record the KILN and llama.cpp commits, model SHA-256, operating system/kernel, CPU, available RAM, thread count, quantization, context, prompt IDs, generation settings, output text, elapsed decode time, generated token count, and process peak RSS.
+Run `benchmarks/phase6/factual.jsonl` under a pinned LLaDA-8B-Instruct GGUF and tokenizer/template. `scripts/run_phase6_clad_suite.py` invokes the multi-prompt CLI so each repetition loads the model once, validates that output IDs match the suite, hashes the model and prompts, and records KILN revision/version, OS/kernel, CPU, total RAM, thread count, generation settings, every output, per-prompt rate and Linux process peak RSS. Supply `--reference-jsonl` with one `{"id":"...","answer":"..."}` row per ID from vanilla LLaDA to calculate the same accepted-answer score.
 
-For speed, report the median and spread across repeated runs after a warm-up, with model load excluded and the decode interval used by `--json`. The user target is at least 6 generated tokens/s on the Dell Latitude 7490.
+For speed, report the median and range across repeated suite runs, with model load excluded from the per-prompt decode interval used by `--json`. The capture runner defaults to three runs; each run reuses one model session across all prompts. The user target is at least 6 generated tokens/s on the Dell Latitude 7490.
 
-For quality, compare the CLAD answers against the same pinned vanilla LLaDA decoder on the exact same factual prompt set. Record exact/accepted-answer accuracy and review failures. Per KILN's accuracy-preservation principle, the Phase 6 quality gate is no more than a one percentage-point drop against that baseline. Do not report Phase 6 complete from speed alone.
+For quality, compare the CLAD answers against the same pinned vanilla LLaDA decoder on the exact same factual prompt set. The capture reports exact normalized matches against each case's accepted answers; record the same score for vanilla, calculate the absolute percentage-point difference, and manually review every miss because exact matching is only a screening metric. Per KILN's accuracy-preservation principle, the operational Phase 6 quality gate is no more than a one percentage-point drop against that baseline. Do not report Phase 6 complete from speed alone.
 
-Run the held-out test only after the implementation phase is complete, as requested. No target-machine acceptance result is present yet.
+The fixed suite is the implementation smoke/evidence capture set; any held-out factual evaluation should remain separate and be run after implementation freezes. No target-machine acceptance result is present yet.
 
 ## Boundaries
 
