@@ -9,11 +9,13 @@ this is diagnostic I/O evidence, not an inference or acceptance benchmark.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
 import platform
 import re
+import resource
 import statistics
 import time
 from collections import Counter
@@ -95,7 +97,6 @@ def percentile(values: list[float], fraction: float) -> float:
 
 
 def sha256_file(path: Path) -> str:
-    import hashlib
     value = hashlib.sha256()
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -153,13 +154,19 @@ def capture(model: Path, index: Path, trace: Path, runs: int,
     finally:
         os.close(descriptor)
 
-    index_sha = __import__("hashlib").sha256(index.read_bytes()).hexdigest()
-    trace_sha = __import__("hashlib").sha256(trace.read_bytes()).hexdigest()
+    source_after = model.stat()
+    source_identity_after = (source_after.st_dev, source_after.st_ino, source_after.st_size, source_after.st_mtime_ns)
+    source_identity_before = (source_stat.st_dev, source_stat.st_ino, source_stat.st_size, source_stat.st_mtime_ns)
+    if source_identity_after != source_identity_before:
+        raise ValueError("source GGUF changed during direct-source trace replay")
+    model_sha = sha256_file(model)
+    index_sha = hashlib.sha256(index.read_bytes()).hexdigest()
+    trace_sha = hashlib.sha256(trace.read_bytes()).hexdigest()
     return {
         "status": "direct_source_trace_replay_diagnostic",
         "model_path": str(model),
         "model_size_bytes": source_stat.st_size,
-        "model_sha256_after_replay": sha256_file(model),
+        "model_sha256_after_replay": model_sha,
         "model_mtime_ns": source_stat.st_mtime_ns,
         "native_index_path": str(index),
         "native_index_sha256": index_sha,
@@ -172,8 +179,7 @@ def capture(model: Path, index: Path, trace: Path, runs: int,
         "read_byte_budget": maximum_bytes,
         "runs": run_reports,
         "median_mib_per_second": statistics.median(row["mib_per_second"] for row in run_reports),
-        "peak_rss_platform_units": __import__("resource").getrusage(
-            __import__("resource").RUSAGE_SELF).ru_maxrss,
+        "peak_rss_platform_units": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
         "host": {"system": platform.platform(), "machine": platform.machine()},
         "interpretation": (
             "Direct reads of the indexed original GGUF in recorded CPU MAT_ID operator order. "
