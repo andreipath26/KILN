@@ -88,7 +88,7 @@ else
     --output-file "$OUT/direct-source-index.tsv" --json \
     > "$OUT/direct-source-index-report.json"
   python3 scripts/capture_direct_gguf_expert_io.py "$MODEL" \
-    "$OUT/direct-source-index.tsv" "$OUT/direct-source-index-report.json" "$RAW_TRACE" \
+    "$OUT/direct-source-index.tsv" "$OUT/direct-source-index-report.json" "$OUT/actual-router.tsv" \
     --max-read-mib 1024 \
     --output "$OUT/direct-source-io.json" \
     > "$OUT/direct-source-io-summary.json"

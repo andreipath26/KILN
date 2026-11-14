@@ -10,6 +10,19 @@ Proceed in evidence order: measure representative expert storage/RAM/compute bou
 
 For measured effective bandwidth, use effective bytes/token and cold/warm behavior, not advertised sequential SSD bandwidth. Record page-cache effects, random-read latency, bytes fetched, useful prefetch, read amplification, total RSS, thermal state and compute time. A cache-hit or predictor score is diagnostic, not a performance result.
 
+### One-command measurement bundle
+
+From a source checkout with the pinned native build available, run:
+
+```sh
+cargo run -p kiln-cli -- measure /path/to/model.gguf --out ./measurements/model-run \
+  --tokens 128 --runs 5 --threads 4
+```
+
+`kiln measure` builds the release CLI and benchmark utility, then records the host and model, repository and submodule revisions, a read-only plan, a resident inference baseline, an actual CPU router trace, verified native single-file MoE indexing when supported, indexed source-I/O evidence, live graph-selected no-cache/LRU/LFU runs, and an offline byte-bounded cache replay. Pass `--reference FP16.gguf --corpus eval.txt` to add paired next-token NLL and perplexity parity. Every command is recorded in `commands.jsonl`; raw JSON, stdout, stderr and provenance remain in the new run directory even when a stage fails. Existing directories are never overwritten.
+
+The configurable quick checks default to 3 generated tokens/s and 15 GiB process peak RSS. These limits provide a first signal, not a Tier 0 certificate. Quality is inconclusive unless a reference and corpus are supplied. Native expert indexing may be unsupported for dense, split, or incompatible layouts; those stages explain the gap in the summary. Linux process I/O counters are not physical device telemetry, cache replay is a simulation, and the suite leaves target-hardware acceptance inconclusive until the named machine and all roadmap gates have been measured.
+
 ## Implemented components and boundaries
 
 The main branch includes validated expert tensor maps and GGUF-preserving sidecars; byte-bounded cache admission and shared byte handles; guarded reads and bounded asynchronous prefetch; Linux io_uring reader with fallback; and `cpu_moe_streamed` dispatch for token-scoped expert-byte operations. It also includes the pinned native llama.cpp CPU selected-expert compute path using a versioned `KILN-MOE-STREAM-2` source map, including supported complete multi-shard GGUF layouts (merged via PR #81).
