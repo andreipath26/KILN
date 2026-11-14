@@ -810,3 +810,10 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Added raw per-stage samples to `stage-memory.jsonl`, including child-process RSS, host available/cache memory, cgroup usage/limit, CPU scaling frequencies and thermal-zone temperatures when exposed by Linux.
 - `summary.json` reports sampled ranges while keeping host/cgroup and process scopes distinct. The raw log remains available for diagnosing changes across a long inference run; sampling can miss brief peaks and does not attribute shared host usage to KILN.
 - Local verification passes all 72 Python script tests. The suite remains a source-checkout measurement tool; target-hardware Phase 5 acceptance is still open.
+
+### 2026-11-14 — Measurement suite hosted integration and release verification
+
+- Hosted CI run #867 passed at commit `5a8c5d729a43d7194047e5b8d98ed33b7df18d97`. It included Rust workspace/native checks, browser/accessibility/responsive checks, the one-command suite on the tiny real-MoE fixture, portable Linux single-binary build plus install/recovery, and real-model API/UI smoke.
+- The `phase5-real-moe-evidence` artifact contains the fixture measurement outputs; `kiln-linux-one-binary-experimental` contains the CI-built release candidate. Both are CI artifacts, not a production release or Tier 0 acceptance certificate.
+- The fixture run asserted exact token parity across live cache policies, retained raw stage memory samples and logs, deferred model hashing, and explicit shared-page-cache/device-counter limitations. It verifies measurement workflow behavior, not representative-model performance.
+- Tier 0 remains open: measure Qwen3-30B-A3B on the Dell Latitude 7490 with pinned-corpus quality comparison, sustained throughput and total RAM, and physical storage bounds before making deployment claims.
