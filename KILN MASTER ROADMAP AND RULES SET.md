@@ -1,7 +1,7 @@
 # KILN MASTER ROADMAP AND RULES SET
 
-**Version:** 9.6 — Phase 6 software implementation complete; Tier 0 acceptance pending  
-**Last updated:** 2026-11-12  
+**Version:** 9.7 — measurement suite strengthened; Tier 0 acceptance pending
+**Last updated:** 2026-11-14
 **Status:** Active master roadmap  
 **Repository:** https://github.com/andreipath26/KILN  
 **Runtime fork:** https://github.com/andreipath26/kiln-llama
@@ -795,4 +795,11 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Borrowed the useful lesson from `kimi-k3-in-c`: same-token expert reuse must be separated from reuse across generated tokens. The pinned llama.cpp fork now writes opt-in `@decode` markers with monotonically increasing decode-call IDs and batch sizes to `KILN_MOE_ROUTER_TRACE`; trace-enabled decode calls are serialized so concurrent contexts cannot interleave marker/event groups. Ordinary inference is unaffected when tracing is disabled.
 - Updated router-trace parsers to accept both marked and legacy four-column traces. Direct-source I/O replay preserves operator events; the byte-cache simulator collapses repeated tensor projections per decode call, batch row, layer and expert and labels legacy replay as operator-event granularity.
 - Added expert-byte-weighted cache hit rate beside request hit rate so differently sized experts do not get equal weight in the cache summary.
-- This improves trace interpretation only. The simulator remains separate from the live graph cache and does not establish cache effectiveness, physical SSD traffic, Tier 0 throughput/RSS, model quality or Phase 5 acceptance. Implementation is unverified; no tests or benchmarks were run in this change batch.
+- This improves trace interpretation only. The simulator remains separate from the live graph cache and does not establish cache effectiveness, physical SSD traffic, Tier 0 throughput/RSS, model quality or Phase 5 acceptance.
+
+### 2026-11-14 — Measurement cache-bias and checkpoint-integrity hardening
+
+- Moved buffered source replay and the full-checkpoint SHA-256 scan until after all timed inference. The measurement output records hash status and duration, and fails if hashing fails or the model file identity changes.
+- Added an explicit `os_page_cache_conditioning: uncontrolled` result. The resident baseline runs before the streaming policies, so later policies may use warmed shared kernel pages; this suite does not claim a cold-cache result. The real MoE CI run asserts the ordering, hash consistency, and limitation field.
+- Full hosted CI run #861 passed at commit `0d34deaccd5a9709003efc1920bb719fad7a32a0`, including the one-command suite on the real tiny-MoE fixture with two measured runs and generated-token parity, portable Linux single-binary install/recovery checks, and real-model API/UI smoke. The captured fixture remains integration evidence only.
+- Tier 0 remains unaccepted. Qwen3-30B-A3B throughput (≥3 tok/s), total peak RAM (<15 GB), pinned-corpus quality parity, sustained behavior and physical storage bounds still require measurements on the Dell Latitude 7490; this CI run does not satisfy those gates.
