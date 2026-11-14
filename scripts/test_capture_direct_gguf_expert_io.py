@@ -15,14 +15,15 @@ class DirectIoProbeTests(unittest.TestCase):
                 ("blk.0.experts.0.weight", 0, 513, 5000, 1, 0),
                 ("blk.0.experts.1.weight", 1, 8193, 700, 1, 0),
             ]
-            report = capture_odirect(model, replay)
+            report = capture_odirect(model, replay, runs=2)
 
         self.assertIn(report["status"], {"captured", "unavailable"})
         if report["status"] == "captured":
-            self.assertEqual(report["events"], 2)
-            self.assertEqual(report["logical_expert_bytes"], 5700)
-            self.assertGreaterEqual(report["aligned_bytes_returned"], 5700)
-            self.assertGreater(report["request_latency_us_p50"], 0)
+            self.assertEqual(len(report["runs"]), 2)
+            self.assertEqual(report["events_per_run"], 2)
+            self.assertEqual(report["logical_expert_bytes_per_run"], 5700)
+            self.assertGreaterEqual(report["aligned_bytes_per_run"], 5700)
+            self.assertGreater(report["request_latency_us_p50_median"], 0)
             self.assertIn("not device telemetry", report["interpretation"])
         else:
             self.assertTrue(report["reason"])

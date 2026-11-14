@@ -404,7 +404,8 @@ def main() -> int:
                 stage = runner.stage("router-source-io", [sys.executable,
                                      str(ROOT / "scripts/capture_direct_gguf_expert_io.py"),
                                      str(model), str(index), str(index_report), str(trace),
-                                     "--max-read-mib", "1024", "--output", str(out / "router-source-io.json")],
+                                     "--runs", str(args.runs), "--max-read-mib", "1024",
+                                     "--output", str(out / "router-source-io.json")],
                                      stdout="router-source-io-summary.json", stderr="router-source-io.stderr.log")
                 record_failure(stage, blocking=False)
                 stage = runner.stage("cache-trace-replay", [sys.executable,
@@ -581,13 +582,13 @@ def main() -> int:
                                               if stage.get("storage_device_io", {}).get("status") == "captured"},
                 "direct_io_diagnostic": ((source_io or {}).get("direct_io_diagnostic")
                                           if source_io else None),
-                "reason": "O_DIRECT is a page-cache-bypassing source-read diagnostic when supported; it is not isolated SSD telemetry or proof of physical-media completion.",
+                "reason": "Block counters cover the whole backing device, not just KILN. O_DIRECT bypasses the OS page cache when supported, but does not prove physical-media completion or isolate inference traffic.",
             },
         },
         "phase5_gate_coverage": {
             "5A_storage_ram_compute": {
                 "status": "partial" if reports["cache_replay"] else "inconclusive",
-                "evidence": ["live process RSS and process-attributed I/O", "indexed source expert-read replay when supported"] + (["best-effort O_DIRECT replay of traced expert ranges"] if (source_io or {}).get("direct_io_diagnostic", {}).get("status") == "captured" else []),
+                "evidence": ["live process RSS and process-attributed I/O", "indexed source expert-read replay when supported"] + (["best-effort O_DIRECT replay of traced expert ranges"] if (source_io or {}).get("direct_io_diagnostic", {}).get("status") == "captured" else []) + (["host-wide model-device read-sector/time deltas around measurement stages"] if any(stage.get("storage_device_io", {}).get("status") == "captured" for stage in runner.stages) else []),
                 "still_needed": ["repeated target-host storage runs and isolated device telemetry", "full host memory and thermal acceptance run"],
             },
             "5B_cache_and_predictor": {

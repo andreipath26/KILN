@@ -128,12 +128,14 @@ def sha256_file(path: Path) -> str:
 
 def capture_odirect(model: Path,
                     replay: list[tuple[str, int, int, int, int | None, int]],
-                    alignment: int = 4096) -> dict:
+                    alignment: int = 4096, runs: int = 1) -> dict:
     """Measure best-effort page-cache-bypassing reads of the traced ranges."""
     if platform.system() != "Linux" or not hasattr(os, "O_DIRECT") or not hasattr(os, "preadv"):
         return {"status": "unavailable", "reason": "Linux O_DIRECT and preadv are not available"}
     if alignment <= 0 or alignment & (alignment - 1):
         return {"status": "unavailable", "reason": "direct-I/O alignment must be a positive power of two"}
+    if not 1 <= runs <= 100:
+        return {"status": "unavailable", "reason": "direct-I/O repetitions must be in 1..100"}
     spans = []
     for _tensor, _expert, offset, length, _decode_id, _row in replay:
         start = offset - (offset % alignment)
@@ -145,32 +147,49 @@ def capture_odirect(model: Path,
     except OSError as error:
         return {"status": "unavailable", "reason": f"could not open model with O_DIRECT: {error}"}
 
-    request_latencies_us = []
-    logical_bytes = 0
-    direct_bytes = 0
-    checksum = 0
+    run_reports = []
+    completed_events = 0
     started = time.perf_counter()
     try:
         with mmap.mmap(-1, buffer_size) as buffer:
-            for start, end, delta, length in spans:
-                view = memoryview(buffer)[:end - start]
-                before = time.perf_counter()
-                try:
-                    count = os.preadv(descriptor, [view], start)
-                finally:
-                    view.release()
-                request_latencies_us.append((time.perf_counter() - before) * 1_000_000)
-                if count < delta + length:
-                    raise OSError(f"short O_DIRECT read at byte {start}: got {count}, need {delta + length}")
-                checksum = (checksum * 31 + buffer[delta] + buffer[delta + length - 1]) & 0xFFFFFFFFFFFFFFFF
-                logical_bytes += length
-                direct_bytes += count
+            for run_number in range(1, runs + 1):
+                request_latencies_us = []
+                logical_bytes = 0
+                direct_bytes = 0
+                checksum = 0
+                run_started = time.perf_counter()
+                for start, end, delta, length in spans:
+                    view = memoryview(buffer)[:end - start]
+                    before = time.perf_counter()
+                    try:
+                        count = os.preadv(descriptor, [view], start)
+                    finally:
+                        view.release()
+                    request_latencies_us.append((time.perf_counter() - before) * 1_000_000)
+                    if count < delta + length:
+                        raise OSError(f"short O_DIRECT read at byte {start}: got {count}, need {delta + length}")
+                    checksum = (checksum * 31 + buffer[delta] + buffer[delta + length - 1]) & 0xFFFFFFFFFFFFFFFF
+                    logical_bytes += length
+                    direct_bytes += count
+                    completed_events += 1
+                run_elapsed = time.perf_counter() - run_started
+                run_reports.append({
+                    "run": run_number,
+                    "events": len(spans),
+                    "logical_expert_bytes": logical_bytes,
+                    "aligned_bytes_returned": direct_bytes,
+                    "elapsed_seconds": run_elapsed,
+                    "mib_per_second_aligned": direct_bytes / (1024 * 1024) / run_elapsed if run_elapsed else 0.0,
+                    "request_latency_us_p50": statistics.median(request_latencies_us),
+                    "request_latency_us_p95": percentile(request_latencies_us, 0.95),
+                    "checksum": checksum,
+                })
     except (OSError, ValueError) as error:
         status = "unavailable" if isinstance(error, OSError) and error.errno in {
             errno.EINVAL, errno.EOPNOTSUPP, errno.ENOTSUP, errno.ENOSYS
         } else "failed"
         return {"status": status, "reason": f"O_DIRECT replay failed: {error}",
-                "events_completed": len(request_latencies_us)}
+                "events_completed": completed_events}
     finally:
         os.close(descriptor)
     elapsed = time.perf_counter() - started
@@ -178,14 +197,14 @@ def capture_odirect(model: Path,
         "status": "captured",
         "cache_path": "Linux O_DIRECT; bypasses the page cache on supported filesystems",
         "alignment_bytes": alignment,
-        "events": len(spans),
-        "logical_expert_bytes": logical_bytes,
-        "aligned_bytes_returned": direct_bytes,
+        "runs": run_reports,
+        "events_per_run": len(spans),
+        "logical_expert_bytes_per_run": run_reports[0]["logical_expert_bytes"],
+        "aligned_bytes_per_run": run_reports[0]["aligned_bytes_returned"],
         "elapsed_seconds": elapsed,
-        "mib_per_second_aligned": direct_bytes / (1024 * 1024) / elapsed if elapsed else 0.0,
-        "request_latency_us_p50": statistics.median(request_latencies_us),
-        "request_latency_us_p95": percentile(request_latencies_us, 0.95),
-        "checksum": checksum,
+        "median_mib_per_second_aligned": statistics.median(row["mib_per_second_aligned"] for row in run_reports),
+        "request_latency_us_p50_median": statistics.median(row["request_latency_us_p50"] for row in run_reports),
+        "request_latency_us_p95_median": statistics.median(row["request_latency_us_p95"] for row in run_reports),
         "interpretation": "Page-cache-bypassing source-read diagnostic; not device telemetry, inference throughput, or proof of physical-media completion.",
     }
 
@@ -280,7 +299,7 @@ def capture(model: Path, index: Path, index_report: Path, trace: Path, runs: int
         raise ValueError("source GGUF changed while hashing provenance")
     index_sha = hashlib.sha256(index.read_bytes()).hexdigest()
     trace_sha = hashlib.sha256(trace.read_bytes()).hexdigest()
-    direct_io = capture_odirect(model, replay)
+    direct_io = capture_odirect(model, replay, runs=runs)
     return {
         "status": "direct_source_trace_replay_diagnostic",
         "model_path": str(model),
