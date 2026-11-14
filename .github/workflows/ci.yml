@@ -856,6 +856,7 @@ jobs:
           assert memory["stage_reports"]["resident-baseline"]["samples"] >= 2
           memory_log=root/"stage-memory.jsonl"
           assert memory_log.is_file()
+          assert summary["logs"]["stage_memory"] == "stage-memory.jsonl"
           assert any(json.loads(line)["stage"] == "resident-baseline"
                      for line in memory_log.read_text(encoding="utf-8").splitlines())
           source_io=json.load(open(root/"router-source-io.json",encoding="utf-8"))

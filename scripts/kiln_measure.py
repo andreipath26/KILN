@@ -801,7 +801,8 @@ def main() -> int:
         "stages": runner.stages,
         "failed_stages": failures,
         "blocking_failures": blocking_failures,
-        "logs": {"commands": "commands.jsonl", "build": "build.log", "stderr_pattern": "*.stderr.log"},
+        "logs": {"commands": "commands.jsonl", "stage_memory": "stage-memory.jsonl",
+                 "build": "build.log", "stderr_pattern": "*.stderr.log"},
         "interpretation": "Inconclusive means evidence is missing or target acceptance conditions were not established. Review every stage log; failed stages do not erase artifacts from successful stages.",
     }
     (out / "host-after.json").write_text(json.dumps(host_info(model, model_digest), indent=2) + "\n")
