@@ -617,6 +617,10 @@ def main() -> int:
                                      "basis": "device, inode, size, and modification time compared before and after measurement"},
             "model_sha256": {"status": hash_report["status"], "report": "model-hash.json",
                              "duration_seconds": hash_report["duration_seconds"]},
+            "os_page_cache_conditioning": {
+                "status": "uncontrolled",
+                "reason": "The resident baseline precedes streaming, and the kernel page cache is shared across stream policies. This suite does not evict or isolate cached model pages.",
+            },
             "phase5_target_hardware_and_sustained_acceptance": {
                 "status": "inconclusive",
                 "reason": "A single run does not prove the named Tier 0 host, sustained behavior, or all roadmap gates.",

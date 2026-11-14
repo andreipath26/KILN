@@ -850,6 +850,7 @@ jobs:
           assert model_hash["status"] == "captured", model_hash
           assert model_hash["duration_seconds"] >= 0, model_hash
           assert summary["model_sha256"] == model_hash["sha256"]
+          assert summary["checks"]["os_page_cache_conditioning"]["status"] == "uncontrolled"
           source_io=json.load(open(root/"router-source-io.json",encoding="utf-8"))
           if source_io["direct_io_diagnostic"]["status"] == "captured":
               assert len(source_io["direct_io_diagnostic"]["runs"]) == 2
