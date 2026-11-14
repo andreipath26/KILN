@@ -13,6 +13,7 @@ use kiln_core::transformer_weights::TransformerWeights;
 use kiln_models::tokenizer::BpeTokenizer;
 use kiln_models::gguf::GgufFile;
 use kiln_api::serve;
+use sha2::{Digest, Sha256};
 
 mod llama_forward;
 mod model_library;
@@ -2125,6 +2126,7 @@ fn bench_once(
     // Stable, allocation-free digest of the exact generated token sequence;
     // compare it between baseline and native greedy runs on the same model.
     let mut token_fingerprint_fnv1a64 = 0xcbf29ce484222325u64;
+    let mut token_ids_sha256 = Sha256::new();
     let mut eos_encountered = false;
     let mut sampling_ms = 0.0_f64;
     let mut token_conversion_ms = 0.0_f64;
@@ -2148,6 +2150,7 @@ fn bench_once(
             token_fingerprint_fnv1a64 ^= u64::from(byte);
             token_fingerprint_fnv1a64 = token_fingerprint_fnv1a64.wrapping_mul(0x100000001b3);
         }
+        token_ids_sha256.update(token.to_le_bytes());
 
         let conversion_start = std::time::Instant::now();
         match dispatcher.dispatch(RuntimeOp::TokenToStr { token })
@@ -2198,6 +2201,7 @@ fn bench_once(
         "sampling_path": if native_greedy { "native_greedy" } else { "rust_logits_greedy" },
         "generated_tokens": generated_tokens,
         "token_fingerprint_fnv1a64": format!("{token_fingerprint_fnv1a64:016x}"),
+        "token_ids_sha256_le_i32": format!("{:x}", token_ids_sha256.finalize()),
         "eos_encountered": eos_encountered,
         "tokenization_ms": tokenization_ms,
         "prefill_ms": prefill_ms,

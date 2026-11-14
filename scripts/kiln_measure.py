@@ -90,16 +90,30 @@ def compare_token_outputs(reference: dict | None, candidate: dict | None) -> dic
                 "reason": "reports do not contain the same nonempty run count"}
     mismatches = []
     for index, (left, right) in enumerate(zip(expected, observed)):
-        required = ("generated_tokens", "token_fingerprint_fnv1a64")
-        if any(key not in left or key not in right for key in required):
+        required = ("generated_tokens", "token_fingerprint_fnv1a64", "token_ids_sha256_le_i32")
+        if not isinstance(left, dict) or not isinstance(right, dict) or any(
+                key not in left or key not in right for key in required):
             return {"status": "fail", "matched_runs": index, "total_runs": len(expected),
                     "reason": f"run {index + 1} is missing token parity fields"}
+        for row in (left, right):
+            count, fnv, digest = (row["generated_tokens"], row["token_fingerprint_fnv1a64"],
+                                  row["token_ids_sha256_le_i32"])
+            if (type(count) is not int or count < 0 or not isinstance(fnv, str) or len(fnv) != 16
+                    or not isinstance(digest, str) or len(digest) != 64):
+                return {"status": "fail", "matched_runs": index, "total_runs": len(expected),
+                        "reason": f"run {index + 1} has invalid token parity fields"}
+            try:
+                int(fnv, 16)
+                int(digest, 16)
+            except ValueError:
+                return {"status": "fail", "matched_runs": index, "total_runs": len(expected),
+                        "reason": f"run {index + 1} has non-hexadecimal token hashes"}
         if any(left[key] != right[key] for key in required):
             mismatches.append(index + 1)
     return {"status": "fail" if mismatches else "pass",
             "matched_runs": len(expected) - len(mismatches), "total_runs": len(expected),
             "mismatched_run_numbers": mismatches,
-            "comparison": "generated token count and exact token-ID FNV-1a fingerprint"}
+            "comparison": "generated token count plus FNV-1a and SHA-256 of little-endian token IDs"}
 
 
 def peak_rss_gib(report: dict | None) -> float | None:
@@ -473,7 +487,7 @@ def main() -> int:
                                "report": "quality-parity.json" if quality else None},
             "generated_token_parity": {"status": parity_status,
                                        "per_policy": parity,
-                                       "basis": "exact generated-token count and token-ID fingerprint against the resident baseline"},
+                                       "basis": "generated-token count and two token-ID hashes against the resident baseline"},
             "phase5_target_hardware_and_sustained_acceptance": {
                 "status": "inconclusive",
                 "reason": "A single run does not prove the named Tier 0 host, sustained behavior, or all roadmap gates.",

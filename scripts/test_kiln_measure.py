@@ -10,25 +10,39 @@ from scripts.kiln_measure import Run, compare_token_outputs, mean_metric, peak_r
 
 class MeasureReportTests(unittest.TestCase):
     def test_token_parity_passes_for_identical_greedy_runs(self):
-        runs = [{"generated_tokens": 12, "token_fingerprint_fnv1a64": "0123456789abcdef"},
-                {"generated_tokens": 11, "token_fingerprint_fnv1a64": "fedcba9876543210"}]
+        runs = [{"generated_tokens": 12, "token_fingerprint_fnv1a64": "0123456789abcdef",
+                 "token_ids_sha256_le_i32": "a" * 64},
+                {"generated_tokens": 11, "token_fingerprint_fnv1a64": "fedcba9876543210",
+                 "token_ids_sha256_le_i32": "b" * 64}]
         result = compare_token_outputs({"runs": runs}, {"runs": [dict(row) for row in runs]})
         self.assertEqual(result["status"], "pass")
         self.assertEqual(result["matched_runs"], 2)
         self.assertEqual(result["total_runs"], 2)
 
     def test_token_parity_fails_on_changed_fingerprint_or_run_count(self):
-        reference = {"runs": [{"generated_tokens": 12, "token_fingerprint_fnv1a64": "0123456789abcdef"}]}
-        changed = {"runs": [{"generated_tokens": 12, "token_fingerprint_fnv1a64": "fedcba9876543210"}]}
+        reference = {"runs": [{"generated_tokens": 12, "token_fingerprint_fnv1a64": "0123456789abcdef",
+                               "token_ids_sha256_le_i32": "a" * 64}]}
+        changed = {"runs": [{"generated_tokens": 12, "token_fingerprint_fnv1a64": "fedcba9876543210",
+                             "token_ids_sha256_le_i32": "a" * 64}]}
+        changed_sha = {"runs": [{"generated_tokens": 12, "token_fingerprint_fnv1a64": "0123456789abcdef",
+                                 "token_ids_sha256_le_i32": "b" * 64}]}
         self.assertEqual(compare_token_outputs(reference, changed)["status"], "fail")
+        self.assertEqual(compare_token_outputs(reference, changed_sha)["status"], "fail")
         self.assertEqual(compare_token_outputs(reference, {"runs": []})["status"], "fail")
 
     def test_token_parity_fails_closed_on_missing_report_fields(self):
-        reference = {"runs": [{"generated_tokens": 12}]}
-        result = compare_token_outputs(reference, {"runs": [{"generated_tokens": 12}]})
+        reference = {"runs": [{"generated_tokens": 12, "token_fingerprint_fnv1a64": "0123456789abcdef"}]}
+        result = compare_token_outputs(reference, {"runs": [{"generated_tokens": 12, "token_fingerprint_fnv1a64": "0123456789abcdef"}]})
         self.assertEqual(result["status"], "fail")
         self.assertIn("missing token parity fields", result["reason"])
         self.assertEqual(compare_token_outputs(None, {"runs": []})["status"], "inconclusive")
+
+    def test_token_parity_rejects_malformed_rows_and_hashes(self):
+        good = {"generated_tokens": 1, "token_fingerprint_fnv1a64": "0" * 16,
+                "token_ids_sha256_le_i32": "0" * 64}
+        self.assertEqual(compare_token_outputs({"runs": [None]}, {"runs": [good]})["status"], "fail")
+        malformed = dict(good, token_ids_sha256_le_i32="z" * 64)
+        self.assertEqual(compare_token_outputs({"runs": [good]}, {"runs": [malformed]})["status"], "fail")
 
     def test_benchmark_stats_and_rss_units_are_read_from_kiln_json(self):
         report = {
