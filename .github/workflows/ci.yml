@@ -836,6 +836,8 @@ jobs:
           summary=json.load(open(root/"summary.json",encoding="utf-8"))
           assert summary["acceptance_claim"] is False
           assert summary["overall_status"] == "inconclusive"
+          assert "host_block_device_deltas" in summary["checks"]["physical_storage_traffic"]
+          assert "host_block_device_io" in summary["live_metrics"]["resident"]
           parity=summary["checks"]["generated_token_parity"]
           assert parity["status"] == "pass", parity
           assert set(parity["per_policy"]) == {"none", "lru", "lfu"}, parity

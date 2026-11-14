@@ -7,10 +7,23 @@ import unittest
 from unittest.mock import patch
 
 from scripts.kiln_measure import (Run, compare_token_outputs, file_identity, host_info,
-                                  mean_metric, peak_rss_gib, read_audit)
+                                  mean_metric, model_block_device_delta, peak_rss_gib, read_audit)
 
 
 class MeasureReportTests(unittest.TestCase):
+    def test_host_block_device_counters_are_delta_reported_and_scoped(self):
+        before = {"device": "nvme0n1", "model_major_minor": "259:0", "read_ios": 8,
+                  "read_sectors": 16, "read_bytes": 8192, "read_time_ms": 3,
+                  "scope": "whole block device"}
+        after = dict(before, read_ios=10, read_sectors=21, read_bytes=10752, read_time_ms=6)
+        delta = model_block_device_delta(before, after)
+        self.assertEqual(delta["status"], "captured")
+        self.assertEqual(delta["read_bytes_delta"], 2560)
+        self.assertEqual(delta["read_time_ms_delta"], 3)
+        self.assertIn("whole block device", delta["scope"])
+        self.assertEqual(model_block_device_delta(before, None)["status"], "unavailable")
+        self.assertEqual(model_block_device_delta(before, dict(after, read_sectors=1))["status"], "counter_reset")
+
     def test_model_identity_is_stable_and_host_capture_reuses_precomputed_digest(self):
         with tempfile.TemporaryDirectory() as temp:
             model = Path(temp) / "model.gguf"

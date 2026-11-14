@@ -30,9 +30,57 @@ def file_identity(path: Path) -> tuple[int, int, int, int]:
     return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns
 
 
+def model_block_device_snapshot(model: Path) -> dict | None:
+    """Read whole-device Linux block counters for the model's backing device."""
+    if not sys.platform.startswith("linux"):
+        return None
+    try:
+        model_stat = model.stat()
+        major, minor = os.major(model_stat.st_dev), os.minor(model_stat.st_dev)
+        node = Path("/sys/dev/block") / f"{major}:{minor}"
+        resolved = node.resolve(strict=True)
+        # Report the parent disk for partitions when sysfs exposes it.
+        if (resolved / "partition").is_file():
+            resolved = resolved.parent
+        fields = (resolved / "stat").read_text(encoding="ascii").split()
+        if len(fields) < 4:
+            return None
+        reads, sectors, read_ms = int(fields[0]), int(fields[2]), int(fields[3])
+        return {
+            "device": resolved.name,
+            "model_major_minor": f"{major}:{minor}",
+            "read_ios": reads,
+            "read_sectors": sectors,
+            "read_bytes": sectors * 512,
+            "read_time_ms": read_ms,
+            "scope": "whole block device; includes unrelated processes and may be a virtual device",
+        }
+    except (OSError, ValueError):
+        return None
+
+
+def model_block_device_delta(before: dict | None, after: dict | None) -> dict:
+    if not before or not after or before.get("device") != after.get("device"):
+        return {"status": "unavailable"}
+    counters = ("read_ios", "read_sectors", "read_bytes", "read_time_ms")
+    if any(after.get(key, -1) < before.get(key, 0) for key in counters):
+        return {"status": "counter_reset", "device": after["device"]}
+    return {
+        "status": "captured",
+        "device": after["device"],
+        "model_major_minor": after.get("model_major_minor"),
+        "read_ios_delta": after["read_ios"] - before["read_ios"],
+        "read_sectors_delta": after["read_sectors"] - before["read_sectors"],
+        "read_bytes_delta": after["read_bytes"] - before["read_bytes"],
+        "read_time_ms_delta": after["read_time_ms"] - before["read_time_ms"],
+        "scope": after["scope"],
+    }
+
+
 class Run:
-    def __init__(self, out: Path):
+    def __init__(self, out: Path, model: Path | None = None):
         self.out = out
+        self.model = model
         self.stages: list[dict] = []
         self.commands = out / "commands.jsonl"
 
@@ -48,6 +96,7 @@ class Run:
         out_path = self.out / (stdout or f"{name}.stdout.log")
         err_path = self.out / (stderr or f"{name}.stderr.log")
         record.update({"stdout_log": str(out_path), "stderr_log": str(err_path)})
+        storage_before = model_block_device_snapshot(self.model) if self.model else None
         self._write_command(record)
         try:
             with out_path.open("wb") as out_stream, err_path.open("wb") as err_stream:
@@ -59,6 +108,9 @@ class Run:
         except OSError as error:
             record["status"] = "failed"
             record["error"] = str(error)
+        if self.model:
+            storage_after = model_block_device_snapshot(self.model)
+            record["storage_device_io"] = model_block_device_delta(storage_before, storage_after)
         self.stages.append(record)
         self._write_command(record)
         return record
@@ -285,7 +337,7 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.mkdir(mode=0o700)
     os.chmod(out, 0o700)
-    runner = Run(out)
+    runner = Run(out, model)
     model_identity = file_identity(model)
     model_digest = sha256(model)
     if file_identity(model) != model_identity:
@@ -462,6 +514,8 @@ def main() -> int:
             token_comparison = compare_token_outputs(reports["resident"], report) if policy != "resident" else None
             if token_comparison is not None:
                 parity[policy] = token_comparison
+            stage_name = "resident-baseline" if policy == "resident" else f"stream-{policy}"
+            stage_record = next((stage for stage in runner.stages if stage.get("name") == stage_name), {})
             metrics[name] = {
                 "decode_tokens_per_second_mean": mean_metric(report, "decode_tokens_per_second"),
                 "decode_forward_tokens_per_second_mean": mean_metric(report, "decode_forward_tokens_per_second"),
@@ -470,6 +524,7 @@ def main() -> int:
                     .get("measured_inference", {}).get("kernel_storage_read_bytes_delta"),
                 "expert_io_audit": read_audit(out / f"stream-{policy}.audit.tsv") if policy != "resident" else None,
                 "token_parity_vs_resident": token_comparison,
+                "host_block_device_io": stage_record.get("storage_device_io"),
             }
     quality = reports["quality"]
     predictor = reports["predictor"]
@@ -521,6 +576,9 @@ def main() -> int:
             },
             "physical_storage_traffic": {
                 "status": "not_measured",
+                "host_block_device_deltas": {stage.get("name"): stage.get("storage_device_io")
+                                              for stage in runner.stages
+                                              if stage.get("storage_device_io", {}).get("status") == "captured"},
                 "direct_io_diagnostic": ((source_io or {}).get("direct_io_diagnostic")
                                           if source_io else None),
                 "reason": "O_DIRECT is a page-cache-bypassing source-read diagnostic when supported; it is not isolated SSD telemetry or proof of physical-media completion.",
