@@ -821,6 +821,29 @@ jobs:
           print("Real router trace replayed through bounded LRU/LFU/adaptive policies")
           PY
 
+      - name: Run the one-command measurement suite on the real MoE fixture
+        run: |
+          set -euo pipefail
+          MODEL="$RUNNER_TEMP/kiln-models/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
+          OUT="$RUNNER_TEMP/kiln-measure-smoke"
+          timeout 240 target/debug/kiln measure "$MODEL" --out "$OUT" \
+            --tokens 8 --runs 1 --threads 2 --min-tps 0 --max-rss-gib 64
+          python3 - "$OUT" <<'PY'
+          import json,pathlib,sys
+          root=pathlib.Path(sys.argv[1])
+          summary=json.load(open(root/"summary.json",encoding="utf-8"))
+          assert summary["acceptance_claim"] is False
+          assert summary["overall_status"] == "inconclusive"
+          assert (root/"resident-baseline.json").is_file()
+          assert (root/"native-expert-index.tsv").is_file()
+          assert (root/"router-trace.tsv").is_file()
+          assert (root/"stream-lru.json").is_file()
+          assert (root/"router-predictor-holdout.json").is_file()
+          assert any(stage["name"] == "router-predictor-holdout" and stage["status"] == "passed"
+                     for stage in summary["stages"])
+          print("One-command real-MoE measurement captured baseline, source index, cache A/B and grouped holdout")
+          PY
+
       - name: Build and prove portable Linux single-binary release against real MoE GGUF
         env:
           KILN_MODELS_DIR: ${{ runner.temp }}/kiln-models
@@ -1168,6 +1191,7 @@ jobs:
           path: |
             ${{ runner.temp }}/real-moe-router.tsv
             ${{ runner.temp }}/direct-source-moe-io/**
+            ${{ runner.temp }}/kiln-measure-smoke/**
             ${{ runner.temp }}/real-moe-router.json
             ${{ runner.temp }}/real-moe-inference.json
             ${{ runner.temp }}/moe-cli-stream.txt
