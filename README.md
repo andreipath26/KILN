@@ -45,6 +45,17 @@ cargo run -p kiln-cli -- search "model family"
 cargo run -p kiln-cli -- pull OWNER/REPOSITORY --file path/in/repository/model.gguf
 ```
 
+Run the consolidated measurement suite against a local GGUF:
+
+```sh
+cargo run -p kiln-cli -- measure /path/to/model.gguf --out ./measurements/model-run \
+  --tokens 128 --runs 5 --threads 4
+```
+
+The command builds the release tools, captures host/model/revision provenance, runs a resident baseline, attempts verified expert indexing and live no-cache/LRU/LFU MoE measurements, captures a chronological top-2 router holdout when token boundaries are available, and then runs source-I/O and cache replay diagnostics. Buffered source reads and the full-checkpoint SHA-256 scan are deliberately deferred until after timed inference so they do not prewarm its OS page cache. The final hash and its duration/status are saved in `model-hash.json`; a failed hash or changed checkpoint makes the run fail. The resident baseline runs before the streaming policies, and all policies share the host kernel page cache; the report marks page-cache conditioning as uncontrolled. On Linux filesystems that support it, source-I/O evidence also includes a best-effort `O_DIRECT` replay of traced expert ranges to bypass the OS page cache. Stage records include read-sector deltas for the model's backing block device when exposed by sysfs; those counters cover the whole device and may include unrelated processes. Neither diagnostic is isolated device telemetry or a substitute for target-host inference measurements. Add `--reference /path/to/fp16.gguf --corpus /path/to/eval.txt` to compare candidate/reference NLL on the same corpus. It never downloads weights. Each run gets a new output directory containing `summary.json`, command records, JSON reports, and per-stage stdout/stderr logs; failed stages retain their logs and do not erase earlier evidence. Speed and RSS limits can be changed with `--min-tps` and `--max-rss-gib`.
+
+The summary deliberately leaves overall acceptance inconclusive unless every required target-hardware and quality gate is evidenced. It does not infer isolated physical SSD throughput from Linux process I/O counters, and a cache replay is a simulation rather than a runtime cache measurement.
+
 `run auto` selects a model only when discovery returns a single usable, unambiguous candidate; otherwise choose an explicit path or tag. Discovery does not guarantee that the backend supports a model's architecture. `pull` requires an explicit GGUF file in the selected repository; KILN does **not** automatically download model weights during installation. Downloads use `KILN_MODELS_DIR` or the user's data directory and validate the retrieved file.
 
 Start the local server and UI:

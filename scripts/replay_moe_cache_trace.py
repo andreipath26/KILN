@@ -52,14 +52,35 @@ def expert_sizes(entries: dict[tuple[str, int], tuple[int, int]]) -> dict[tuple[
 
 
 def route_requests(trace_path: Path, entries: dict[tuple[str, int], tuple[int, int]],
-                   maximum: int) -> list[tuple[tuple[int, int], int]]:
+                   maximum: int) -> tuple[list[tuple[tuple[int, int], int]], str, int]:
     events = load_trace(trace_path, entries, maximum)
+    token_aware = bool(events) and all(event[4] is not None for event in events)
+    if any(event[4] is not None for event in events) and not token_aware:
+        raise ValueError("router trace mixes decode-marked and legacy operator events")
+
+    if token_aware:
+        # Preserve first-seen demand order but collapse repeated projections
+        # for the same expert within one decode call, batch row and layer.
+        grouped: dict[tuple[int, int, int, int], dict[str, int]] = {}
+        for tensor, expert, _offset, tensor_bytes, decode_id, row in events:
+            match = TENSOR_RE.fullmatch(tensor)
+            assert match is not None and decode_id is not None
+            layer = int(match.group(1))
+            key = (decode_id, row, layer, expert)
+            grouped.setdefault(key, {}).setdefault(tensor, tensor_bytes)
+        requests = [
+            ((layer, expert), sum(tensors.values()))
+            for (_decode_id, _row, layer, expert), tensors in grouped.items()
+        ]
+        raw_count = len(events)
+        return requests, "decode_call_row_layer_expert", raw_count - len(requests)
+
     requests = []
-    for tensor, expert, _offset, tensor_bytes in events:
+    for tensor, expert, _offset, tensor_bytes, _decode_id, _row in events:
         match = TENSOR_RE.fullmatch(tensor)
         assert match is not None
         requests.append(((int(match.group(1)), expert), tensor_bytes))
-    return requests
+    return requests, "legacy_operator_event", 0
 
 
 class ByteCache:
@@ -154,12 +175,15 @@ def simulate(requests: list[tuple[tuple[int, int], int]],
              sizes: dict[tuple[int, int], int], capacity: int, policy: str) -> dict:
     cache = ByteCache(capacity, policy)
     hits = misses = demand_bytes = hit_tensor_bytes = read_bytes = 0
+    expert_demand_bytes = hit_expert_bytes = 0
     for key, tensor_bytes in requests:
         block_bytes = sizes[key]
         demand_bytes += tensor_bytes
+        expert_demand_bytes += block_bytes
         if cache.access(key, block_bytes):
             hits += 1
             hit_tensor_bytes += tensor_bytes
+            hit_expert_bytes += block_bytes
         else:
             misses += 1
             read_bytes += block_bytes
@@ -170,7 +194,11 @@ def simulate(requests: list[tuple[tuple[int, int], int]],
         "requests": count,
         "hits": hits,
         "misses": misses,
+        "request_hit_rate": hits / count if count else 0.0,
         "hit_rate": hits / count if count else 0.0,
+        "expert_bytes_demanded": expert_demand_bytes,
+        "expert_bytes_served_from_cache": hit_expert_bytes,
+        "expert_byte_hit_rate": hit_expert_bytes / expert_demand_bytes if expert_demand_bytes else 0.0,
         "logical_tensor_demand_bytes": demand_bytes,
         "modelled_expert_fill_bytes_on_miss": read_bytes,
         "logical_tensor_bytes_served_from_cache": hit_tensor_bytes,
@@ -188,7 +216,8 @@ def replay(model: Path, index: Path, report: Path, trace: Path,
         raise ValueError("model, index, export report, and trace must be regular files")
     entries = load_index(index, model.stat().st_size)
     report_sha = validate_index_report(report, model, index, len(entries))
-    requests = route_requests(trace, entries, maximum_events)
+    requests, trace_granularity, collapsed_projection_events = route_requests(
+        trace, entries, maximum_events)
     sizes = expert_sizes(entries)
     results = []
     policies = ("none", "lru", "lfu", "adaptive")
@@ -204,18 +233,22 @@ def replay(model: Path, index: Path, report: Path, trace: Path,
         "router_trace_sha256": sha256_file(trace),
         "indexed_expert_count": len(sizes),
         "indexed_expert_bytes_total": sum(sizes.values()),
-        "trace_events": len(requests),
+        "trace_events": len(requests) + collapsed_projection_events,
+        "cache_demand_events": len(requests),
+        "trace_granularity": trace_granularity,
+        "collapsed_projection_events": collapsed_projection_events,
+        "decode_boundary_capture": trace_granularity == "decode_call_row_layer_expert",
         "trace_order_preserved": True,
         "cache_capacity_bytes_tested": capacities,
         "results": results,
         "interpretation": (
-            "Uses raw CPU MAT_ID tensor/expert events in recorded order. A cache key is (layer, expert); "
-            "the modeled fill size is the sum of that expert's indexed tensor slabs, while logical demand "
-            "bytes count the tensor slab on each operator event. Trace files have no token-boundary field, "
-            "so this is an operator-event replay and may count repeated projections within one token as hits. "
-            "It simulates policy only: the live runtime cache is not connected to the native graph-selected "
-            "MoE execution path. No physical SSD traffic, latency, overlap, inference throughput, RSS, or "
-            "Tier 0 acceptance is measured."
+            "Cache keys are (layer, expert), and each modeled miss fills the full indexed expert size. "
+            "For decode-marked traces, repeated tensor projections are collapsed into one demand per "
+            "decode-call, batch-row, layer and expert; logical demand bytes sum the distinct indexed slabs "
+            "used by that expert. Legacy traces preserve operator events and may overcount same-token "
+            "projection reuse. This remains a policy simulation: the live runtime cache is not connected "
+            "to the native graph-selected MoE execution path. "
+            "No physical SSD traffic, latency, overlap, inference throughput, RSS, or Tier 0 acceptance is measured."
         ),
     }
 

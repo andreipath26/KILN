@@ -55,6 +55,12 @@ jobs:
           python3 -m unittest scripts.test_capture_phase35_ollama -v
           bash -n scripts/run_phase35_suite.sh scripts/run_tier0_dense_matrix.sh scripts/profile_phase35_hotpath.sh scripts/run_tier0_gate5a.sh scripts/capture_moe_router_phase5a.sh scripts/run_cpu_moe_stream_experiment.sh scripts/build_linux_release.sh scripts/install_linux_release.sh
 
+      - name: Test one-command measurement runner and retained failure logs
+        run: |
+          python3 -m py_compile scripts/kiln_measure.py
+          python3 -m unittest scripts.test_kiln_measure -v
+          python3 -m unittest scripts.test_capture_direct_gguf_expert_io -v
+
 
   test:
     runs-on: ubuntu-latest
@@ -792,6 +798,7 @@ jobs:
           assert replay["trace_events_available"]>0
           assert replay["trace_events_replayed_per_run"]>0
           assert replay["runs"][0]["bytes_read"]>0
+          assert replay["direct_io_diagnostic"]["status"] in {"captured", "unavailable"}
           print("Direct-source expert trace replay passed on the real single-file MoE fixture")
           PY
           python3 scripts/replay_moe_cache_trace.py "$MODEL" \
@@ -811,8 +818,50 @@ jobs:
           assert observed==expected
           for row in report["results"]:
               assert row["resident_bytes_at_end"]<=row["cache_capacity_bytes"]
-              assert row["hits"]+row["misses"]==report["trace_events"]
+              assert row["hits"]+row["misses"]==report["cache_demand_events"]
+          assert report["trace_events"]>=report["cache_demand_events"]
           print("Real router trace replayed through bounded LRU/LFU/adaptive policies")
+          PY
+
+      - name: Run the one-command measurement suite on the real MoE fixture
+        run: |
+          set -euo pipefail
+          MODEL="$RUNNER_TEMP/kiln-models/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
+          OUT="$RUNNER_TEMP/kiln-measure-smoke"
+          timeout 240 target/debug/kiln measure "$MODEL" --out "$OUT" \
+            --tokens 8 --runs 2 --threads 2 --min-tps 0 --max-rss-gib 64
+          python3 - "$OUT" <<'PY'
+          import json,pathlib,sys
+          root=pathlib.Path(sys.argv[1])
+          summary=json.load(open(root/"summary.json",encoding="utf-8"))
+          assert summary["acceptance_claim"] is False
+          assert summary["overall_status"] == "inconclusive"
+          assert "host_block_device_deltas" in summary["checks"]["physical_storage_traffic"]
+          assert "host_block_device_io" in summary["live_metrics"]["resident"]
+          parity=summary["checks"]["generated_token_parity"]
+          assert parity["status"] == "pass", parity
+          assert set(parity["per_policy"]) == {"none", "lru", "lfu"}, parity
+          assert all(row["status"] == "pass" for row in parity["per_policy"].values()), parity
+          assert all(row["total_runs"] == 2 for row in parity["per_policy"].values()), parity
+          stages=[row["name"] for row in summary["stages"]]
+          assert stages.index("stream-lfu") < stages.index("router-source-io"), stages
+          assert stages.index("stream-lfu") < stages.index("cache-trace-replay"), stages
+          model_hash=json.load(open(root/"model-hash.json",encoding="utf-8"))
+          assert model_hash["status"] == "captured", model_hash
+          assert model_hash["duration_seconds"] >= 0, model_hash
+          assert summary["model_sha256"] == model_hash["sha256"]
+          assert summary["checks"]["os_page_cache_conditioning"]["status"] == "uncontrolled"
+          source_io=json.load(open(root/"router-source-io.json",encoding="utf-8"))
+          if source_io["direct_io_diagnostic"]["status"] == "captured":
+              assert len(source_io["direct_io_diagnostic"]["runs"]) == 2
+          assert (root/"resident-baseline.json").is_file()
+          assert (root/"native-expert-index.tsv").is_file()
+          assert (root/"router-trace.tsv").is_file()
+          assert (root/"stream-lru.json").is_file()
+          assert (root/"router-predictor-holdout.json").is_file()
+          assert any(stage["name"] == "router-predictor-holdout" and stage["status"] == "passed"
+                     for stage in summary["stages"])
+          print("One-command real-MoE measurement captured baseline, source index, cache A/B and grouped holdout")
           PY
 
       - name: Build and prove portable Linux single-binary release against real MoE GGUF
@@ -1162,6 +1211,7 @@ jobs:
           path: |
             ${{ runner.temp }}/real-moe-router.tsv
             ${{ runner.temp }}/direct-source-moe-io/**
+            ${{ runner.temp }}/kiln-measure-smoke/**
             ${{ runner.temp }}/real-moe-router.json
             ${{ runner.temp }}/real-moe-inference.json
             ${{ runner.temp }}/moe-cli-stream.txt

@@ -10,6 +10,19 @@ Proceed in evidence order: measure representative expert storage/RAM/compute bou
 
 For measured effective bandwidth, use effective bytes/token and cold/warm behavior, not advertised sequential SSD bandwidth. Record page-cache effects, random-read latency, bytes fetched, useful prefetch, read amplification, total RSS, thermal state and compute time. A cache-hit or predictor score is diagnostic, not a performance result.
 
+### One-command measurement bundle
+
+From a source checkout with the pinned native build available, run:
+
+```sh
+cargo run -p kiln-cli -- measure /path/to/model.gguf --out ./measurements/model-run \
+  --tokens 128 --runs 5 --threads 4
+```
+
+`kiln measure` builds the release CLI and benchmark utility, then records the host and model, repository and submodule revisions, a read-only plan, a resident inference baseline, an actual CPU router trace, verified native single-file MoE indexing when supported, indexed source-I/O evidence, live graph-selected no-cache/LRU/LFU runs, an offline byte-bounded cache replay, and a chronological top-2 router holdout when decode boundaries are available. Pass `--reference FP16.gguf --corpus eval.txt` to add paired next-token NLL and perplexity parity. Every command is recorded in `commands.jsonl`; raw JSON, stdout, stderr and provenance remain in the new run directory even when a stage fails. Existing directories are never overwritten.
+
+The configurable quick checks default to 3 generated tokens/s and 15 GiB process peak RSS. These limits provide a first signal, not a Tier 0 certificate. Quality is inconclusive unless a reference and corpus are supplied. Native expert indexing may be unsupported for dense, split, or incompatible layouts; those stages explain the gap in the summary. Linux process I/O counters are not physical device telemetry, cache replay is a simulation, and the suite leaves target-hardware acceptance inconclusive until the named machine and all roadmap gates have been measured.
+
 ## Implemented components and boundaries
 
 The main branch includes validated expert tensor maps and GGUF-preserving sidecars; byte-bounded cache admission and shared byte handles; guarded reads and bounded asynchronous prefetch; Linux io_uring reader with fallback; and `cpu_moe_streamed` dispatch for token-scoped expert-byte operations. It also includes the pinned native llama.cpp CPU selected-expert compute path using a versioned `KILN-MOE-STREAM-2` source map, including supported complete multi-shard GGUF layouts (merged via PR #81).
@@ -91,6 +104,8 @@ python3 scripts/capture_direct_gguf_expert_io.py "$MODEL" \
 
 The script preserves operator order and repeated events, caps each expert read at 64 MiB plus total replay size, records model/index/trace provenance, and refuses malformed, overlapping or out-of-file ranges. It reports page-cache-influenced file-read throughput only; it does not satisfy cold SSD, full inference, RAM, quality or Tier 0 acceptance gates. An empty trace means the model/build did not produce the expected CPU operator events and the capture must be treated as incomplete.
 
+Current `KILN_MOE_ROUTER_TRACE` captures include `@decode <sequence> <batch-token-count>` markers before each `llama_decode` call. The marker and its route events stay contiguous while tracing, including when more than one context is active. Direct-source I/O replay still preserves every operator event. The byte-cache policy simulator uses the markers to collapse repeated tensor projections into one expert demand per decode call, batch row, layer and expert, avoiding artificial same-token cache hits. Older four-column traces remain readable, but their cache replay is explicitly labeled `legacy_operator_event` and can overcount projection reuse. The marker sequence identifies decode calls and batch rows; it is not a global conversation token ID.
+
 The existing `scripts/capture_moe_router_phase5a.sh` now includes this direct-source capture in its evidence bundle: it emits the exact operator-trace replay for supported single-file GGUFs, or a bounded original-shard sample for split GGUFs, alongside the existing ExpertTable/sidecar probe. The direct-source artifact is named `direct-source-io.json`; `direct-source-io-status.txt` identifies the split sample interpretation.
 
 ### Byte-budgeted cache policy replay on real router traces
@@ -103,9 +118,9 @@ python3 scripts/replay_moe_cache_trace.py "$MODEL" \
   --cache-mib 64 256 512 --output "$OUT/cache-trace-policy.json"
 ```
 
-The simulator groups indexed tensor slabs by `(layer, expert_id)`, uses the summed source bytes as each expert's cache-fill size, and preserves each raw operator event's order. It reports per-policy hits, misses, logical tensor bytes, modeled full-expert fill bytes on misses, final resident bytes and evictions for no-cache, LRU, LFU and adaptive admission.
+The simulator groups indexed tensor slabs by `(layer, expert_id)`, uses the summed source bytes as each expert's cache-fill size, and preserves each raw operator event's order. It reports request hit rate alongside expert-byte hit rate, plus logical tensor bytes, modeled full-expert fill bytes on misses, final resident bytes and evictions for no-cache, LRU, LFU and adaptive admission. The byte-weighted rate matters when experts have different sizes; neither hit metric is a substitute for measured latency or physical I/O.
 
-This fills a software comparison gap: the existing synthetic simulator uses fixed-size experts and generated traces, while this tool uses captured router selections and verified variable-size source ranges. The raw router format has no token-boundary field, so repeated projection events within one token may count as cache hits. The output is a policy simulation, not execution of the live cache inside the native graph, physical SSD traffic, latency, throughput, RSS, or Tier 0 acceptance. Use it to compare policy behavior on a pinned trace before deciding what target-hardware experiments to run.
+This fills a software comparison gap: the existing synthetic simulator uses fixed-size experts and generated traces, while this tool uses captured router selections and verified variable-size source ranges. The cache report identifies trace granularity and counts projection events collapsed for token-aware traces. Even with decode markers, this remains a policy simulation, not execution of the live cache inside the native graph, physical SSD traffic, latency, throughput, RSS, or Tier 0 acceptance. Use it to compare policy behavior on a pinned trace before deciding what target-hardware experiments to run.
 
 For a supported complete **split** GGUF, `kiln-bench expert-io-split --source-gguf <first-shard.gguf> --requests 64 --max-read-mib 256 --json` reads verified fused-expert slabs from the original shard files without packing a sidecar. It is a bounded source-order sample (interleaved across shards), not a router-trace replay, block-size sweep, cold-SSD test, or end-to-end inference result. Treat each capture according to its actual layout and workload; use the preceding direct-source replay procedure for supported single-file models.
 

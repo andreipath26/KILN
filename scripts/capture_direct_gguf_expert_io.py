@@ -9,9 +9,11 @@ this is diagnostic I/O evidence, not an inference or acceptance benchmark.
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
 import math
+import mmap
 import os
 import platform
 import re
@@ -62,16 +64,30 @@ def load_index(path: Path, source_size: int) -> dict[tuple[str, int], tuple[int,
 
 
 def load_trace(path: Path, entries: dict[tuple[str, int], tuple[int, int]],
-               maximum: int) -> list[tuple[str, int, int, int]]:
+               maximum: int) -> list[tuple[str, int, int, int, int | None, int]]:
     size = path.stat().st_size
     if size <= 0 or size > MAX_INPUT_BYTES:
         raise ValueError("router trace must be nonempty and at most 256 MiB")
     events = []
+    decode_id: int | None = None
+    batch_tokens: int | None = None
+    last_decode_id = 0
     with path.open("r", encoding="utf-8", newline="") as stream:
         for number, line in enumerate(stream, 1):
             fields = line.rstrip("\r\n").split("\t")
+            if len(fields) == 3 and fields[0] == "@decode":
+                sequence_text, token_count_text = fields[1:]
+                if not all(value.isascii() and value.isdecimal()
+                           for value in (sequence_text, token_count_text)):
+                    raise ValueError(f"trace line {number}: malformed decode marker")
+                sequence, token_count = map(int, (sequence_text, token_count_text))
+                if sequence <= last_decode_id or token_count <= 0:
+                    raise ValueError(f"trace line {number}: decode IDs must increase and token count must be positive")
+                decode_id, batch_tokens = sequence, token_count
+                last_decode_id = sequence
+                continue
             if len(fields) != 4:
-                raise ValueError(f"trace line {number}: expected layer, expert, row, tensor")
+                raise ValueError(f"trace line {number}: expected decode marker or layer, expert, row, tensor")
             layer_text, expert_text, row_text, tensor = fields
             match = TENSOR_RE.fullmatch(tensor)
             values = (layer_text, expert_text, row_text)
@@ -80,15 +96,20 @@ def load_trace(path: Path, entries: dict[tuple[str, int], tuple[int, int]],
             layer, expert, _row = map(int, values)
             if layer != int(match.group(1)):
                 raise ValueError(f"trace line {number}: layer does not match tensor name")
+            if batch_tokens is not None and _row >= batch_tokens:
+                raise ValueError(f"trace line {number}: row is outside the marked decode batch")
             key = (tensor, expert)
             if key not in entries:
                 raise ValueError(f"trace line {number}: selected expert is absent from native index")
             offset, length = entries[key]
-            events.append((tensor, expert, offset, length))
+            events.append((tensor, expert, offset, length, decode_id, _row))
             if len(events) > maximum:
                 raise ValueError(f"trace exceeds maximum of {maximum} events")
     if not events:
         raise ValueError("router trace contains no events")
+    has_markers = any(event[4] is not None for event in events)
+    if has_markers and any(event[4] is None for event in events):
+        raise ValueError("router trace mixes decode-marked and legacy operator events")
     return events
 
 
@@ -103,6 +124,89 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             value.update(chunk)
     return value.hexdigest()
+
+
+def capture_odirect(model: Path,
+                    replay: list[tuple[str, int, int, int, int | None, int]],
+                    alignment: int = 4096, runs: int = 1) -> dict:
+    """Measure best-effort page-cache-bypassing reads of the traced ranges."""
+    if platform.system() != "Linux" or not hasattr(os, "O_DIRECT") or not hasattr(os, "preadv"):
+        return {"status": "unavailable", "reason": "Linux O_DIRECT and preadv are not available"}
+    if alignment <= 0 or alignment & (alignment - 1):
+        return {"status": "unavailable", "reason": "direct-I/O alignment must be a positive power of two"}
+    if not 1 <= runs <= 100:
+        return {"status": "unavailable", "reason": "direct-I/O repetitions must be in 1..100"}
+    spans = []
+    for _tensor, _expert, offset, length, _decode_id, _row in replay:
+        start = offset - (offset % alignment)
+        end = ((offset + length + alignment - 1) // alignment) * alignment
+        spans.append((start, end, offset - start, length))
+    buffer_size = max(end - start for start, end, _delta, _length in spans)
+    try:
+        descriptor = os.open(model, os.O_RDONLY | os.O_DIRECT)
+    except OSError as error:
+        return {"status": "unavailable", "reason": f"could not open model with O_DIRECT: {error}"}
+
+    run_reports = []
+    completed_events = 0
+    started = time.perf_counter()
+    try:
+        with mmap.mmap(-1, buffer_size) as buffer:
+            for run_number in range(1, runs + 1):
+                request_latencies_us = []
+                logical_bytes = 0
+                direct_bytes = 0
+                checksum = 0
+                run_started = time.perf_counter()
+                for start, end, delta, length in spans:
+                    view = memoryview(buffer)[:end - start]
+                    before = time.perf_counter()
+                    try:
+                        count = os.preadv(descriptor, [view], start)
+                    finally:
+                        view.release()
+                    request_latencies_us.append((time.perf_counter() - before) * 1_000_000)
+                    if count < delta + length:
+                        raise OSError(f"short O_DIRECT read at byte {start}: got {count}, need {delta + length}")
+                    checksum = (checksum * 31 + buffer[delta] + buffer[delta + length - 1]) & 0xFFFFFFFFFFFFFFFF
+                    logical_bytes += length
+                    direct_bytes += count
+                    completed_events += 1
+                run_elapsed = time.perf_counter() - run_started
+                run_reports.append({
+                    "run": run_number,
+                    "events": len(spans),
+                    "logical_expert_bytes": logical_bytes,
+                    "aligned_bytes_returned": direct_bytes,
+                    "elapsed_seconds": run_elapsed,
+                    "mib_per_second_aligned": direct_bytes / (1024 * 1024) / run_elapsed if run_elapsed else 0.0,
+                    "request_latency_us_p50": statistics.median(request_latencies_us),
+                    "request_latency_us_p95": percentile(request_latencies_us, 0.95),
+                    "checksum": checksum,
+                })
+    except (OSError, ValueError) as error:
+        status = "unavailable" if isinstance(error, OSError) and error.errno in {
+            errno.EINVAL, errno.EOPNOTSUPP, errno.ENOTSUP, errno.ENOSYS
+        } else "failed"
+        return {"status": status, "reason": f"O_DIRECT replay failed: {error}",
+                "events_completed": completed_events}
+    finally:
+        os.close(descriptor)
+    elapsed = time.perf_counter() - started
+    return {
+        "status": "captured",
+        "cache_path": "Linux O_DIRECT; bypasses the page cache on supported filesystems",
+        "alignment_bytes": alignment,
+        "runs": run_reports,
+        "events_per_run": len(spans),
+        "logical_expert_bytes_per_run": run_reports[0]["logical_expert_bytes"],
+        "aligned_bytes_per_run": run_reports[0]["aligned_bytes_returned"],
+        "elapsed_seconds": elapsed,
+        "median_mib_per_second_aligned": statistics.median(row["mib_per_second_aligned"] for row in run_reports),
+        "request_latency_us_p50_median": statistics.median(row["request_latency_us_p50"] for row in run_reports),
+        "request_latency_us_p95_median": statistics.median(row["request_latency_us_p95"] for row in run_reports),
+        "interpretation": "Page-cache-bypassing source-read diagnostic; not device telemetry, inference throughput, or proof of physical-media completion.",
+    }
 
 
 def validate_index_report(path: Path, model: Path, index: Path, entry_count: int) -> str:
@@ -131,6 +235,7 @@ def capture(model: Path, index: Path, index_report: Path, trace: Path, runs: int
     entries = load_index(index, source_stat.st_size)
     report_sha = validate_index_report(index_report, model, index, len(entries))
     trace_events = load_trace(trace, entries, maximum_events)
+    decode_ids = {event[4] for event in trace_events if event[4] is not None}
 
     replay = []
     replay_bytes = 0
@@ -155,7 +260,7 @@ def capture(model: Path, index: Path, index_report: Path, trace: Path, runs: int
             by_tensor: Counter[str] = Counter()
             started = time.perf_counter()
             bytes_read = 0
-            for tensor, _expert, offset, length in replay:
+            for tensor, _expert, offset, length, _decode_id, _row in replay:
                 before = time.perf_counter()
                 data = os.pread(descriptor, length, offset)
                 if len(data) != length:
@@ -194,6 +299,7 @@ def capture(model: Path, index: Path, index_report: Path, trace: Path, runs: int
         raise ValueError("source GGUF changed while hashing provenance")
     index_sha = hashlib.sha256(index.read_bytes()).hexdigest()
     trace_sha = hashlib.sha256(trace.read_bytes()).hexdigest()
+    direct_io = capture_odirect(model, replay, runs=runs)
     return {
         "status": "direct_source_trace_replay_diagnostic",
         "model_path": str(model),
@@ -209,9 +315,12 @@ def capture(model: Path, index: Path, index_report: Path, trace: Path, runs: int
         "indexed_tensor_expert_ranges": len(entries),
         "trace_events_available": len(trace_events),
         "trace_events_replayed_per_run": len(replay),
+        "decode_calls_in_trace": len(decode_ids),
+        "trace_granularity": "decode_call_row_operator" if decode_ids else "legacy_operator_event",
         "trace_prefix_truncated_by_read_budget": len(replay) < len(trace_events),
         "read_byte_budget": maximum_bytes,
         "runs": run_reports,
+        "direct_io_diagnostic": direct_io,
         "median_mib_per_second": statistics.median(row["mib_per_second"] for row in run_reports),
         "peak_rss_platform_units": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
         "host": {"system": platform.platform(), "machine": platform.machine()},
@@ -220,7 +329,8 @@ def capture(model: Path, index: Path, index_report: Path, trace: Path, runs: int
             "The model SHA-256 is computed after timed reads to avoid prewarming the file. "
             "The trace-producing inference may have warmed OS page cache; cache state is uncontrolled. "
             "This does not measure physical SSD traffic, inference throughput, cache overlap, total system "
-            "memory, model quality, or Tier 0 acceptance."
+            "memory, model quality, or Tier 0 acceptance. The separate O_DIRECT diagnostic, when available, "
+            "bypasses the OS page cache but is not device-level telemetry or proof of physical-media completion."
         ),
     }
 
@@ -265,6 +375,7 @@ def main() -> int:
         "events_available": report["trace_events_available"],
         "events_replayed": report["trace_events_replayed_per_run"],
         "median_mib_per_second": report["median_mib_per_second"],
+        "direct_io_status": report["direct_io_diagnostic"]["status"],
     }, indent=2))
     return 0
 
