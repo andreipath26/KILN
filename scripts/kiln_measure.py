@@ -421,7 +421,7 @@ def main() -> int:
     tps = mean_metric(primary, "decode_tokens_per_second")
     rss = peak_rss_gib(primary)
     speed_status = "inconclusive" if tps is None else ("pass" if tps >= args.min_tps else "fail")
-    memory_status = "inconclusive" if rss is None else ("pass" if rss <= args.max_rss_gib else "fail")
+    memory_status = "inconclusive" if rss is None else ("pass" if rss < args.max_rss_gib else "fail")
     quality_status = quality.get("status") if quality else "inconclusive"
     observed_failure = bool(blocking_failures) or "fail" in (speed_status, memory_status, quality_status)
     summary = {
