@@ -1,4 +1,277 @@
-YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíï}xN‹Z–‹­¦ëeŠw¬ÔŒ„½ÕÍÈ½‰¥¸½•¹ØÁåÑ¡½¸Ì(ˆˆ‰=¹”µ½µµ…¹-%18µ•…ÍÕÉ•µ•¹ÐÍÕ¥Ñ”ì…±°É…Ü±½Ì…É”­•ÁÐ¥¸¥ÑÌÉÕ¸™½±‘•È¸ˆˆˆ)™É½´}}™ÕÑÕÉ•}|¥µÁ½ÉÐ…¹¹½Ñ…Ñ¥½¹Ì()¥µÁ½ÉÐ…ÉÁ…ÉÍ”)¥µÁ½ÉÐ¡…Í¡±¥ˆ)¥µÁ½ÉÐ©Í½¸)¥µÁ½ÉÐ½Ì)™É½´Á…Ñ¡±¥ˆ¥µÁ½ÉÐA…Ñ )¥µÁ½ÉÐÁ±…Ñ™½É´)¥µÁ½ÉÐÍ¡ÕÑ¥°)¥µÁ½ÉÐÍÕ‰ÁÉ½•ÍÌ)¥µÁ½ÉÐÍåÌ)™É½´‘…Ñ•Ñ¥µ”¥µÁ½ÉÐ‘…Ñ•Ñ¥µ”°Ñ¥µ•é½¹”(()I==P€ôA…Ñ ¡}}™¥±•}|¤¹É•Í½±Ù” ¤¹Á…É•¹ÑÍlÅt(()‘•˜Í¡„ÈÔØ¡Á…Ñ èA…Ñ ¤€´øÍÑÈè(€€€‘¥•ÍÐ€ô¡…Í¡±¥ˆ¹Í¡„ÈÔØ ¤(€€€Ý¥Ñ Á…Ñ ¹½Á•¸ ‰Éˆˆ¤…ÌÍÑÉ•…´è(€€€€€€€™½È¡Õ¹¬¥¸¥Ñ•È¡±…µ‰‘„èÍÑÉ•…´¹É•… Ð€¨€ÄÀÈÐ€¨€ÄÀÈÐ¤°ˆˆˆ¤è(€€€€€€€€€€€‘¥•ÍÐ¹ÕÁ‘…Ñ”¡¡Õ¹¬¤(€€€É•ÑÕÉ¸‘¥•ÍÐ¹¡•á‘¥•ÍÐ ¤(()±…ÍÌIÕ¸è(€€€‘•˜}}¥¹¥Ñ}|¡Í•±˜°½ÕÐèA…Ñ ¤è(€€€€€€€Í•±˜¹½ÕÐ€ô½ÕÐ(€€€€€€€Í•±˜¹ÍÑ…•Ìè±¥ÍÑm‘¥Ñt€ômt(€€€€€€€Í•±˜¹½µµ…¹‘Ì€ô½ÕÐ€¼€‰½µµ…¹‘Ì¹©Í½¹°ˆ((€€€‘•˜ÍÑ…”¡Í•±˜°¹…µ”èÍÑÈ°…ÉØè±¥ÍÑmÍÑÉt°€¨°•¹Øè‘¥ÑmÍÑÈ°ÍÑÉtð9½¹”€ô9½¹”°(€€€€€€€€€€€€€ÍÑ‘½ÕÐèÍÑÈð9½¹”€ô9½¹”°ÍÑ‘•ÉÈèÍÑÈð9½¹”€ô9½¹”°(€€€€€€€€€€€€€Í­¥Á}É•…Í½¸èÍÑÈð9½¹”€ô9½¹”¤€´ø‘¥Ðè(€€€€€€€É•½É€ôì‰¹…µ”ˆè¹…µ”°€‰½µµ…¹ˆè…ÉØ°€‰ÍÑ…ÑÕÌˆè€‰Í­¥ÁÁ•ˆ¥˜Í­¥Á}É•…Í½¸•±Í”€‰ÉÕ¹¹¥¹œ‰ô(€€€€€€€¥˜Í­¥Á}É•…Í½¸è(€€€€€€€€€€€É•½É‘l‰É•…Í½¸‰t€ôÍ­¥Á}É•…Í½¸(€€€€€€€€€€€Í•±˜¹ÍÑ…•Ì¹…ÁÁ•¹¡É•½É¤(€€€€€€€€€€€Í•±˜¹}ÝÉ¥Ñ•}½µµ…¹¡É•½É¤(€€€€€€€€€€€É•ÑÕÉ¸É•½É(€€€€€€€½ÕÑ}Á…Ñ €ôÍ•±˜¹½ÕÐ€¼€¡ÍÑ‘½ÕÐ½È˜‰í¹…µ•ô¹ÍÑ‘½ÕÐ¹±½œˆ¤(€€€€€€€•ÉÉ}Á…Ñ €ôÍ•±˜¹½ÕÐ€¼€¡ÍÑ‘•ÉÈ½È˜‰í¹…µ•ô¹ÍÑ‘•ÉÈ¹±½œˆ¤(€€€€€€€É•½É¹ÕÁ‘…Ñ”¡ì‰ÍÑ‘½ÕÑ}±½œˆèÍÑÈ¡½ÕÑ}Á…Ñ ¤°€‰ÍÑ‘•ÉÉ}±½œˆèÍÑÈ¡•ÉÉ}Á…Ñ ¥ô¤(€€€€€€€Í•±˜¹}ÝÉ¥Ñ•}½µµ…¹¡É•½É¤(€€€€€€€ÑÉäè(€€€€€€€€€€€Ý¥Ñ ½ÕÑ}Á…Ñ ¹½Á•¸ ‰Ýˆˆ¤…Ì½ÕÑ}ÍÑÉ•…´°•ÉÉ}Á…Ñ ¹½Á•¸ ‰Ýˆˆ¤…Ì•ÉÉ}ÍÑÉ•…´è(€€€€€€€€€€€€€€€É•ÍÕ±Ð€ôÍÕ‰ÁÉ½•ÍÌ¹ÉÕ¸¡…ÉØ°ÝõI==P°•¹Øõì¨©½Ì¹•¹Ù¥É½¸°€¨¨¡•¹Ø½Èíô¥ô°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€ÍÑ‘¥¸õÍÕ‰ÁÉ½•ÍÌ¹Y9U10°ÍÑ‘½ÕÐõ½ÕÑ}ÍÑÉ•…´°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€ÍÑ‘•ÉÈõ•ÉÉ}ÍÑÉ•…´°¡•¬õ…±Í”¤(€€€€€€€€€€€É•½É‘l‰•á¥Ñ}½‘”‰t€ôÉ•ÍÕ±Ð¹É•ÑÕÉ¹½‘”(€€€€€€€€€€€É•½É‘l‰ÍÑ…ÑÕÌ‰t€ô€‰Á…ÍÍ•ˆ¥˜É•ÍÕ±Ð¹É•ÑÕÉ¹½‘”€ôô€À•±Í”€‰™…¥±•ˆ(€€€€€€€•á•ÁÐ=MÉÉ½È…Ì•ÉÉ½Èè(€€€€€€€€€€€É•½É‘l‰ÍÑ…ÑÕÌ‰t€ô€‰™…¥±•ˆ(€€€€€€€€€€€É•½É‘l‰•ÉÉ½È‰t€ôÍÑÈ¡•ÉÉ½È¤(€€€€€€€Í•±˜¹ÍÑ…•Ì¹…ÁÁ•¹¡É•½É¤(€€€€€€€Í•±˜¹}ÝÉ¥Ñ•}½µµ…¹¡É•½É¤(€€€€€€€É•ÑÕÉ¸É•½É((€€€‘•˜}ÝÉ¥Ñ•}½µµ…¹¡Í•±˜°É•½Éè‘¥Ð¤€´ø9½¹”è(€€€€€€€Ý¥Ñ Í•±˜¹½µµ…¹‘Ì¹½Á•¸ ‰„ˆ°•¹½‘¥¹œô‰ÕÑ˜´àˆ¤…ÌÍÑÉ•…´è(€€€€€€€€€€€ÍÑÉ•…´¹ÝÉ¥Ñ”¡©Í½¸¹‘ÕµÁÌ¡É•½É°Í½ÉÑ}­•åÌõQÉÕ”¤€¬€‰q¸ˆ¤(()‘•˜É•…‘}©Í½¸¡Á…Ñ èA…Ñ ¤€´ø‘¥Ðð9½¹”è(€€€ÑÉäè(€€€€€€€Ù…±Õ”€ô©Í½¸¹±½…‘Ì¡Á…Ñ ¹É•…‘}Ñ•áÐ¡•¹½‘¥¹œô‰ÕÑ˜´àˆ¤¤(€€€€€€€É•ÑÕÉ¸Ù…±Õ”¥˜¥Í¥¹ÍÑ…¹”¡Ù…±Õ”°‘¥Ð¤•±Í”9½¹”(€€€•á•ÁÐ€¡=MÉÉ½È°U¹¥½‘•ÉÉ½È°©Í½¸¹)M=9•½‘•ÉÉ½È¤è(€€€€€€€É•ÑÕÉ¸9½¹”(()‘•˜µ•…¹}µ•ÑÉ¥Œ¡É•Á½ÉÐè‘¥Ðð9½¹”°µ•ÑÉ¥ŒèÍÑÈ¤€´ø™±½…Ðð9½¹”è(€€€¥˜¹½ÐÉ•Á½ÉÐè(€€€€€€€É•ÑÕÉ¸9½¹”(€€€Ù…±Õ”€ôÉ•Á½ÉÐ¹•Ð ‰ÍÑ…Ñ¥ÍÑ¥Ìˆ°íô¤¹•Ð¡µ•ÑÉ¥Œ°íô¤¹•Ð ‰µ•…¸ˆ¤(€€€É•ÑÕÉ¸™±½…Ð¡Ù…±Õ”¤¥˜¥Í¥¹ÍÑ…¹”¡Ù…±Õ”°€¡¥¹Ð°™±½…Ð¤¤•±Í”9½¹”(()‘•˜Á•…­}ÉÍÍ}¥ˆ¡É•Á½ÉÐè‘¥Ðð9½¹”¤€´ø™±½…Ðð9½¹”è(€€€¥˜¹½ÐÉ•Á½ÉÐè(€€€€€€€É•ÑÕÉ¸9½¹”(€€€Ù…±Õ”€ôÉ•Á½ÉÐ¹•Ð ‰ÁÉ½•ÍÍ}µ•µ½Éäˆ°íô¤¹•Ð ‰…™Ñ•É}‰•¹¡µ…É¬ˆ°íô¤¹•Ð ‰Á•…­}ÉÍÍ}Ñ½}‘…Ñ”ˆ¤(€€€¥˜¥Í¥¹ÍÑ…¹”¡Ù…±Õ”°€¡¥¹Ð°™±½…Ð¤¤è(€€€€€€€É•ÑÕÉ¸™±½…Ð¡Ù…±Õ”¤€¨€ÄÀÈÐ€¼€ ÄÀÈÐ€¨¨€Ì¤€€Œ-¥Ñ¼¥(€€€É•ÑÕÉ¸9½¹”(()‘•˜É•…‘}…Õ‘¥Ð¡Á…Ñ èA…Ñ ¤€´ø‘¥Ðð9½¹”è(€€€¥˜¹½ÐÁ…Ñ ¹¥Í}™¥±” ¤è(€€€€€€€É•ÑÕÉ¸9½¹”(€€€É•ÍÕ±Ð€ôì‰É•½É‘Ìˆè€À°€‰É•ÅÕ•ÍÑ•ˆè€À°€‰±½…‘•ˆè€À°€‰•áÁ•ÉÑ}‰åÑ•Í}Í•ÉÙ•ˆè€À°(€€€€€€€€€€€€€€‰ÁÉ•…‘}‰åÑ•Ìˆè€À°€‰…¡•}¡¥ÑÌˆè€À°€‰µ…±™½Éµ•‘}É•½É‘Ìˆè€Áô(€€€ÑÉäè(€€€€€€€™½È±¥¹”¥¸Á…Ñ ¹É•…‘}Ñ•áÐ¡•¹½‘¥¹œô‰ÕÑ˜´àˆ¤¹ÍÁ±¥Ñ±¥¹•Ì ¤è(€€€€€€€€€€€™¥•±‘Ì€ô±¥¹”¹ÍÁ±¥Ð ‰qÐˆ¤(€€€€€€€€€€€¥˜±•¸¡™¥•±‘Ì¤¹½Ð¥¸€ Ð°€Ø¤è(€€€€€€€€€€€€€€€É•ÍÕ±Ñl‰µ…±™½Éµ•‘}É•½É‘Ì‰t€¬ô€Ä(€€€€€€€€€€€€€€€½¹Ñ¥¹Õ”(€€€€€€€€€€€ÑÉäè(€€€€€€€€€€€€€€€É•ÅÕ•ÍÑ•°±½…‘•°Í•ÉÙ•€ôµ…À¡¥¹Ð°™¥•±‘ÍlÄèÑt¤(€€€€€€€€€€€€€€€ÁÉ•…€ô¥¹Ð¡™¥•±‘ÍlÑt¤¥˜±•¸¡™¥•±‘Ì¤€ôô€Ø•±Í”Í•ÉÙ•(€€€€€€€€€€€€€€€¡¥ÑÌ€ô¥¹Ð¡™¥•±‘ÍlÕt¤¥˜±•¸¡™¥•±‘Ì¤€ôô€Ø•±Í”€À(€€€€€€€€€€€•á•ÁÐY…±Õ•ÉÉ½Èè(€€€€€€€€€€€€€€€É•ÍÕ±Ñl‰µ…±™½Éµ•‘}É•½É‘Ì‰t€¬ô€Ä(€€€€€€€€€€€€€€€½¹Ñ¥¹Õ”(€€€€€€€€€€€É•ÍÕ±Ñl‰É•½É‘Ì‰t€¬ô€Ä(€€€€€€€€€€€É•ÍÕ±Ñl‰É•ÅÕ•ÍÑ•‰t€¬ôÉ•ÅÕ•ÍÑ•(€€€€€€€€€€€É•ÍÕ±Ñl‰±½…‘•‰t€¬ô±½…‘•(€€€€€€€€€€€É•ÍÕ±Ñl‰•áÁ•ÉÑ}‰åÑ•Í}Í•ÉÙ•‰t€¬ôÍ•ÉÙ•(€€€€€€€€€€€É•ÍÕ±Ñl‰ÁÉ•…‘}‰åÑ•Ì‰t€¬ôÁÉ•…(€€€€€€€€€€€É•ÍÕ±Ñl‰…¡•}¡¥ÑÌ‰t€¬ô¡¥ÑÌ(€€€•á•ÁÐ€¡=MÉÉ½È°U¹¥½‘•ÉÉ½È¤è(€€€€€€€É•ÑÕÉ¸9½¹”(€€€É•ÍÕ±Ñl‰±½…‘}½µÁ±•Ñ¥½¹}É…Ñ¥¼‰t€ôÉ•ÍÕ±Ñl‰±½…‘•‰t€¼É•ÍÕ±Ñl‰É•ÅÕ•ÍÑ•‰t¥˜É•ÍÕ±Ñl‰É•ÅÕ•ÍÑ•‰t•±Í”9½¹”(€€€É•ÑÕÉ¸É•ÍÕ±Ð(()‘•˜¡½ÍÑ}¥¹™¼¡µ½‘•°èA…Ñ ¤€´ø‘¥Ðè(€€€¥¹™¼€ôì(€€€€€€€€‰…ÁÑÕÉ•‘}ÕÑŒˆè‘…Ñ•Ñ¥µ”¹¹½Ü¡Ñ¥µ•é½¹”¹ÕÑŒ¤¹¥Í½™½Éµ…Ð ¤°(€€€€€€€€‰¡½ÍÑ¹…µ”ˆèÁ±…Ñ™½É´¹¹½‘” ¤°€‰Á±…Ñ™½É´ˆèÁ±…Ñ™½É´¹Á±…Ñ™½É´ ¤°(€€€€€€€€‰…É¡¥Ñ•ÑÕÉ”ˆèÁ±…Ñ™½É´¹µ…¡¥¹” ¤°€‰ÁÉ½•ÍÍ½ÈˆèÁ±…Ñ™½É´¹ÁÉ½•ÍÍ½È ¤°(€€€€€€€€‰ÁåÑ¡½¸ˆèÍåÌ¹Ù•ÉÍ¥½¸°€‰µ½‘•±}Á…Ñ ˆèÍÑÈ¡µ½‘•°¤°(€€€€€€€€‰µ½‘•±}Í¥é•}‰åÑ•Ìˆèµ½‘•°¹ÍÑ…Ð ¤¹ÍÑ}Í¥é”°€‰µ½‘•±}Í¡„ÈÔØˆèÍ¡„ÈÔØ¡µ½‘•°¤°(€€€€€€€€‰µ½‘•±}™¥±•ÍåÍÑ•µ}™É••}‰åÑ•ÌˆèÍ¡ÕÑ¥°¹‘¥Í­}ÕÍ…”¡µ½‘•°¹Á…É•¹Ð¤¹™É•”°(€€€ô(€€€ÑÉäè(€€€€€€€¥¹™½l‰ÁÕ¥¹™¼‰t€ô¹•áÐ¡±¥¹”¹ÍÑÉ¥À ¤™½È±¥¹”¥¸A…Ñ  ˆ½ÁÉ½Œ½ÁÕ¥¹™¼ˆ¤¹É•…‘}Ñ•áÐ ¤¹ÍÁ±¥Ñ±¥¹•Ì ¤(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€¥˜±¥¹”¹ÍÑ…ÉÑÍÝ¥Ñ  ‰µ½‘•°¹…µ”ˆ¤¤(€€€•á•ÁÐ€¡=MÉÉ½È°MÑ½Á%Ñ•É…Ñ¥½¸¤è(€€€€€€€Á…ÍÌ(€€€ÑÉäè(€€€€€€€¥¹™½l‰µ•µ½Éå}¥¹™¼‰t€ôì(€€€€€€€€€€€­•äèÙ…±Õ”™½È±¥¹”¥¸A…Ñ  ˆ½ÁÉ½Œ½µ•µ¥¹™¼ˆ¤¹É•…‘}Ñ•áÐ ¤¹ÍÁ±¥Ñ±¥¹•Ì ¤(€€€€€€€€€€€¥˜€¡Á…ÉÑÌ€èô±¥¹”¹ÍÁ±¥Ð ˆèˆ°€Ä¤¤…¹Á…ÉÑÍlÁt¥¸ì‰5•µQ½Ñ…°ˆ°€‰5•µÙ…¥±…‰±”ˆ°€‰MÝ…ÁQ½Ñ…°‰ô(€€€€€€€€€€€™½È­•ä°Ù…±Õ”¥¸l¡Á…ÉÑÍlÁt°Á…ÉÑÍlÅt¹ÍÑÉ¥À ¤¥t(€€€€€€€ô(€€€•á•ÁÐ=MÉÉ½Èè(€€€€€€€Á…ÍÌ(€€€Ñ¡•Éµ…°€ôA…Ñ  ˆ½ÍåÌ½±…ÍÌ½Ñ¡•Éµ…°ˆ¤(€€€¥˜Ñ¡•Éµ…°¹•á¥ÍÑÌ ¤è(€€€€€€€¥¹™½l‰Ñ¡•Éµ…±}é½¹•Ì‰t€ôíô(€€€€€€€™½ÈÑ•µÀ¥¸Í½ÉÑ•¡Ñ¡•Éµ…°¹±½ˆ ‰Ñ¡•Éµ…±}é½¹”¨½Ñ•µÀˆ¤¤è(€€€€€€€€€€€ÑÉäè(€€€€€€€€€€€€€€€¥¹™½l‰Ñ¡•Éµ…±}é½¹•Ì‰umÍÑÈ¡Ñ•µÀ¹Á…É•¹Ð¹¹…µ”¥t€ôÑ•µÀ¹É•…‘}Ñ•áÐ ¤¹ÍÑÉ¥À ¤(€€€€€€€€€€€•á•ÁÐ=MÉÉ½Èè(€€€€€€€€€€€€€€€½¹Ñ¥¹Õ”(€€€É•ÑÕÉ¸¥¹™¼(()‘•˜µ…¥¸ ¤€´ø¥¹Ðè(€€€Á…ÉÍ•È€ô…ÉÁ…ÉÍ”¹ÉÕµ•¹ÑA…ÉÍ•È¡‘•ÍÉ¥ÁÑ¥½¸õ}}‘½}|¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ð ˆ´µµ½‘•°ˆ°ÑåÁ”õA…Ñ °É•ÅÕ¥É•õQÉÕ”¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ð ˆ´µ½ÕÐˆ°ÑåÁ”õA…Ñ ¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ð ˆ´µÑ½­•¹Ìˆ°ÑåÁ”õ¥¹Ð°‘•™…Õ±ÐôØÐ¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ð ˆ´µÉÕ¹Ìˆ°ÑåÁ”õ¥¹Ð°‘•™…Õ±ÐôÌ¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ð ˆ´µÑ¡É•…‘Ìˆ°ÑåÁ”õ¥¹Ð¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ð ˆ´µÉ•™•É•¹”ˆ°ÑåÁ”õA…Ñ ¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ð ˆ´µ½ÉÁÕÌˆ°ÑåÁ”õA…Ñ ¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ð ˆ´µ…¡”µµ¥ˆˆ°ÑåÁ”õ¥¹Ð°‘•™…Õ±ÐôØÐ¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ð ˆ´µµ¥¸µÑÁÌˆ°ÑåÁ”õ™±½…Ð°‘•™…Õ±ÐôÌ¸À¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ð ˆ´µµ…àµÉÍÌµ¥ˆˆ°ÑåÁ”õ™±½…Ð°‘•™…Õ±ÐôÄÔ¸À¤(€€€…ÉÌ€ôÁ…ÉÍ•È¹Á…ÉÍ•}…ÉÌ ¤(€€€ÑÉäè(€€€€€€€µ½‘•°€ô…ÉÌ¹µ½‘•°¹•áÁ…¹‘ÕÍ•È ¤¹É•Í½±Ù”¡ÍÑÉ¥ÐõQÉÕ”¤(€€€€€€€¥˜¹½Ðµ½‘•°¹¥Í}™¥±” ¤½Èµ½‘•°¹ÍÑ…Ð ¤¹ÍÑ}Í¥é”€ôô€Àè(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ˆ´µµ½‘•°µÕÍÐ‰”„¹½¸µ•µÁÑä±½…°É•Õ±…È™¥±”ˆ¤(€€€€€€€¥˜…ÉÌ¹É•™•É•¹”¥Ì¹½Ð9½¹”è(€€€€€€€€€€€É•™•É•¹”€ô…ÉÌ¹É•™•É•¹”¹•áÁ…¹‘ÕÍ•È ¤¹É•Í½±Ù”¡ÍÑÉ¥ÐõQÉÕ”¤(€€€€€€€€€€€¥˜¹½ÐÉ•™•É•¹”¹¥Í}™¥±” ¤½È…ÉÌ¹½ÉÁÕÌ¥Ì9½¹”è(€€€€€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ˆ´µÉ•™•É•¹”É•ÅÕ¥É•Ì„É•…‘…‰±”É•™•É•¹”U…¹€´µ½ÉÁÕÌˆ¤(€€€€€€€•±Í”è(€€€€€€€€€€€É•™•É•¹”€ô9½¹”(€€€€€€€¥˜…ÉÌ¹½ÉÁÕÌ¥Ì¹½Ð9½¹”è(€€€€€€€€€€€½ÉÁÕÌ€ô…ÉÌ¹½ÉÁÕÌ¹•áÁ…¹‘ÕÍ•È ¤¹É•Í½±Ù”¡ÍÑÉ¥ÐõQÉÕ”¤(€€€€€€€€€€€¥˜¹½Ð½ÉÁÕÌ¹¥Í}™¥±” ¤½È½ÉÁÕÌ¹ÍÑ…Ð ¤¹ÍÑ}Í¥é”€ôô€Àè(€€€€€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ˆ´µ½ÉÁÕÌµÕÍÐ‰”„¹½¸µ•µÁÑäUQ´à™¥±”ˆ¤(€€€€€€€•±Í”è(€€€€€€€€€€€½ÉÁÕÌ€ô9½¹”(€€€€€€€¥˜€¡…ÉÌ¹Ñ½­•¹Ì€ð€Ä½È…ÉÌ¹ÉÕ¹Ì€ð€Ä½È…ÉÌ¹…¡•}µ¥ˆ€ð€À½È…ÉÌ¹…¡•}µ¥ˆ€ø€ÔÄÈ(€€€€€€€€€€€€€€€½È…ÉÌ¹Ñ¡É•…‘Ì€ôô€À½È…ÉÌ¹µ¥¹}ÑÁÌ€ð€À½È…ÉÌ¹µ…á}ÉÍÍ}¥ˆ€ðô€À¤è(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ‰Ñ½­•¹Ì½ÉÕ¹Ì½Ñ¡É•…‘Ì½…¡”…¹Ñ…É•Ð±¥µ¥ÑÌ…É”½ÕÑÍ¥‘”Ñ¡•¥ÈÙ…±¥É…¹”ˆ¤(€€€•á•ÁÐ€¡=MÉÉ½È°Y…±Õ•ÉÉ½È¤…Ì•ÉÉ½Èè(€€€€€€€Á…ÉÍ•È¹•ÉÉ½È¡ÍÑÈ¡•ÉÉ½È¤¤((€€€¥˜…ÉÌ¹½ÕÐ¥Ì9½¹”è(€€€€€€€½ÕÐ€ôI==P€¼˜‰­¥±¸µµ•…ÍÕÉ”µí‘…Ñ•Ñ¥µ”¹¹½Ü¡Ñ¥µ•é½¹”¹ÕÑŒ¤¹ÍÑÉ™Ñ¥µ” œ•d•´•‘P• •4•Mhœ¥ôˆ(€€€•±Í”è(€€€€€€€½ÕÐ€ô…ÉÌ¹½ÕÐ¹•áÁ…¹‘ÕÍ•È ¤¹É•Í½±Ù” ¤(€€€¥˜½ÕÐ¹•á¥ÍÑÌ ¤è(€€€€€€€Á…ÉÍ•È¹•ÉÉ½È¡˜‰É•™ÕÍ¥¹œÑ¼½Ù•ÉÝÉ¥Ñ”•á¥ÍÑ¥¹œÉÕ¸‘¥É•Ñ½Éäèí½ÕÑôˆ¤(€€€½ÕÐ¹Á…É•¹Ð¹µ­‘¥È¡Á…É•¹ÑÌõQÉÕ”°•á¥ÍÑ}½¬õQÉÕ”¤(€€€½ÕÐ¹µ­‘¥È¡µ½‘”ôÁ¼ÜÀÀ¤(€€€½Ì¹¡µ½¡½ÕÐ°€Á¼ÜÀÀ¤(€€€ÉÕ¹¹•È€ôIÕ¸¡½ÕÐ¤(€€€€¡½ÕÐ€¼€‰¡½ÍÐµ…¹µµ½‘•°¹©Í½¸ˆ¤¹ÝÉ¥Ñ•}Ñ•áÐ¡©Í½¸¹‘ÕµÁÌ¡¡½ÍÑ}¥¹™¼¡µ½‘•°¤°¥¹‘•¹ÐôÈ¤€¬€‰q¸ˆ¤(€€€ÑÉäè(€€€€€€€É•Ù¥Í¥½¸€ôÍÕ‰ÁÉ½•ÍÌ¹ÉÕ¸¡l‰¥Ðˆ°€‰É•ØµÁ…ÉÍ”ˆ°€‰!‰t°ÝõI==P°Ñ•áÐõQÉÕ”°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€…ÁÑÕÉ•}½ÕÑÁÕÐõQÉÕ”°¡•¬õ…±Í”¤(€€€€€€€‘¥ÉÑä€ôÍÕ‰ÁÉ½•ÍÌ¹ÉÕ¸¡l‰¥Ðˆ°€‰ÍÑ…ÑÕÌˆ°€ˆ´µÁ½É•±…¥¸‰t°ÝõI==P°Ñ•áÐõQÉÕ”°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€…ÁÑÕÉ•}½ÕÑÁÕÐõQÉÕ”°¡•¬õ…±Í”¤(€€€€€€€ÍÕ‰µ½‘Õ±”€ôÍÕ‰ÁÉ½•ÍÌ¹ÉÕ¸¡l‰¥Ðˆ°€‰ÍÕ‰µ½‘Õ±”ˆ°€‰ÍÑ…ÑÕÌˆ°€‰Ù•¹‘½È½±±…µ„¹ÁÀ‰t°ÝõI==P°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€Ñ•áÐõQÉÕ”°…ÁÑÕÉ•}½ÕÑÁÕÐõQÉÕ”°¡•¬õ…±Í”¤(€€€€€€€ÁÉ½Ù•¹…¹”€ôì(€€€€€€€€€€€€‰­¥±¹}½µµ¥ÐˆèÉ•Ù¥Í¥½¸¹ÍÑ‘½ÕÐ¹ÍÑÉ¥À ¤¥˜É•Ù¥Í¥½¸¹É•ÑÕÉ¹½‘”€ôô€À•±Í”9½¹”°(€€€€€€€€€€€€‰­¥±¹}‘¥ÉÑäˆè‰½½°¡‘¥ÉÑä¹ÍÑ‘½ÕÐ¹ÍÑÉ¥À ¤¤¥˜‘¥ÉÑä¹É•ÑÕÉ¹½‘”€ôô€À•±Í”9½¹”°(€€€€€€€€€€€€‰±±…µ…}ÍÕ‰µ½‘Õ±”ˆèÍÕ‰µ½‘Õ±”¹ÍÑ‘½ÕÐ¹ÍÑÉ¥À ¤¥˜ÍÕ‰µ½‘Õ±”¹É•ÑÕÉ¹½‘”€ôô€À•±Í”9½¹”°(€€€€€€€€€€€€‰‰Õ¥±‘}ÁÉ½™¥±”ˆè€‰É•±•…Í”ˆ°€‰µ½‘•±}Í¡„ÈÔØˆèÍ¡„ÈÔØ¡µ½‘•°¤°(€€€€€€€€€€€€‰Í½Á•}¹½Ñ”ˆè€‰Í¥¹±”¡½ÍÐÉ×]õâÚ$z{-®éÜj×index_ok:
+#!/usr/bin/env python3
+"""One-command KILN measurement suite; all raw logs are kept in its run folder."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+class Run:
+    def __init__(self, out: Path):
+        self.out = out
+        self.stages: list[dict] = []
+        self.commands = out / "commands.jsonl"
+
+    def stage(self, name: str, argv: list[str], *, env: dict[str, str] | None = None,
+              stdout: str | None = None, stderr: str | None = None,
+              skip_reason: str | None = None) -> dict:
+        record = {"name": name, "command": argv, "status": "skipped" if skip_reason else "running"}
+        if skip_reason:
+            record["reason"] = skip_reason
+            self.stages.append(record)
+            self._write_command(record)
+            return record
+        out_path = self.out / (stdout or f"{name}.stdout.log")
+        err_path = self.out / (stderr or f"{name}.stderr.log")
+        record.update({"stdout_log": str(out_path), "stderr_log": str(err_path)})
+        self._write_command(record)
+        try:
+            with out_path.open("wb") as out_stream, err_path.open("wb") as err_stream:
+                result = subprocess.run(argv, cwd=ROOT, env={**os.environ, **(env or {})},
+                                        stdin=subprocess.DEVNULL, stdout=out_stream,
+                                        stderr=err_stream, check=False)
+            record["exit_code"] = result.returncode
+            record["status"] = "passed" if result.returncode == 0 else "failed"
+        except OSError as error:
+            record["status"] = "failed"
+            record["error"] = str(error)
+        self.stages.append(record)
+        self._write_command(record)
+        return record
+
+    def _write_command(self, record: dict) -> None:
+        with self.commands.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def read_json(path: Path) -> dict | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else None
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+
+
+def mean_metric(report: dict | None, metric: str) -> float | None:
+    if not report:
+        return None
+    value = report.get("statistics", {}).get(metric, {}).get("mean")
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def peak_rss_gib(report: dict | None) -> float | None:
+    if not report:
+        return None
+    value = report.get("process_memory", {}).get("after_benchmark", {}).get("peak_rss_to_date")
+    if isinstance(value, (int, float)):
+        return float(value) * 1024 / (1024 ** 3)  # KiB to GiB
+    return None
+
+
+def read_audit(path: Path) -> dict | None:
+    if not path.is_file():
+        return None
+    result = {"records": 0, "requested": 0, "loaded": 0, "expert_bytes_served": 0,
+              "pread_bytes": 0, "cache_hits": 0, "malformed_records": 0}
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            fields = line.split("\t")
+            if len(fields) not in (4, 6):
+                result["malformed_records"] += 1
+                continue
+            try:
+                requested, loaded, served = map(int, fields[1:4])
+                pread = int(fields[4]) if len(fields) == 6 else served
+                hits = int(fields[5]) if len(fields) == 6 else 0
+            except ValueError:
+                result["malformed_records"] += 1
+                continue
+            result["records"] += 1
+            result["requested"] += requested
+            result["loaded"] += loaded
+            result["expert_bytes_served"] += served
+            result["pread_bytes"] += pread
+            result["cache_hits"] += hits
+    except (OSError, UnicodeError):
+        return None
+    result["load_completion_ratio"] = result["loaded"] / result["requested"] if result["requested"] else None
+    return result
+
+
+def host_info(model: Path) -> dict:
+    info = {
+        "captured_utc": datetime.now(timezone.utc).isoformat(),
+        "hostname": platform.node(), "platform": platform.platform(),
+        "architecture": platform.machine(), "processor": platform.processor(),
+        "python": sys.version, "model_path": str(model),
+        "model_size_bytes": model.stat().st_size, "model_sha256": sha256(model),
+        "model_filesystem_free_bytes": shutil.disk_usage(model.parent).free,
+    }
+    try:
+        info["cpuinfo"] = next(line.strip() for line in Path("/proc/cpuinfo").read_text().splitlines()
+                                if line.startswith("model name"))
+    except (OSError, StopIteration):
+        pass
+    try:
+        info["memory_info"] = {
+            key: value for line in Path("/proc/meminfo").read_text().splitlines()
+            if (parts := line.split(":", 1)) and parts[0] in {"MemTotal", "MemAvailable", "SwapTotal"}
+            for key, value in [(parts[0], parts[1].strip())]
+        }
+    except OSError:
+        pass
+    thermal = Path("/sys/class/thermal")
+    if thermal.exists():
+        info["thermal_zones"] = {}
+        for temp in sorted(thermal.glob("thermal_zone*/temp")):
+            try:
+                info["thermal_zones"][str(temp.parent.name)] = temp.read_text().strip()
+            except OSError:
+                continue
+    return info
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", type=Path, required=True)
+    parser.add_argument("--out", type=Path)
+    parser.add_argument("--tokens", type=int, default=64)
+    parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument("--threads", type=int)
+    parser.add_argument("--reference", type=Path)
+    parser.add_argument("--corpus", type=Path)
+    parser.add_argument("--cache-mib", type=int, default=64)
+    parser.add_argument("--min-tps", type=float, default=3.0)
+    parser.add_argument("--max-rss-gib", type=float, default=15.0)
+    args = parser.parse_args()
+    try:
+        model = args.model.expanduser().resolve(strict=True)
+        if not model.is_file() or model.stat().st_size == 0:
+            raise ValueError("--model must be a non-empty local regular file")
+        if args.reference is not None:
+            reference = args.reference.expanduser().resolve(strict=True)
+            if not reference.is_file() or args.corpus is None:
+                raise ValueError("--reference requires a readable reference GGUF and --corpus")
+        else:
+            reference = None
+        if args.corpus is not None:
+            corpus = args.corpus.expanduser().resolve(strict=True)
+            if not corpus.is_file() or corpus.stat().st_size == 0:
+                raise ValueError("--corpus must be a non-empty UTF-8 file")
+        else:
+            corpus = None
+        if (args.tokens < 1 or args.runs < 1 or args.cache_mib < 0 or args.cache_mib > 512
+                or args.threads == 0 or args.min_tps < 0 or args.max_rss_gib <= 0):
+            raise ValueError("tokens/runs/threads/cache and target limits are outside their valid range")
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
+
+    if args.out is None:
+        out = ROOT / f"kiln-measure-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    else:
+        out = args.out.expanduser().resolve()
+    if out.exists():
+        parser.error(f"refusing to overwrite existing run directory: {out}")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.mkdir(mode=0o700)
+    os.chmod(out, 0o700)
+    runner = Run(out)
+    (out / "host-and-model.json").write_text(json.dumps(host_info(model), indent=2) + "\n")
+    try:
+        revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True,
+                                  capture_output=True, check=False)
+        dirty = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT, text=True,
+                               capture_output=True, check=False)
+        submodule = subprocess.run(["git", "submodule", "status", "vendor/llama.cpp"], cwd=ROOT,
+                                   text=True, capture_output=True, check=False)
+        provenance = {
+            "kiln_commit": revision.stdout.strip() if revision.returncode == 0 else None,
+            "kiln_dirty": bool(dirty.stdout.strip()) if dirty.returncode == 0 else None,
+            "llama_submodule": submodule.stdout.strip() if submodule.returncode == 0 else None,
+            "build_profile": "release", "model_sha256": sha256(model),
+            "scope_note": "A single host run; Linux process I/O is not physical SSD telemetry.",
+        }
+        (out / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
+    except OSError as error:
+        (out / "provenance-error.txt").write_text(str(error) + "\n")
+
+    kiln = ROOT / "target/release/kiln"
+    bench = ROOT / "target/release/kiln-bench"
+    failures: list[str] = []
+    blocking_failures: list[str] = []
+
+    def record_failure(stage: dict, *, blocking: bool = True) -> None:
+        if stage["status"] == "failed":
+            failures.append(stage["name"])
+            if blocking:
+                blocking_failures.append(stage["name"])
+
+    stage = runner.stage("build-release", ["cargo", "build", "--release", "-p", "kiln-cli", "-p", "kiln-bench"],
+                         stdout="build.log", stderr="build.stderr.log")
+    record_failure(stage)
+    build_ok = stage["status"] == "passed" and kiln.is_file() and bench.is_file()
+    if build_ok:
+        stage = runner.stage("preflight-plan", [str(kiln), "plan", str(model), "--json"],
+                             stdout="model-plan.json", stderr="model-plan.stderr.log")
+        record_failure(stage, blocking=False)
+        trace = out / "router-trace.tsv"
+        bench_args = [str(kiln), "bench", str(model), "--native-greedy", "--tokens", str(args.tokens),
+                      "--warmup", "1", "--runs", str(args.runs), "--json"]
+        if args.threads:
+            bench_args += ["--threads", str(args.threads)]
+        stage = runner.stage("resident-baseline", bench_args,
+                             env={"KILN_MOE_ROUTER_TRACE": str(trace)},
+                             stdout="resident-baseline.json", stderr="resident-baseline.stderr.log")
+        record_failure(stage)
+
+        index = out / "native-expert-index.tsv"
+        index_report = out / "native-expert-index.json"
+        stage = runner.stage("native-index-export", [str(bench), "expert-export-gguf-stream-index",
+                             "--source-gguf", str(model), "--auto-verified",
+                             "--output-file", str(index), "--json"],
+                             stdout="native-expert-index.json", stderr="native-expert-index.stderr.log")
+        record_failure(stage, blocking=False)  # Unsupported MoE layout is a coverage gap, not a baseline failure.
+        index_ok = stage["status"] == "passed" and index.is_file() and index.stat().st_size > 0
+
+        if trace.is_file() and trace.stat().st_size > 0 and index_ok:
+            stage = runner.stage("router-source-io", [sys.executable,
+                                 str(ROOT / "scripts/capture_direct_gguf_expert_io.py"),
+                                 str(model), str(index), str(index_report), str(trace),
+                                 "--max-read-mib", "1024", "--output", str(out / "router-source-io.json")],
+                                 stdout="router-source-io-summary.json", stderr="router-source-io.stderr.log")
+            record_failure(stage, blocking=False)
+            stage = runner.stage("cache-trace-replay", [sys.executable,
+                                 str(ROOT / "scripts/replay_moe_cache_trace.py"), str(model),
+                                 str(index), str(index_report), str(trace), "--cache-mib",
+                                 "0", str(args.cache_mib), "--output", str(out / "cache-replay.json")],
+                                 stdout="cache-replay-summary.json", stderr="cache-replay.stderr.log")
+            record_failure(stage, blocking=False)
+        else:
+            runner.stage("router-source-io", [], skip_reason="trace or verified single-file MoE index unavailable")
+            runner.stage("cache-trace-replay", [], skip_reason="trace or verified single-file MoE index unavailable")
+
+        # Execute the real graph-selected source path under no-cache, LRU and LFU.
+        # These are paired inference runs; replay above is separately labeled simulation.
+        if index_ok:
             for policy in ("none", "lru", "lfu"):
                 audit = out / f"stream-{policy}.audit.tsv"
                 run_args = [str(kiln), "bench", str(model), "--native-greedy", "--tokens",

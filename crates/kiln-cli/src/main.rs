@@ -1,1 +1,2222 @@
-YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíßowõ:-jZ.¶›­–)Þ³Ròò´”Äâ6öÖÖæBÖÆ–æR–çFW&f6Rà¢òò¢òò6öÖÖæBÖÆ–æR–çFW&f6Rf÷"Æö6Â´”Äâ–æfW&Væ6RæBÖöFVÂÖævVÖVçBà §W6R6Æ£§µ'6W"Â7V&6öÖÖæGÓ° §W6R¶–Æåö6÷&S£§´Æ–çW„Ööæ—F÷"ÂW&f÷&Öæ6TÖöæ—F÷'Ó°§W6R¶–Æåö6÷&S£§—VÆ–æS£§·'Våööæ6R2—VÆ–æU÷'Våööæ6RÂÆöFW'Ó°§W6R¶–Æåö6÷&S£¦6†C£§´6†E6W76–öâÂ6×ÆW"Â6×Æ–æu7G&FVw—Ó°§W6R¶–Æåö6÷&S£§G&ç6f÷&ÖW%ö6öæf–s£¥G&ç6f÷&ÖW$6öæf–s°§W6R¶–Æåö6÷&S£§G&ç6f÷&ÖW#£¥G&ç6f÷&ÖW#°§W6R¶–Æåö6÷&S£§G&ç6f÷&ÖW%÷vV–v‡G3£¥G&ç6f÷&ÖW%vV–v‡G3°§W6R¶–ÆåöÖöFVÇ3£§Fö¶Væ—¦W#£¤'UFö¶Væ—¦W#°§W6R¶–ÆåöÖöFVÇ3£¦vwVc£¤vwVdf–ÆS°§W6R¶–Æåö“£§6W'fS° ¦ÖöBÆÆÖöf÷'v&C°¦ÖöBÖöFVÅöÆ–'&'“°¦ÖöB†6S3Uö·eö&Væ6ƒ°¦ÖöB†6S3U÷7V5ö&Væ6ƒ°¦ÖöB†6SeöF–fgW6–öã°¦ÖöBÖöFVÅ÷Æã°¦ÖöBW‡W&–ÖVçFÅ÷7G&VÓ°¦ÖöB7G&VÕ÷7FF–ó°¦ÖöB6VÆe÷WFFS°¦ÖöBVÆ—G•öWfÃ°¦ÖöBÖV7W&S° ¢òòòÆ–çW‚&ö6W72%526æ6†÷B–â¶”"âfÔ…tÒ—2F†R&ö6W72†–v‚×vFW"Ö&°¢òòò6–æ6RÆVæ6‚Â6ò—B–æ6ÇVFW2F†RVçF—&RÖöFVÂÆöBö&Væ6†Ö&²Æ–fWF–ÖRà¢òòòF†—2FöW2äõB–æ6ÇVFRvR66†R†VÆB÷WG6–FR&ö6W72%52à¢5¶FW&—fR„FV'VrÂ6ÆöæRÂ6÷’•Ð§7G'V7B&ö6W74ÖVÖ÷'”¶–"°¢'75ö¶–#¢ScBÀ¢Vµ÷'75ö¶–#¢ScBÀ§Ð ¦fâ'6U÷&ö6W75öÖVÖ÷'•÷7FGW2‡7FGW3¢g7G"’Óâ÷F–öãÅ&ö6W74ÖVÖ÷'”¶–#â°¢fâf–VÆEö¶–"‡7FGW3¢g7G"Â¶W“¢g7G"’Óâ÷F–öãÇScCâ°¢ÆWBÆ–æRÒ7FGW2æÆ–æW2‚’æf–æB‡ÆÆ–æWÂÆ–æRç7Æ—Eööæ6R‚s¢r¢æÖ‡Â†æÖRÂò—ÂæÖRÓÒ¶W’’çVçw&ö÷"†fÇ6R’“ó°¢ÆWB…òÂfÇVR’ÒÆ–æRç7Æ—Eööæ6R‚s¢r“ó°¢ÆWB×WB'G2ÒfÇVRç7Æ—E÷v†—FW76R‚“°¢ÆWBÖ÷VçBÒ'G2ææW‡B‚“òç'6S££ÇScCâ‚’æö²‚“ó°¢–b'G2ææW‡B‚“òÒ&´""ÇÂ'G2ææW‡B‚’æ—5÷6öÖR‚’°¢&WGW&âæöæS°¢Ð¢6öÖR†Ö÷VçB¢Ð ¢6öÖR…&ö6W74ÖVÖ÷'”¶–"°¢'75ö¶–#¢f–VÆEö¶–"‡7FGW2Â%fÕ%52"“òÀ¢Vµ÷'75ö¶–#¢f–VÆEö¶–"‡7FGW2Â%fÔ…tÒ"“òÀ¢Ò§Ð ¦fâ&ö6W75öÖVÖ÷'•ö¶–"‚’Óâ÷F–öãÅ&ö6W74ÖVÖ÷'”¶–#â°¢5¶6fr‡F&vWEö÷2Ò&Æ–çW‚"•Ð¢°¢7FC£¦g3£§&VE÷Fõ÷7G&–ær‚"÷&ö2÷6VÆb÷7FGW2"¢æö²‚¢ææE÷F†Vâ‡Ç7FGW7Â'6U÷&ö6W75öÖVÖ÷'•÷7FGW2‚g7FGW2’¢Ð¢5¶6fr†æ÷B‡F&vWEö÷2Ò&Æ–çW‚"’•Ð¢°¢æöæP¢Ð§Ð ¢òòòÆ–çW‚÷&ö2÷6VÆbö–òGG&–'WF–öââ&VEö'—FW2&VfÆV7G2¶W&æVÂÖ66÷VçFV@¢òòò7F÷&vRfWF6†W2GG&–'WFVBFòF†—2&ö6W72†–æ6ÇVF–ærÖÖfVÇG2’Âv†–ÆP¢òòò&6†"6÷VçG2'—FW2&WGW&æVB'’&VBÖÆ–¶R7—66ÆÇ2WfVâ–b6W'fVBg&öÒ66†Rà¢òòòæV—F†W"6÷VçFW"—2wV&çFVVB—6öÆFVB54BF‡&÷Vv‡WBÖV7W&VÖVçBà¢5¶FW&—fR„FV'VrÂ6ÆöæRÂ6÷’•Ð§7G'V7B&ö6W74–ô'—FW2°¢&6†#¢ScBÀ¢&VEö'—FW3¢ScBÀ§Ð ¦fâ'6U÷&ö6W75ö–ò†6öçFVçG3¢g7G"’Óâ÷F–öãÅ&ö6W74–ô'—FW3â°¢fâfÇVR†6öçFVçG3¢g7G"Â¶W“¢g7G"’Óâ÷F–öãÇScCâ°¢ÆWBÆ–æRÒ6öçFVçG2æÆ–æW2‚’æf–æB‡ÆÆ–æWÂÆ–æRç7Æ—Eööæ6R‚s¢r¢æ—5÷6öÖUöæB‡Â†æÖRÂò—ÂæÖRÓÒ¶W’’“ó°¢ÆWB…òÂ&r’ÒÆ–æRç7Æ—Eööæ6R‚s¢r“ó°¢ÆWB×WBf–VÆG2Ò&rç7Æ—E÷v†—FW76R‚“°¢ÆWBfÇVRÒf–VÆG2ææW‡B‚“òç'6S££ÇScCâ‚’æö²‚“ó°¢–bf–VÆG2ææW‡B‚’æ—5÷6öÖR‚’²&WGW&âæöæS²Ð¢6öÖR‡fÇVR¢Ð¢6öÖR…&ö6W74–ô'—FW2°¢&6†#¢fÇVR†6öçFVçG2Â'&6†""“òÀ¢&VEö'—FW3¢fÇVR†6öçFVçG2Â'&VEö'—FW2"“òÀ¢Ò§Ð ¦fâ&ö6W75ö–õö'—FW2‚’Óâ÷F–öãÅ&ö6W74–ô'—FW3â°¢5¶6fr‡F&vWEö÷2Ò&Æ–çW‚"•Ð¢°¢7FC£¦g3£§&VE÷Fõ÷7G&–ær‚"÷&ö2÷6VÆbö–ò"¢æö²‚’ææE÷F†Vâ‡Æ6öçFVçG7Â'6U÷&ö6W75ö–ò‚f6öçFVçG2’¢Ð¢5¶6fr†æ÷B‡F&vWEö÷2Ò&Æ–çW‚"’•Ð¢°¢æöæP¢Ð§Ð ¦fâ&ö6W75ö–õöFVÇF†&Vf÷&S¢÷F–öãÅ&ö6W74–ô'—FW3âÂgFW#¢÷F–öãÅ&ö6W74–ô'—FW3â¢Óâ÷F–öãÂ‡ScBÂScB“â°¢ÆWB†&Vf÷&RÂgFW"’Ò†&Vf÷&SòÂgFW#ò“°¢6öÖR‚€¢gFW"ç&6†"æ6†V6¶VE÷7V"†&Vf÷&Rç&6†"“òÀ¢gFW"ç&VEö'—FW2æ6†V6¶VE÷7V"†&Vf÷&Rç&VEö'—FW2“òÀ¢’§Ð ¢5¶6fr‡FW7B•Ð¦ÖöB&ö6W75ö–õ÷FW7G2°¢W6R7WW#£¢£° ¢5·FW7EÐ¢fâ'6W5ö¶W&æVÅö66÷VçFVEö–õö6÷VçFW'5÷v—F†÷WEö6öægW6–æu÷7—66ÆÇ5÷v—F…öF—6²‚’°¢ÆWBFFÒ'&6†#¢#EÆçv6†#¢#3EÆç7—67#¢EÆç&VEö'—FW3¢C“eÆçw&—FUö'—FW3¢#C…Æâ#°¢ÆWB–òÒ'6U÷&ö6W75ö–ò†FF’çVçw&‚“°¢76W'EöW†–òç&6†"Â#B“°¢76W'EöW†–òç&VEö'—FW2ÂC“b“°¢76W'EöW‡&ö6W75ö–õöFVÇF…6öÖR†–ò’Â6öÖR…&ö6W74–ô'—FW2°¢&6†#¢S3bÂ&VEö'—FW3¢ƒ“ ¢Ò’’Â6öÖR‚ƒS"ÃC“b’’“°¢76W'B‡'6U÷&ö6W75ö–ò‚'&6†#¢5Æâ"’æ—5öæöæR‚’“°¢76W'B‡'6U÷&ö6W75ö–ò‚'&6†#¢Ó5Æç&VEö'—FW3¢UÆâ"’æ—5öæöæR‚’“°¢76W'B‡&ö6W75ö–õöFVÇF…6öÖR†–ò’Â6öÖR…&ö6W74–ô'—FW2°¢&6†#¢Â&VEö'—FW3¢¢Ò’’æ—5öæöæR‚’“°¢Ð§Ð ¢5¶6fr‡FW7B•Ð¦ÖöB&ö6W75öÖVÖ÷'•÷FW7G2°¢W6R7WW#£¢£° ¢5·FW7EÐ¢fâ&VG5öW†7E÷'75ö¶W—5öæE÷Væ—G2‚’°¢ÆWB7FGW2Ò$æÖS¥ÇF¶–ÆåÆåfÕV³¥ÇC“““’´%ÆåfÔ…tÓ¥ÇC#C‚´%ÆåfÕ%53¥ÇC#B´%Æâ#°¢ÆWB'6VBÒ'6U÷&ö6W75öÖVÖ÷'•÷7FGW2‡7FGW2’çVçw&‚“°¢76W'EöW‡'6VBç'75ö¶–"Â#B“°¢76W'EöW‡'6VBçVµ÷'75ö¶–"Â#C‚“°¢76W'B‡'6U÷&ö6W75öÖVÖ÷'•÷7FGW2‚%fÕ%53¥ÇC#B´%Æâ"’æ—5öæöæR‚’“°¢76W'B‡'6U÷&ö6W75öÖVÖ÷'•÷7FGW2‚%fÔ…tÓ¥ÇCRÔ%ÆåfÕ%53¥ÇC"´%Æâ"’æ—5öæöæR‚’“°¢76W'B‡'6U÷&ö6W75öÖVÖ÷'•÷7FGW2‚$æ÷EfÔ…tÓ¥ÇCR´%ÆåfÕ%53¥ÇC"´%Æâ"’æ—5öæöæR‚’“°¢Ð§Ð ¢òòò´”ÄââF†Rf7FW7BÆö6ÂÄÄÒ'VçF–ÖRöâV'F‚à¢5¶FW&—fR…'6W"ÂFV'Vr•Ð¢5¶6öÖÖæB†æÖRÒ&¶–Æâ"ÂfW'6–öâÂ&÷WBÒ$f7FW7BÆö6ÂÄÄÒ'VçF–ÖR"•Ð§7G'V7B6Æ’°¢5¶6öÖÖæB‡7V&6öÖÖæB•Ð¢6öÖÖæC¢6öÖÖæG2À§Ð ¢5¶FW&—fR…7V&6öÖÖæBÂFV'Vr•Ð¦VçVÒ6öÖÖæG2°¢òòòfWF6‚F†RÆFW7B7F&ÆRv—D‡V"&VÆV6RæBWFFRW6W"Ö–ç7FÆÆVBÆ–çW‚&–æ'’à¢WFFR°¢òòò6†V6²f÷"âWFFRv—F†÷WB–ç7FÆÆ–ær—Bà¢5¶&r†Æöær•Ð¢6†V6³¢&ööÂÀ¢ÒÀ¢òòò7F'BF†RöÆÆÖÖ6ö×F–&ÆR$U5B’6W'fW"à¢6W'fR°¢òòò÷'BFò&–æBFòâFVfVÇBC3Rà¢5¶&r†ÆöærÂFVfVÇE÷fÇVU÷BÒC3R•Ð¢÷'C¢SbÀ¢òòòÆö÷&6²•Fò&–æBFòâöæÇ’#rããã÷"££—266WFVC²&VÖ÷FR66W72—2Vç7W÷'FVBà¢5¶&r†ÆöærÂFVfVÇE÷fÇVRÒ##rããã"•Ð¢†÷7C¢7G&–ærÀ¢ÒÀ¢òòò'Vâ†6RbÄÆDF–fgW6–öâv—F‚4ÄBGFVçF–öâÖwV–FVB&ÆÆVÂFV6öF–ærà¢F–fgW6R°¢òòòF‚FòÄÆDF–fgW6–öâtuTbÖöFVÂà¢ÖöFVÃ¢7G&–ærÀ¢òòòöæRf7GVÂ÷"÷F†W"6–ævÆR×GW&â&ö×B†×WGVÆÇ’W†6ÇW6—fRv—F‚Ò×&ö×BÖf–ÆR’à¢5¶&r†ÆöærÂ&WV—&VE÷VæÆW75÷&W6VçBÒ'&ö×Eöf–ÆR"Â6öæfÆ–7G5÷v—F‚Ò'&ö×Eöf–ÆR"•Ð¢&ö×C¢÷F–öãÅ7G&–æsâÀ¢òòò¥4ôäÂf–ÆRöb²&–B#¢"âââ"Â'&ö×B#¢"âââ'Ò&V6÷&G3²ÆöG2F†RÖöFVÂöæ6Rf÷"F†R7V—FRà¢5¶&r†Æöær•Ð¢&ö×Eöf–ÆS¢÷F–öãÇ7FC£§Fƒ£¥F„'VcâÀ¢òòòÖ†–×VÒçVÖ&W"öb÷WGWBFö¶Vç2†×W7B&R×VÇF—ÆRöb&Æö6²ÆVæwF‚’à¢5¶&r†ÆöærÂFVfVÇE÷fÇVU÷BÒ#‚•Ð¢Ö…÷Fö¶Vç3¢W6—¦RÀ¢òòòF÷FÂFVæö—6–ær7FW2†FVfVÇC¢Ö‚Fö¶Vç2ÂÖF6†–ær4ÄBw2&VfW&Væ6R66†VGVÆR’à¢5¶&r†Æöær•Ð¢7FW3¢÷F–öãÇW6—¦SâÀ¢òòòF–fgW6–öâ&Æö6²ÆVæwF‚à¢5¶&r†ÆöærÂFVfVÇE÷fÇVU÷BÒ3"•Ð¢&Æö6µöÆVæwFƒ¢W6—¦RÀ¢òòò6öæf–FVæ6RF‡&W6†öÆBW6VBFò&÷÷6R&ÆÆVÂFö¶Vâ6öÖÖ—G2à¢5¶&r†ÆöærÂFVfVÇE÷fÇVU÷BÒãs•Ð¢F‡&W6†öÆC¢c3"À¢òòòFV6öFW#¢4ÄBGFVçF–öâ6ÇW7FW'2÷"fæ–ÆÆF÷Ö6öæf–FVæ6RG&ç6fW"66†VGVÆRà¢5¶&r†ÆöærÂfÇVU÷'6W"Ò²&6ÆB"Â&6öæf–FVæ6R%ÒÂFVfVÇE÷fÇVRÒ&6ÆB"•Ð¢FV6öFW#¢7G&–ærÀ¢òòò5Rv÷&¶W"F‡&VG3²FVfVÇG2Fòf–Æ&ÆR&ÆÆVÆ—6Òà¢5¶&r†Æöær•Ð¢F‡&VG3¢÷F–öãÇW6—¦SâÀ¢òòòVÖ—B7G'V7GW&VB¥4ôâv—F‚FV6öFR7VVBæBvVæW&F–öâÖWFFFà¢5¶&r†Æöær•Ð¢§6öã¢&ööÂÀ¢ÒÀ¢òòò7F'Bâ–çFW&7F—fR6†B6W76–öâW6–ærF†RÆÆÖæ7'VçF–ÖRà¢'Vâ°¢òòòF‚FòF†RtuTbÖöFVÂf–ÆRà¢ÖöFVÃ¢7G&–ærÀ¢òòòÖ†–×VÒFö¶Vç2vVæW&FVBW"&W7öç6Rà¢5¶&r†ÆöærÂFVfVÇE÷fÇVU÷BÒ#‚•Ð¢Ö…÷Fö¶Vç3¢W6—¦RÀ¢òòò&W6W'fRW†V7WFVBµbFö¶Vç2&WGvVVâGW&ç3²W6W2vVæW&–2FW‡BF–ÆöwVRf÷&ÖBà¢5¶&r†Æöær•Ð¢¶VWö6öçFW‡C¢&ööÂÀ¢òòòW‡W&–ÖVçFÂw&VVG’f7BFƒ¢'—72fö6'VÆ'’×6—¦VBÆöv—G2G&ç6fW'2à¢5¶&r†ÆöærÂ6öæfÆ–7G5÷v—F‚Ò'7V5÷G—R"•Ð¢æF—fUöw&VVG“¢&ööÂÀ¢òòòW‡W&–ÖVçFÂW†7BâÖw&Ò7V7VÆF—fRFV6öFRÖöFRà¢5¶&r†ÆöærÂfÇVU÷'6W"Ò²&æw&ÒÖÖöB%Ò•Ð¢7V5÷G—S¢÷F–öãÅ7G&–æsâÀ¢òòò÷B–çFòöâÖFVÖæBÖÖ&VG2f÷"&÷WFVBW‡W'BFVç6÷'2–â7W÷'FVBÖôRÖöFVÇ2à¢5¶&r†Æöær•Ð¢Æ§•öÖöUöW‡W'G3¢&ööÂÀ¢ÒÀ¢òòò&—fFRW'6—7FVçBv÷&¶W"f÷"F†RT“²ÆVæ6†VBF‡&÷Vv‚fÆ–FFVB7G&VÒÖöFRà¢5¶6öÖÖæB††–FRÒG'VR•Ð¢v÷&¶W"°¢ÖöFVÃ¢7G&–ærÀ¢5¶&r†Æöær•Ð¢Æ§•öÖöUöW‡W'G3¢&ööÂÀ¢ÒÀ¢òòò÷BÖ–âW‡W&–ÖVçFÂöæRÖÖöFVÂÖf–ÆR5RÖôR7G&VÖ–ær6†Bâ&öGV6W0¢òòòFV×÷&'’fW&–f–VB–æFW‚f÷"6ö×F–&ÆRgW6VBtuTbÖöFVÇ2æBW6W0¢òòòF†R6ÖR´”Äâ&–æ'’–â6W&FR—6öÆFVB–æfW&Væ6R&ö6W72à¢7G&VÒ°¢5¶&r†ÆöærÂ†–FRÒG'VR•Ð¢7FF–õö§6öã¢&ööÂÀ¢òòòW†—7F–ærÖöFVÂF‚ÂVæÖ&–wV÷W2–ç7FÆÆVBtuTbôöÆÆÖFr÷"vWFòrà¢ÖöFVÃ¢7G&–ærÀ¢5¶&r†ÆöærÂFVfVÇE÷fÇVU÷BÒ#‚•Ð¢Ö…÷Fö¶Vç3¢W6—¦RÀ¢5¶&r†Æöær•Ð¢º÷m¢G§²ÚîÆ­y×GW&âW'"‚&&6¶VæB&WGW&æVBâVæW‡V7FVBFö¶Vâ×7G&–ær&W7VÇB"çFõ÷7G&–ær‚’’À¢Ó°¢&–çB‚'·Ò"Â–V6R“°¢–ó£§7FF÷WB‚’æfÇW6‚‚’æÖöW'"‡ÆWÂf÷&ÖB‚'&W7öç6R÷WGWBf–ÆVC¢·Ò"ÂR’“ó°¢vVæW&FVB³Ò°¢–bvVæW&FVBÂÖ…÷Fö¶Vç2°¢–bf7Eöw&VVG’°¢æF—fUöæW‡BÒÖF6‚F—7F6†W"æF—7F6‚…'VçF–ÖT÷£¤f÷'v&Dw&VVG’²Fö¶Vç3¢fV2·Fö¶VåÒÒ¢æÖöW'"‡ÆWÂf÷&ÖB‚&æF—fRw&VVG’FV6öFRf–ÆVC¢¶WÒ"’“ò°¢'VçF–ÖU&W7VÇC£¤–çB†æW‡B’Óâ6öÖR†æW‡B’À¢òÓâ&WGW&âW'"‚&&6¶VæB&WGW&æVBVæW‡V7FVBæF—fRFö¶Vâ"çFõ÷7G&–ær‚’’À¢Ó°¢ÒVÇ6R°¢Æöv—G2ÒÖF6‚F—7F6†W"æF—7F6‚…'VçF–ÖT÷£¤f÷'v&B²Fö¶Vç3¢fV2·Fö¶VåÒÒ¢æÖöW'"‡ÆWÂf÷&ÖB‚&FV6öFR7FWf–ÆVC¢¶WÒ"’“ò°¢'VçF–ÖU&W7VÇC£¤Æöv—G2†Æöv—G2’Óâ6öÖR†Æöv—G2’À¢òÓâ&WGW&âW'"‚&&6¶VæB&WGW&æVBâVæW‡V7FVBFV6öFR&W7VÇB"çFõ÷7G&–ær‚’’À¢Ó°¢Ð¢–b7V7VÆF—fR°¢7V7VÆF—fUö†—7F÷'’çW6‚‡Fö¶Vâ“°¢Ð¢–b¶VWö6öçFW‡B°¢·e÷7FFRçVæF–æu÷Fö¶VâÒæöæS°¢·e÷7FFRæf÷'v&FVBƒ“°¢Ð¢Ð¢Ð¢–bVæF–æu÷WFc‚æ—5öV×G’‚’°¢&–çB‚'·Ò"Â7G&–æs£¦g&öÕ÷WFc…öÆ÷77’‚gVæF–æu÷WFc‚’“°¢Ð¢&–çFÆâ‚“°¢–b7V7VÆF—fR°¢ÆWBVÆ6VBÒvVæW&F–öå÷7F'FVBæVÆ6VB‚’æ5÷6V75öccB‚’æÖ‚†ccC£¤Ô”åõõ4•D•dR“°¢W&–çFÆâ‚%¶æw&ÒÖÖöC¢·Ò&÷÷6VBÂ·Ò66WFVB‡³¢ãÒR’Â³¢ã'ÒvÆÂÖ6Æö6²–çFW&7F—fRFö²÷5Ò"À¢&÷÷6VEöG&gE÷Fö¶Vç2À¢66WFVEöG&gE÷Fö¶Vç2À¢–b&÷÷6VEöG&gE÷Fö¶Vç2ÓÒ²ãÐ¢VÇ6R²66WFVEöG&gE÷Fö¶Vç22ccB¢ãò&÷÷6VEöG&gE÷Fö¶Vç22ccBÒÀ¢vVæW&FVB2ccBòVÆ6VB“°¢Ð¢Ð¢F—7F6†W"æF—7F6‚…'VçF–ÖT÷£¥VæÆöB¢æÖöW'"‡ÆWÂf÷&ÖB‚&ÖöFVÂVæÆöBf–ÆVC¢·Ò"ÂR’“ó°¢ö²‚‚’§Ð ¢òòòW†V7WFRöæR&Væ6†Ö&²6×ÆRF‡&÷Vv‚F†R6ÖR'VçF–ÖRF—7F6†W"W6VB'’6†Bà¦fâ&Væ6…ööæ6R€¢F—7F6†W#¢f×WB¶–Æå÷'VçF–ÖS£¥'VçF–ÖTF—7F6†W"À¢&ö×C¢g7G"À¢Ö…÷Fö¶Vç3¢W6—¦RÀ¢V÷5÷Fö¶Vã¢“3"À¢æF—fUöw&VVG“¢&ööÂÀ¢’Óâ&W7VÇCÇ6W&FUö§6öã£¥fÇVRÂ7G&–æsâ°¢W6R¶–Æåö6÷&S£¦6†C£§µ6×ÆW"Â6×Æ–æu7G&FVw—Ó°¢W6R¶–Æå÷'VçF–ÖS£§µ'VçF–ÖT÷Â'VçF–ÖU&W7VÇGÓ° ¢F—7F6†W"æF—7F6‚…'VçF–ÖT÷£¥&W6WB’æÖöW'"‡ÆWÂf÷&ÖB‚'&W6WBf–ÆVC¢·Ò"ÂR’“ó°¢ÆWBFö¶Væ—¦F–öå÷7F'BÒ7FC£§F–ÖS£¤–ç7FçC£¦æ÷r‚“°¢ÆWB&ö×E÷Fö¶Vç2ÒÖF6‚F—7F6†W"æF—7F6‚…'VçF–ÖT÷£¥Fö¶Væ—¦R²FW‡C¢&ö×BçFõ÷7G&–ær‚’Ò¢æÖöW'"‡ÆWÂf÷&ÖB‚'Fö¶Væ—¦F–öâf–ÆVC¢·Ò"ÂR’“ò°¢'VçF–ÖU&W7VÇC£¥Fö¶Vç2‡Fö¶Vç2’ÓâFö¶Vç2À¢òÓâ&WGW&âW'"‚&&6¶VæB&WGW&æVBâVæW‡V7FVBFö¶Væ—¦F–öâ&W7VÇB"çFõ÷7G&–ær‚’’À¢Ó°¢ÆWBFö¶Væ—¦F–öåö×2ÒFö¶Væ—¦F–öå÷7F'BæVÆ6VB‚’æ5÷6V75öccB‚’¢ã°¢–b&ö×E÷Fö¶Vç2æ—5öV×G’‚’°¢&WGW&âW'"‚'&ö×BFö¶Væ—¦VBFòâV×G’6WVVæ6R"çFõ÷7G&–ær‚’“°¢Ð ¢ÆWB&Vf–ÆÅ÷7F'BÒ7FC£§F–ÖS£¤–ç7FçC£¦æ÷r‚“°¢ÆWB×WBæW‡EöÆöv—G3¢÷F–öãÅfV3Æc3#ãâÒæöæS°¢ÆWB×WBæF—fUöæW‡C¢÷F–öãÆ“3#âÒæöæS°¢–bæF—fUöw&VVG’°¢æF—fUöæW‡BÒÖF6‚F—7F6†W"æF—7F6‚…'VçF–ÖT÷£¤f÷'v&Dw&VVG’²Fö¶Vç3¢&ö×E÷Fö¶Vç2æ6ÆöæR‚’Ò¢æÖöW'"‡ÆWÂf÷&ÖB‚&æF—fRw&VVG’&Vf–ÆÂf–ÆVC¢¶WÒ"’“ò°¢'VçF–ÖU&W7VÇC£¤–çB‡Fö¶Vâ’Óâ6öÖR‡Fö¶Vâ’À¢òÓâ&WGW&âW'"‚'VæW‡V7FVBæF—fRw&VVG’&Vf–ÆÂ&W7VÇB"æ–çFò‚’’À¢Ó°¢ÒVÇ6R°¢æW‡EöÆöv—G2ÒÖF6‚F—7F6†W"æF—7F6‚…'VçF–ÖT÷£¤f÷'v&B²Fö¶Vç3¢&ö×E÷Fö¶Vç2æ6ÆöæR‚’Ò¢æÖöW'"‡ÆWÂf÷&ÖB‚'&ö×Bf÷'v&B72f–ÆVC¢¶WÒ"’“ò°¢'VçF–ÖU&W7VÇC£¤Æöv—G2†Æöv—G2’Óâ6öÖR†Æöv—G2’À¢òÓâ&WGW&âW'"‚'VæW‡V7FVB&Vf–ÆÂ&W7VÇB"æ–çFò‚’’À¢Ó°¢Ð¢ÆWB&Vf–ÆÅö×2Ò&Vf–ÆÅ÷7F'BæVÆ6VB‚’æ5÷6V75öccB‚’¢ã° ¢ÆWB×WB6×ÆW"Ò6×ÆW#£¦æWr…6×Æ–æu7G&FVw“£¤w&VVG’ÂC"“°¢ÆWB×WBvVæW&FVE÷Fö¶Vç2ÒW6—¦S°¢òò7F&ÆRÂÆÆö6F–öâÖg&VRF–vW7BöbF†RW†7BvVæW&FVBFö¶Vâ6WVVæ6S°¢òò6ö×&R—B&WGvVVâ&6VÆ–æRæBæF—fRw&VVG’'Vç2öâF†R6ÖRÖöFVÂà¢ÆWB×WBFö¶Våöf–ævW'&–çEöfçccBÒ†6&c#–6SCƒC###3#WScC°¢ÆWB×WBV÷5öVæ6÷VçFW&VBÒfÇ6S°¢ÆWB×WB6×Æ–æuö×2ÒãöccC°¢ÆWB×WBFö¶Våö6öçfW'6–öåö×2ÒãöccC°¢ÆWB×WBFV6öFUöf÷'v&Eö×2ÒãöccC°¢ÆWB×WBFV6öFUöf÷'v&E÷7FW2ÒW6—¦S°¢ÆWBFV6öFU÷7F'BÒ7FC£§F–ÖS£¤–ç7FçC£¦æ÷r‚“°¢f÷"7FW–ââæÖ…÷Fö¶Vç2°¢ÆWB6×ÆU÷7F'BÒ7FC£§F–ÖS£¤–ç7FçC£¦æ÷r‚“°¢ÆWBFö¶VâÒ–bæF—fUöw&VVG’°¢æF—fUöæW‡Bæöµö÷%öVÇ6R‡ÇÂ&æòæF—fRw&VVG’Fö¶Vâf–Æ&ÆR"çFõ÷7G&–ær‚’“ð¢ÒVÇ6R°¢6×ÆW"ç6×ÆR†æW‡EöÆöv—G2æ5öFW&Vb‚’æöµö÷"‚&Ö—76–ærÆöv—G2"“ò¢æöµö÷%öVÇ6R‡ÇÂ'6×ÆW"&WGW&æVBæòFö¶Vâ"çFõ÷7G&–ær‚’“ò2“3 ¢Ó°¢6×Æ–æuö×2³Ò6×ÆU÷7F'BæVÆ6VB‚’æ5÷6V75öccB‚’¢ã°¢–bFö¶VâÓÒV÷5÷Fö¶Vâ°¢V÷5öVæ6÷VçFW&VBÒG'VS°¢'&V³°¢Ð¢f÷"'—FR–âFö¶VâçFõöÆUö'—FW2‚’°¢Fö¶Våöf–ævW'&–çEöfçccBãÒScC£¦g&öÒ†'—FR“°¢Fö¶Våöf–ævW'&–çEöfçccBÒFö¶Våöf–ævW'&–çEöfçccBçw&–æuö×VÂƒƒ#2“°¢Ð ¢ÆWB6öçfW'6–öå÷7F'BÒ7FC£§F–ÖS£¤–ç7FçC£¦æ÷r‚“°¢ÖF6‚F—7F6†W"æF—7F6‚…'VçF–ÖT÷£¥Fö¶VåFõ7G"²Fö¶VâÒ¢æÖöW'"‡ÆWÂf÷&ÖB‚'Fö¶Vâ×Fò×7G&–ærf–ÆVC¢·Ò"ÂR’“ò°¢'VçF–ÖU&W7VÇC£¤'—FW2…ò’Â'VçF–ÖU&W7VÇC£¥7G"…ò’Óâ·Ð¢òÓâ&WGW&âW'"‚&&6¶VæB&WGW&æVBâVæW‡V7FVBFö¶Vâ6öçfW'6–öâ&W7VÇB"çFõ÷7G&–ær‚’’À¢Ð¢Fö¶Våö6öçfW'6–öåö×2³Ò6öçfW'6–öå÷7F'BæVÆ6VB‚’æ5÷6V75öccB‚’¢ã°¢vVæW&FVE÷Fö¶Vç2³Ò°¢òòF†Rf–æÂ&WVW7FVB÷WGWBFö¶VâFöW2æ÷BæVVBföÆÆ÷r×Wf÷'v&@¢òò72â6÷VçF–ærF†BW‡G&72v÷VÆBF—7F÷'BF†RFV6öFR&Væ6†Ö&²à¢–b7FW²ÂÖ…÷Fö¶Vç2°¢ÆWBf÷'v&E÷7F'BÒ7FC£§F–ÖS£¤–ç7FçC£¦æ÷r‚“°¢–bæF—fUöw&VVG’°¢æF—fUöæW‡BÒÖF6‚F—7F6†W"æF—7F6‚…'VçF–ÖT÷£¤f÷'v&Dw&VVG’²Fö¶Vç3¢fV2·Fö¶VåÒÒ¢æÖöW'"‡ÆWÂf÷&ÖB‚&æF—fRFV6öFRf÷'v&Bf–ÆVC¢¶WÒ"’“ò°¢'VçF–ÖU&W7VÇC£¤–çB†æW‡B’Óâ6öÖR†æW‡B’À¢òÓâ&WGW&âW'"‚&&6¶VæB&WGW&æVBâVæW‡V7FVBæF—fRFV6öFR&W7VÇB"æ–çFò‚’’À¢Ó°¢ÒVÇ6R°¢æW‡EöÆöv—G2ÒÖF6‚F—7F6†W"æF—7F6‚…'VçF–ÖT÷£¤f÷'v&B²Fö¶Vç3¢fV2·Fö¶VåÒÒ¢æÖöW'"‡ÆWÂf÷&ÖB‚&FV6öFRf÷'v&B72f–ÆVC¢·Ò"ÂR’“ò°¢'VçF–ÖU&W7VÇC£¤Æöv—G2†Æöv—G2’Óâ6öÖR†Æöv—G2’À¢òÓâ&WGW&âW'"‚&&6¶VæB&WGW&æVBâVæW‡V7FVBFV6öFR&W7VÇB"çFõ÷7G&–ær‚’’À¢Ó°¢Ð¢FV6öFUöf÷'v&Eö×2³Òf÷'v&E÷7F'BæVÆ6VB‚’æ5÷6V75öccB‚’¢ã°¢FV6öFUöf÷'v&E÷7FW2³Ò°¢Ð¢Ð¢ÆWBFV6öFU÷6V6öæG2ÒFV6öFU÷7F'BæVÆ6VB‚’æ5÷6V75öccB‚“°¢ÆWBFV6öFUö×2ÒFV6öFU÷6V6öæG2¢ã°¢òòÆVv7’ÖWG&–26÷VçG2÷WGWB6×ÆW2Â–æ6ÇVF–ærF†Rf—'7B‡&Vf–ÆÂÖFW&—fVB¢òòFö¶VââFòæ÷B6ö×&R—Bv—F‚ÆÆÖæ7w2Fö¶VâÖFV6öFRF‡&÷Vv‡WBà¢ÆWBFV6öFU÷Fö¶Vç5÷W%÷6V6öæBÒ–bFV6öFU÷6V6öæG2âã°¢vVæW&FVE÷Fö¶Vç22ccBòFV6öFU÷6V6öæG0¢ÒVÇ6R²ãÓ°¢ÆWBFV6öFUöf÷'v&E÷Fö¶Vç5÷W%÷6V6öæBÒ–bFV6öFUöf÷'v&Eö×2âã°¢FV6öFUöf÷'v&E÷7FW22ccB¢ãòFV6öFUöf÷'v&Eö×0¢ÒVÇ6R²ãÓ°¢ÆWBgVÆÅ÷&W7öç6Uö×2Ò&Vf–ÆÅö×2²FV6öFUö×3°¢ÆWB&W7öç6U÷Fö¶Vç5÷W%÷6V6öæEö–æ6ÇVF–æu÷&Vf–ÆÂÒ–bgVÆÅ÷&W7öç6Uö×2âã°¢vVæW&FVE÷Fö¶Vç22ccB¢ãògVÆÅ÷&W7öç6Uö×0¢ÒVÇ6R²ãÓ° ¢ö²‡6W&FUö§6öã£¦§6öâ‡°¢'&ö×E÷Fö¶Vç2#¢&ö×E÷Fö¶Vç2æÆVâ‚’À¢'6×Æ–æu÷F‚#¢–bæF—fUöw&VVG’²&æF—fUöw&VVG’"ÒVÇ6R²''W7EöÆöv—G5öw&VVG’"ÒÀ¢&vVæW&FVE÷Fö¶Vç2#¢vVæW&FVE÷Fö¶Vç2À¢'Fö¶Våöf–ævW'&–çEöfçccB#¢f÷&ÖB‚'·Fö¶Våöf–ævW'&–çEöfçccC£g‡Ò"’À¢&V÷5öVæ6÷VçFW&VB#¢V÷5öVæ6÷VçFW&VBÀ¢'Fö¶Væ—¦F–öåö×2#¢Fö¶Væ—¦F–öåö×2À¢'&Vf–ÆÅö×2#¢&Vf–ÆÅö×2À¢'6×Æ–æuö×2#¢6×Æ–æuö×2À¢'Fö¶Våö6öçfW'6–öåö×2#¢Fö¶Våö6öçfW'6–öåö×2À¢&FV6öFUöf÷'v&Eö×2#¢FV6öFUöf÷'v&Eö×2À¢&FV6öFUöf÷'v&E÷7FW2#¢FV6öFUöf÷'v&E÷7FW2À¢&FV6öFUöf÷'v&E÷Fö¶Vç5÷W%÷6V6öæB#¢FV6öFUöf÷'v&E÷Fö¶Vç5÷W%÷6V6öæBÀ¢'&W7öç6U÷Fö¶Vç5÷W%÷6V6öæEö–æ6ÇVF–æu÷&Vf–ÆÂ#¢&W7öç6U÷Fö¶Vç5÷W%÷6V6öæEö–æ6ÇVF–æu÷&Vf–ÆÂÀ¢&FV6öFUö×2#¢FV6öFUö×2À¢&FV6öFU÷Fö¶Vç5÷W%÷6V6öæB#¢FV6öFU÷Fö¶Vç5÷W%÷6V6öæ@¢Ò’§Ð ¦fâæ÷Eö–×ÆVÖVçFVB†6ÖC¢g7G"Â&s¢g7G"’Óâ°¢–b&ræ—5öV×G’‚’°¢W&–çFÆâ‚&¶–Æâ·Ó¢æ÷B–WB–×ÆVÖVçFVB–â†6R""Â6ÖB“°¢ÒVÇ6R°¢W&–çFÆâ‚&¶–Æâ·Ò·Ó¢æ÷B–WB–×ÆVÖVçFVB–â†6R""Â6ÖBÂ&r“°¢Ð¢7FC£§&ö6W73£¦W†—Bƒ"“°§Ð
+//! KILN command-line interface.
+//!
+//! Command-line interface for local KILN inference and model management.
+
+use clap::{Parser, Subcommand};
+
+use kiln_core::{LinuxMonitor, PerformanceMonitor};
+use kiln_core::pipeline::{run_once as pipeline_run_once, Loader};
+use kiln_core::chat::{ChatSession, Sampler, SamplingStrategy};
+use kiln_core::transformer_config::TransformerConfig;
+use kiln_core::transformer::Transformer;
+use kiln_core::transformer_weights::TransformerWeights;
+use kiln_models::tokenizer::BpeTokenizer;
+use kiln_models::gguf::GgufFile;
+use kiln_api::serve;
+
+mod llama_forward;
+mod model_library;
+mod phase35_kv_bench;
+mod phase35_spec_bench;
+mod phase6_diffusion;
+mod model_plan;
+mod experimental_stream;
+mod stream_stdio;
+mod self_update;
+mod quality_eval;
+mod measure;
+
+/// Linux process RSS snapshot in KiB. VmHWM is the process high-water mark
+/// since launch, so it includes the entire model load/benchmark lifetime.
+/// This does NOT include page cache held outside process RSS.
+#[derive(Debug, Clone, Copy)]
+struct ProcessMemoryKib {
+    rss_kib: u64,
+    peak_rss_kib: u64,
+}
+
+fn parse_process_memory_status(status: &str) -> Option<ProcessMemoryKib> {
+    fn field_kib(status: &str, key: &str) -> Option<u64> {
+        let line = status.lines().find(|line| line.split_once(':')
+            .map(|(name, _)| name == key).unwrap_or(false))?;
+        let (_, value) = line.split_once(':')?;
+        let mut parts = value.split_whitespace();
+        let amount = parts.next()?.parse::<u64>().ok()?;
+        if parts.next()? != "kB" || parts.next().is_some() {
+            return None;
+        }
+        Some(amount)
+    }
+
+    Some(ProcessMemoryKib {
+        rss_kib: field_kib(status, "VmRSS")?,
+        peak_rss_kib: field_kib(status, "VmHWM")?,
+    })
+}
+
+fn process_memory_kib() -> Option<ProcessMemoryKib> {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|status| parse_process_memory_status(&status))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+/// Linux /proc/self/io attribution. read_bytes reflects kernel-accounted
+/// storage fetches attributed to this process (including mmap faults), while
+/// rchar counts bytes returned by read-like syscalls even if served from cache.
+/// Neither counter is a guaranteed isolated SSD throughput measurement.
+#[derive(Debug, Clone, Copy)]
+struct ProcessIoBytes {
+    rchar: u64,
+    read_bytes: u64,
+}
+
+fn parse_process_io(contents: &str) -> Option<ProcessIoBytes> {
+    fn value(contents: &str, key: &str) -> Option<u64> {
+        let line = contents.lines().find(|line| line.split_once(':')
+            .is_some_and(|(name, _)| name == key))?;
+        let (_, raw) = line.split_once(':')?;
+        let mut fields = raw.split_whitespace();
+        let value = fields.next()?.parse::<u64>().ok()?;
+        if fields.next().is_some() { return None; }
+        Some(value)
+    }
+    Some(ProcessIoBytes {
+        rchar: value(contents, "rchar")?,
+        read_bytes: value(contents, "read_bytes")?,
+    })
+}
+
+fn process_io_bytes() -> Option<ProcessIoBytes> {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/self/io")
+            .ok().and_then(|contents| parse_process_io(&contents))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+fn process_io_delta(before: Option<ProcessIoBytes>, after: Option<ProcessIoBytes>)
+    -> Option<(u64, u64)> {
+    let (before, after) = (before?, after?);
+    Some((
+        after.rchar.checked_sub(before.rchar)?,
+        after.read_bytes.checked_sub(before.read_bytes)?,
+    ))
+}
+
+#[cfg(test)]
+mod process_io_tests {
+    use super::*;
+
+    #[test]
+    fn parses_kernel_accounted_io_counters_without_confusing_syscalls_with_disk() {
+        let data = "rchar: 1024\nwchar: 1234\nsyscr: 4\nread_bytes: 4096\nwrite_bytes: 2048\n";
+        let io = parse_process_io(data).unwrap();
+        assert_eq!(io.rchar, 1024);
+        assert_eq!(io.read_bytes, 4096);
+        assert_eq!(process_io_delta(Some(io), Some(ProcessIoBytes {
+            rchar: 1536, read_bytes: 8192
+        })), Some((512,4096)));
+        assert!(parse_process_io("rchar: 3\n").is_none());
+        assert!(parse_process_io("rchar: -3\nread_bytes: 5\n").is_none());
+        assert!(process_io_delta(Some(io), Some(ProcessIoBytes {
+            rchar: 1, read_bytes: 1
+        })).is_none());
+    }
+}
+
+#[cfg(test)]
+mod process_memory_tests {
+    use super::*;
+
+    #[test]
+    fn reads_exact_rss_keys_and_units() {
+        let status = "Name:\tkiln\nVmPeak:\t9999 kB\nVmHWM:\t2048 kB\nVmRSS:\t1024 kB\n";
+        let parsed = parse_process_memory_status(status).unwrap();
+        assert_eq!(parsed.rss_kib, 1024);
+        assert_eq!(parsed.peak_rss_kib, 2048);
+        assert!(parse_process_memory_status("VmRSS:\t1024 kB\n").is_none());
+        assert!(parse_process_memory_status("VmHWM:\t5 MB\nVmRSS:\t2 kB\n").is_none());
+        assert!(parse_process_memory_status("NotVmHWM:\t5 kB\nVmRSS:\t2 kB\n").is_none());
+    }
+}
+
+/// KILN. The fastest local LLM runtime on Earth.
+#[derive(Parser, Debug)]
+#[command(name = "kiln", version, about = "Fastest local LLM runtime")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Fetch the latest stable GitHub release and update a user-installed Linux binary.
+    Update {
+        /// Check for an update without installing it.
+        #[arg(long)]
+        check: bool,
+    },
+    /// Start the Ollama-compatible REST API server.
+    Serve {
+        /// Port to bind to. Default 11435.
+        #[arg(long, default_value_t = 11435)]
+        port: u16,
+        /// Loopback IP to bind to. Only 127.0.0.1 or ::1 is accepted; remote access is unsupported.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+    },
+    /// Run Phase 6 LLaDA diffusion with CLAD attention-guided parallel decoding.
+    Diffuse {
+        /// Path to a LLaDA diffusion GGUF model.
+        model: String,
+        /// One factual or other single-turn prompt (mutually exclusive with --prompt-file).
+        #[arg(long, required_unless_present = "prompt_file", conflicts_with = "prompt_file")]
+        prompt: Option<String>,
+        /// JSONL file of {"id":"...","prompt":"..."} records; loads the model once for the suite.
+        #[arg(long)]
+        prompt_file: Option<std::path::PathBuf>,
+        /// Maximum number of output tokens (must be a multiple of block length).
+        #[arg(long, default_value_t = 128)]
+        max_tokens: usize,
+        /// Total denoising steps (default: max tokens, matching CLAD's reference schedule).
+        #[arg(long)]
+        steps: Option<usize>,
+        /// Diffusion block length.
+        #[arg(long, default_value_t = 32)]
+        block_length: usize,
+        /// Confidence threshold used to propose parallel token commits.
+        #[arg(long, default_value_t = 0.70)]
+        threshold: f32,
+        /// Decoder: CLAD attention clusters or vanilla top-confidence transfer schedule.
+        #[arg(long, value_parser = ["clad", "confidence"], default_value = "clad")]
+        decoder: String,
+        /// CPU worker threads; defaults to available parallelism.
+        #[arg(long)]
+        threads: Option<usize>,
+        /// Emit structured JSON with decode speed and generation metadata.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Start an interactive chat session using the llama.cpp runtime.
+    Run {
+        /// Path to the GGUF model file.
+        model: String,
+        /// Maximum tokens generated per response.
+        #[arg(long, default_value_t = 128)]
+        max_tokens: usize,
+        /// Preserve executed KV tokens between turns; uses a generic text dialogue format.
+        #[arg(long)]
+        keep_context: bool,
+        /// Experimental greedy fast path: bypass vocabulary-sized logits transfers.
+        #[arg(long, conflicts_with = "spec_type")]
+        native_greedy: bool,
+        /// Experimental exact n-gram speculative decode mode.
+        #[arg(long, value_parser = ["ngram-mod"])]
+        spec_type: Option<String>,
+        /// Opt into on-demand mmap reads for routed expert tensors in supported MoE models.
+        #[arg(long)]
+        lazy_moe_experts: bool,
+    },
+    /// Private persistent worker for the UI; launched through validated stream mode.
+    #[command(hide = true)]
+    Worker {
+        model: String,
+        #[arg(long)]
+        lazy_moe_experts: bool,
+    },
+    /// Opt-in experimental one-model-file CPU MoE streaming chat. Produces
+    /// a temporary verified index for compatible fused GGUF models and uses
+    /// the same KILN binary in a separate isolated inference process.
+    Stream {
+        #[arg(long, hide = true)]
+        stdio_json: bool,
+        /// Existing model path, unambiguous installed GGUF/Ollama tag or 'auto'.
+        model: String,
+        #[arg(long, default_value_t = 128)]
+        max_tokens: usize,
+        #[arg(long)]
+        keep_context: bool,
+        /// Also enable experimental lazy GGUF mapped expert advice.
+        #[arg(long)]
+        lazy_moe_experts: bool,
+        /// Bounded local cached expert slabs in MiB (0..=512).
+        #[arg(long, default_value_t = 64)]
+        cache_mib: u32,
+        /// Split actual selected-expert reads over CPU worker threads.
+        #[arg(long)]
+        parallel_reads: bool,
+    },
+    /// Real native next-token cross-entropy scorer for candidate vs FP16
+    /// quality evidence. Uses bounded reset-windows; not a deployment claim.
+    EvalPpl {
+        /// Existing GGUF path or unambiguous installed model name.
+        model: String,
+        /// UTF-8 evaluation text file (same contents for both models).
+        #[arg(long)]
+        text_file: std::path::PathBuf,
+        #[arg(long, default_value_t = 256)]
+        max_tokens: usize,
+        #[arg(long, default_value_t = 256)]
+        window_tokens: usize,
+        #[arg(long)]
+        threads: Option<u32>,
+        #[arg(long)]
+        lazy_moe_experts: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Controlled Phase 3.5 second-turn prompt-cache A/B experiment.
+    BenchKv {
+        /// Local GGUF file; never downloads model weights.
+        model: String,
+        #[arg(long, default_value = "Name two planets.")]
+        first_prompt: String,
+        #[arg(long, default_value = "Name one more.")]
+        second_prompt: String,
+        #[arg(long, default_value = " Mars and Venus.")]
+        assistant_fragment: String,
+        #[arg(long, default_value_t = 5)]
+        runs: usize,
+        #[arg(long)]
+        threads: Option<u32>,
+        #[arg(long)]
+        batch: Option<u32>,
+        #[arg(long)]
+        ubatch: Option<u32>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Bounded real-model same-context KV snapshot and exact continuation test.
+    BenchKvSnapshot {
+        /// Existing local GGUF file; no downloads or cross-model state reuse.
+        model: String,
+        #[arg(long, default_value = "A local inference prefix is stored for replay.")]
+        prompt: String,
+        #[arg(long, default_value = " Continue from the identical prefix.")]
+        continuation: String,
+        #[arg(long, default_value_t = 256)]
+        max_mib: usize,
+        #[arg(long)]
+        threads: Option<u32>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// A/B test draftless n-gram speculative decoding with exact target-model verification.
+    BenchSpec {
+        /// Pinned GGUF; no download or external draft model required.
+        model: String,
+        #[arg(long, default_value = "Repeat this short phrase: red blue red blue red blue.")]
+        prompt: String,
+        #[arg(long, default_value_t = 64)]
+        tokens: usize,
+        #[arg(long, default_value_t = 5)]
+        runs: usize,
+        #[arg(long, default_value_t = 1)]
+        warmup: usize,
+        #[arg(long)]
+        threads: Option<u32>,
+        #[arg(long)]
+        batch: Option<u32>,
+        #[arg(long)]
+        ubatch: Option<u32>,
+        #[arg(long, default_value_t = 3)]
+        ngram: usize,
+        #[arg(long, default_value_t = 8)]
+        draft_max: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Download and validate a GGUF file from a public Hugging Face repository.
+    Pull {
+        /// Repository in owner/name form, as shown by `kiln search`.
+        model: String,
+        /// Exact GGUF file path inside that repository.
+        #[arg(long)]
+        file: String,
+        /// Download every numbered shard of the selected GGUF (verify and reuse existing shards).
+        #[arg(long)]
+        all_shards: bool,
+    },
+    /// Find readable GGUF model candidates already installed on this machine.
+    List {
+        /// Additional file or directory to scan. May be repeated.
+        #[arg(long = "path")]
+        paths: Vec<std::path::PathBuf>,
+        /// Emit JSON instead of human-readable results.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Search public Hugging Face repositories tagged for GGUF models.
+    Search {
+        /// Search phrase or model family, for example `granite 4.1`.
+        query: String,
+        /// Maximum repositories to inspect (1â€“50).
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+    /// Measure model load, prompt prefill, and token decode throughput.
+    Bench {
+        /// Path to the GGUF model file.
+        model: String,
+        /// Prompt used for every measured run.
+        #[arg(long, default_value = "The meaning of life is")]
+        prompt: String,
+        /// Maximum number of generated tokens per run.
+        #[arg(long, default_value_t = 64)]
+        tokens: usize,
+        /// Number of measured runs (reported individually and as a mean).
+        #[arg(long, default_value_t = 3)]
+        runs: usize,
+        /// Number of unreported warm-up runs before measurement.
+        #[arg(long, default_value_t = 1)]
+        warmup: usize,
+        /// Override the detected CPU thread count for controlled comparisons.
+        #[arg(long)]
+        threads: Option<u32>,
+        /// Override the detected batch size for controlled comparisons.
+        #[arg(long)]
+        batch: Option<u32>,
+        /// Physical microbatch size for controlled comparisons.
+        #[arg(long)]
+        ubatch: Option<u32>,
+        /// Compare native greedy sampling against Rust vocabulary logits sampling.
+        #[arg(long)]
+        native_greedy: bool,
+        /// Opt into on-demand mmap reads for supported MoE expert tensors.
+        #[arg(long)]
+        lazy_moe_experts: bool,
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Read-only GGUF and system feasibility preflight (not acceptance or graph optimization).
+    Plan {
+        model: String,
+        /// Print machine-readable preflight JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run the reproducible model, MoE I/O/cache, and optional quality measurement suite.
+    Measure {
+        /// Path to a local GGUF model. The command never downloads model data.
+        model: String,
+        /// New directory for provenance, raw outputs, logs, and summary.
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+        /// Generated tokens per benchmark run.
+        #[arg(long, default_value_t = 64)]
+        tokens: usize,
+        /// Measured benchmark repetitions.
+        #[arg(long, default_value_t = 3)]
+        runs: usize,
+        /// CPU worker threads.
+        #[arg(long)]
+        threads: Option<u32>,
+        /// FP16 reference GGUF; requires --corpus to enable quality comparison.
+        #[arg(long)]
+        reference: Option<String>,
+        /// UTF-8 corpus for same-tokenization candidate/reference NLL comparison.
+        #[arg(long)]
+        corpus: Option<std::path::PathBuf>,
+        /// Cache budget used for live LRU/LFU runs and offline replay (MiB).
+        #[arg(long, default_value_t = 64)]
+        cache_mib: u32,
+        /// Minimum decode throughput used for the configurable speed check.
+        #[arg(long, default_value_t = 3.0)]
+        min_tps: f64,
+        /// Maximum process peak RSS used for the configurable memory check (GiB).
+        #[arg(long, default_value_t = 15.0)]
+        max_rss_gib: f64,
+    },
+    /// Print the hardware profile.
+    Info,
+    /// Load every weight tensor from a GGUF file and report sizes.
+    Weights {
+        /// Path to the GGUF file.
+        model: String,
+    },
+    /// Print the transformer config read from a GGUF file.
+    Config {
+        /// Path to the GGUF file.
+        model: String,
+    },
+    /// Print the top-N logits for a prompt without generating.
+    Debug {
+        /// Path to the GGUF file.
+        model: String,
+        /// The prompt.
+        prompt: String,
+        /// Number of top tokens to print.
+        #[arg(long, default_value_t = 20)]
+        top: usize,
+    },
+    /// Tokenize a string using a model's tokenizer.
+    Tokenize {
+        /// Path to the GGUF file.
+        #[arg(long)]
+        model: String,
+        /// The text to tokenize.
+        text: String,
+        /// Also decode the tokens back to text.
+        #[arg(long)]
+        roundtrip: bool,
+    },
+    /// Inspect a GGUF file: print metadata and tensor table.
+    Inspect {
+        /// Path to the GGUF file.
+        path: String,
+        /// Print every tensor. Without this flag, print only the count.
+        #[arg(long)]
+        tensors: bool,
+    },
+    /// Start an interactive chat session. Uses a synthetic forward
+    /// pass until the real transformer lands.
+    Chat {
+        /// Path to a GGUF file with tokenizer metadata.
+        #[arg(long)]
+        model: String,
+        /// Random seed for deterministic sampling.
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+        /// Maximum new tokens per response.
+        #[arg(long, default_value_t = 50)]
+        max_tokens: usize,
+        /// Sampling strategy: greedy, topk, or topp.
+        #[arg(long, default_value = "greedy")]
+        strategy: String,
+        /// Opt into on-demand mmap reads for routed expert tensors in supported MoE models.
+        #[arg(long)]
+        lazy_moe_experts: bool,
+    },
+    /// Run the pipeline once on a GGUF model file.
+    Pipeline {
+        /// Path to the GGUF model file.
+        path: String,
+        /// Print the report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Convert a GGUF model to a different quantization.
+    Convert {
+        /// Input GGUF path.
+        #[arg(long)]
+        input: String,
+        /// Output GGUF path.
+        #[arg(long)]
+        output: String,
+        /// Target quantization. Only tq1_0 is supported.
+        #[arg(long, default_value = "tq1_0")]
+        quant: String,
+    },
+    /// Validate a model: load checks and canary prompts.
+    Doctor {
+        /// Path to the GGUF file.
+        model: String,
+    },
+}
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Worker { model, lazy_moe_experts } => {
+            if let Err(error) = stream_stdio::run(&model, lazy_moe_experts) {
+                eprintln!("stream worker: {error}");
+                std::process::exit(1);
+            }
+        }
+        Commands::Update { check } => {
+            if let Err(error) = self_update::run(check) {
+                eprintln!("update error: {error}");
+                std::process::exit(1);
+            }
+        }
+        Commands::Serve { port, host } => {
+            if let Err(e) = serve(&host, port).await {
+                eprintln!("server error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Info => {
+            let mut m = LinuxMonitor::new();
+            m.sample();
+            let env = m.current_envelope();
+            println!("KILN hardware profile");
+            println!("  version:                {}", env!("CARGO_PKG_VERSION"));
+            println!("  ram_total_bytes:        {}", m.ram_total_bytes());
+            println!("  ram_total_gb:           {:.2}", m.ram_total_bytes() as f64 / 1_073_741_824.0);
+            println!("  ram_headroom_bytes:     {}", env.ram_headroom_bytes);
+            println!("  ram_headroom_gb:        {:.2}", env.ram_headroom_bytes as f64 / 1_073_741_824.0);
+            println!("  thermal_state:          {:?}", env.thermal_state);
+            println!("  throughput_fraction:    {:.3}", env.throughput_fraction);
+        }
+        Commands::Weights { model } => {
+            let path_buf = std::path::PathBuf::from(&model);
+            let g = match GgufFile::open(&path_buf) {
+                Ok(g) => g,
+                Err(e) => {
+                    eprintln!("failed to open {}: {}", model, e);
+                    std::process::exit(1);
+                }
+            };
+            let g = std::sync::Arc::new(g);
+            match TransformerWeights::from_gguf(&g) {
+                Ok(w) => {
+                    println!("KILN transformer weights");
+                    println!("  config:      {}", w.config.summary());
+                    println!("  token_embd:  {} bytes", w.token_embd.len());
+                    println!("  output_norm: {} bytes", w.output_norm.len());
+                    println!("  output:      {} bytes", w.output.len());
+                    println!("  layers:      {}", w.layers.len());
+                    if let Some(l) = w.layers.first() {
+                        println!("  layer 0:");
+                        println!("    attn_norm:   {} bytes", l.attn_norm.len());
+                        println!("    attn_q:      {} bytes", l.attn_q.len());
+                        println!("    attn_k:      {} bytes", l.attn_k.len());
+                        println!("    attn_v:      {} bytes", l.attn_v.len());
+                        println!("    attn_output: {} bytes", l.attn_output.len());
+                        println!("    ffn_norm:    {} bytes", l.ffn_norm.len());
+                        println!("    ffn_gate:    {} bytes", l.ffn_gate.len());
+                        println!("    ffn_up:      {} bytes", l.ffn_up.len());
+                        println!("    ffn_down:    {} bytes", l.ffn_down.len());
+                    } else {
+                        println!("  layer details: unavailable (model has no transformer layers)");
+                    }
+                    let total = w.total_bytes();
+                    println!("  total:       {} bytes ({:.2} GB)",
+                        total, total as f64 / 1_073_741_824.0);
+                }
+                Err(e) => {
+                    eprintln!("weights error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::Config { model } => {
+            let path_buf = std::path::PathBuf::from(&model);
+            let g = match GgufFile::open(&path_buf) {
+                Ok(g) => g,
+                Err(e) => {
+                    eprintln!("failed to open {}: {}", model, e);
+                    std::process::exit(1);
+                }
+            };
+            match TransformerConfig::from_gguf(&g) {
+                Ok(cfg) => {
+                    println!("KILN transformer config");
+                    println!("  arch:               {}", cfg.arch);
+                    println!("  vocab_size:         {}", cfg.vocab_size);
+                    println!("  hidden_size:        {}", cfg.hidden_size);
+                    println!("  num_layers:         {}", cfg.num_layers);
+                    println!("  intermediate_size:  {}", cfg.intermediate_size);
+                    println!("  num_heads:          {}", cfg.num_heads);
+                    println!("  num_kv_heads:       {}", cfg.num_kv_heads);
+                    println!("  head_dim:           {}", cfg.head_dim());
+                    println!("  rms_norm_eps:       {}", cfg.rms_norm_eps);
+                    println!("  context_length:     {}", cfg.context_length);
+                    println!("  rope_theta:         {}", cfg.rope_theta);
+                }
+                Err(e) => {
+                    eprintln!("config error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::Debug { model, prompt, top } => {
+            use kiln_runtime::{RuntimeDispatcher, RuntimeOp, RuntimeResult};
+            use kiln_runtime::LlamaCppBackend;
+
+            let path = std::path::PathBuf::from(&model);
+            let prof = kiln_runtime::SystemProfile::load_or_probe();
+            let mut d = RuntimeDispatcher::new();
+            d.register(Box::new(LlamaCppBackend::new()));
+            if let Err(e) = d.dispatch(RuntimeOp::Load {
+                path,
+                n_ctx: prof.n_ctx,
+                n_batch: prof.n_batch,
+                n_ubatch: prof.n_batch.min(512),
+                n_threads: prof.n_threads,
+                lazy_moe_experts: false,
+            }) {
+                eprintln!("load: {}", e);
+                std::process::exit(1);
+            }
+            println!("prompt: {:?}", prompt);
+            let ids = match d.dispatch(RuntimeOp::Tokenize { text: prompt.clone() }) {
+                Ok(RuntimeResult::Tokens(t)) => t,
+                Ok(_) => { eprintln!("tokenize: wrong return"); std::process::exit(1); }
+                Err(e) => { eprintln!("tokenize: {}", e); std::process::exit(1); }
+            };
+            println!("tokens: {:?}", ids);
+            let t0 = std::time::Instant::now();
+            let logits = match d.dispatch(RuntimeOp::Forward { tokens: ids }) {
+                Ok(RuntimeResult::Logits(l)) => l,
+                Ok(_) => { eprintln!("forward: wrong return"); std::process::exit(1); }
+                Err(e) => { eprintln!("forward: {}", e); std::process::exit(1); }
+            };
+            let dt = t0.elapsed().as_secs_f64();
+            println!("forward: {:.4}s", dt);
+            let mut idx: Vec<usize> = (0..logits.len()).collect();
+            idx.sort_by(|&a, &b| logits[b].partial_cmp(&logits[a]).unwrap_or(std::cmp::Ordering::Equal));
+            println!("top {}:", top);
+            for k in 0..top.min(idx.len()) {
+                let i = idx[k];
+                let tokstr = match d.dispatch(RuntimeOp::TokenToStr { token: i as i32 }) {
+                    Ok(RuntimeResult::Bytes(b)) => String::from_utf8_lossy(&b).to_string(),
+                    Ok(RuntimeResult::Str(s)) => s,
+                    _ => String::new(),
+                };
+                println!("  {:>6}  {:>10.4}  {:?}", i, logits[i], tokstr);
+            }
+        }
+
+        Commands::Tokenize { model, text, roundtrip } => {
+            let path_buf = std::path::PathBuf::from(&model);
+            let g = match GgufFile::open(&path_buf) {
+                Ok(g) => g,
+                Err(e) => {
+                    eprintln!("failed to open {}: {}", model, e);
+                    std::process::exit(1);
+                }
+            };
+            let tok = match BpeTokenizer::from_gguf(&g) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("failed to build tokenizer: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            println!("vocab_size: {}", tok.vocab_size());
+            let ids = tok.encode(&text);
+            println!("input:      {:?}", text);
+            println!("token_ids:  {:?}", ids);
+            println!("token_count: {}", ids.len());
+            for (i, &id) in ids.iter().enumerate() {
+                let s = tok.token_to_str(id).unwrap_or("<unknown>");
+                println!("  [{}] id={} str={:?}", i, id, s);
+            }
+            if roundtrip {
+                let decoded = tok.decode(&ids);
+                println!("decoded:    {:?}", decoded);
+                println!("roundtrip_ok: {}", decoded == text);
+            }
+        }
+        Commands::Inspect { path, tensors } => {
+            let path_buf = std::path::PathBuf::from(&path);
+            let g = match GgufFile::open(&path_buf) {
+                Ok(g) => g,
+                Err(e) => {
+                    eprintln!("failed to open {}: {}", path, e);
+                    std::process::exit(1);
+                }
+            };
+            println!("KILN inspect: {}", path);
+            println!("  version:        {}", g.header.version);
+            println!("  tensor_count:   {}", g.header.tensor_count);
+            println!("  metadata_count: {}", g.header.metadata_kv_count);
+            println!("  data_offset:    {}", g.data_offset);
+            println!("  file_size:      {}", g.file_size());
+            println!();
+            println!("Metadata:");
+            let mut keys: Vec<&String> = g.metadata.keys().collect();
+            keys.sort();
+            for k in keys {
+                let v = &g.metadata[k];
+                let s = format!("{:?}", v);
+                let short = truncate_for_display(&s, 100);
+                println!("  {} = {}", k, short);
+            }
+            println!();
+            if tensors {
+                println!("Tensors ({} total):", g.tensors.len());
+                for t in &g.tensors {
+                    println!("  {:<40} {:>20} {:?} offset={}",
+                        t.name,
+                        t.shape.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("x"),
+                        t.dtype,
+                        t.offset
+                    );
+                }
+            } else {
+                println!("Tensors: {} (use --tensors to list)", g.tensors.len());
+                // Print dtype distribution.
+                use std::collections::HashMap;
+                let mut dtypes: HashMap<String, usize> = HashMap::new();
+                for t in &g.tensors {
+                    let key = format!("{:?}", t.dtype);
+                    *dtypes.entry(key).or_insert(0) += 1;
+                }
+                println!("Dtype distribution:");
+                let mut pairs: Vec<(&String, &usize)> = dtypes.iter().collect();
+                pairs.sort_by(|a, b| b.1.cmp(a.1));
+                for (k, v) in pairs {
+                    println!("  {:<20} {}", k, v);
+                }
+            }
+        }
+        Commands::Convert { input, output, quant } => {
+            if quant != "tq1_0" {
+                eprintln!("convert: only tq1_0 is supported, got {}", quant);
+                std::process::exit(2);
+            }
+            let inp = std::path::PathBuf::from(&input);
+            let outp = std::path::PathBuf::from(&output);
+            match kiln_models::convert_to_tq1_0(&inp, &outp) {
+                Ok(n) => println!("converted {} tensors -> {}", n, output),
+                Err(e) => { eprintln!("convert error: {}", e); std::process::exit(1); }
+            }
+        }
+        Commands::Chat { model, seed, max_tokens, strategy, lazy_moe_experts } => {
+            use kiln_core::chat::{Sampler, SamplingStrategy};
+            use kiln_runtime::{RuntimeDispatcher, RuntimeOp, RuntimeResult, LlamaCppBackend};
+
+            let path = std::path::PathBuf::from(&model);
+            let prof = kiln_runtime::SystemProfile::load_or_probe();
+            let mut d = RuntimeDispatcher::new();
+            d.register(Box::new(LlamaCppBackend::new()));
+            if let Err(e) = d.dispatch(RuntimeOp::Load {
+                path,
+                n_ctx: prof.n_ctx,
+                n_batch: prof.n_batch,
+                n_ubatch: prof.n_batch.min(512),
+                n_threads: prof.n_threads,
+                lazy_moe_experts,
+            }) {
+                eprintln!("load: {}", e);
+                std::process::exit(1);
+            }
+            let vocab_size = match d.dispatch(RuntimeOp::NVocab) {
+                Ok(RuntimeResult::Int(n)) => n,
+                _ => { eprintln!("n_vocab failed"); std::process::exit(1); }
+            };
+            let eos = match d.dispatch(RuntimeOp::EosToken) {
+                Ok(RuntimeResult::Int(n)) => n,
+                _ => { eprintln!("eos_token failed"); std::process::exit(1); }
+            };
+            println!("KILN chat session (Phase 3, runtime dispatch)");
+            println!("  model:      {}", model);
+            println!("  vocab:      {} tokens", vocab_size);
+            println!("  eos:        {}", eos);
+            println!("  seed:       {}", seed);
+            println!("  max_tokens: {}", max_tokens);
+            println!("  strategy:   {}", strategy);
+            println!("  runtime:    llama.cpp via RuntimeDispatcher");
+            println!("  profile:    tier={:?} n_ctx={} n_batch={} n_threads={}",
+                prof.tier, prof.n_ctx, prof.n_batch, prof.n_threads);
+            println!();
+            println!("Type a message and press Enter. Ctrl-D to exit.");
+            println!();
+
+            let strat = match strategy.as_str() {
+                "greedy" => SamplingStrategy::Greedy,
+                "topk" => SamplingStrategy::TopK { k: 40, temperature: 0.8 },
+                "topp" => SamplingStrategy::TopP { p: 0.9, temperature: 0.8 },
+                other => {
+                    eprintln!("unknown strategy: {} (expected greedy, topk, or topp)", other);
+                    std::process::exit(2);
+                }
+            };
+            let mut sampler = Sampler::new(strat, seed);
+
+            let mut history: Vec<(String, String)> = Vec::new();
+            let stdin = std::io::stdin();
+            let mut line = String::new();
+            loop {
+                print!("> ");
+                use std::io::Write;
+                std::io::stdout().flush().ok();
+                line.clear();
+                match stdin.read_line(&mut line) {
+                    Ok(0) => break,
+                    Ok(_) => {}
+                    Err(e) => { eprintln!("input error: {}", e); break; }
+                }
+                let prompt = line.trim_end();
+                if prompt.is_empty() { continue; }
+
+                let mut templated = String::new();
+                templated.push_str("<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n");
+                for (u, a) in &history {
+                    templated.push_str("<|im_start|>user\n");
+                    templated.push_str(u);
+                    templated.push_str("<|im_end|>\n<|im_start|>assistant\n");
+                    templated.push_str(a);
+                    templated.push_str("<|im_end|>\n");
+                }
+                templated.push_str("<|im_start|>user\n");
+                templated.push_str(prompt);
+                templated.push_str("<|im_end|>\n<|im_start|>assistant\n");
+
+                if let Err(e) = d.dispatch(RuntimeOp::Reset) {
+                    eprintln!("reset: {}", e);
+                    continue;
+                }
+
+                let t0 = std::time::Instant::now();
+                let prompt_ids = match d.dispatch(RuntimeOp::Tokenize { text: templated }) {
+                    Ok(RuntimeResult::Tokens(t)) => t,
+                    _ => { eprintln!("tokenize failed"); continue; }
+                };
+                let mut next_logits = match d.dispatch(RuntimeOp::Forward { tokens: prompt_ids }) {
+                    Ok(RuntimeResult::Logits(l)) => l,
+                    _ => { eprintln!("forward failed"); continue; }
+                };
+
+                let mut reply = String::new();
+                let mut n_gen = 0usize;
+                let mut pending: Vec<u8> = Vec::new();
+                let mut watchdog = kiln_runtime::Watchdog::new();
+                for _ in 0..max_tokens {
+                    let token = match sampler.sample(&next_logits) {
+                        Some(t) => t,
+                        None => break,
+                    };
+                    if (token as i32) == eos { break; }
+                    let raw = match d.dispatch(RuntimeOp::TokenToStr { token: token as i32 }) {
+                        Ok(RuntimeResult::Bytes(b)) => b,
+                        Ok(RuntimeResult::Str(s)) => s.into_bytes(),
+                        _ => break,
+                    };
+                    if raw.is_empty() { break; }
+                    // Buffer bytes across tokens. A token may carry a
+                    // partial multi-byte UTF-8 sequence that the next
+                    // token completes. Decode only when the buffer is
+                    // valid UTF-8.
+                    pending.extend_from_slice(&raw);
+                    match std::str::from_utf8(&pending) {
+                        Ok(s) => {
+                            print!("{}", s);
+                            std::io::stdout().flush().ok();
+                            reply.push_str(s);
+                            pending.clear();
+                        }
+                        Err(_) => {
+                            // Partial sequence. Keep buffering. If the
+                            // buffer grows past 8 bytes without ever
+                            // being valid, it is not a partial sequence,
+                            // it is garbage. Emit it lossy and clear.
+                            if pending.len() > 8 {
+                                let s = String::from_utf8_lossy(&pending).to_string();
+                                print!("{}", s);
+                                std::io::stdout().flush().ok();
+                                reply.push_str(&s);
+                                pending.clear();
+                            }
+                        }
+                    }
+                    n_gen += 1;
+                    // Watchdog: top-1 logit is the max of next_logits.
+                    let top1 = next_logits.iter().cloned()
+                        .fold(f32::NEG_INFINITY, f32::max);
+                    match watchdog.observe(token as i32, &raw, top1) {
+                        kiln_runtime::WatchdogVerdict::Ok => {}
+                        kiln_runtime::WatchdogVerdict::RepeatedOutput => {
+                            eprintln!("\n[watchdog] aborting: repeated output");
+                            break;
+                        }
+                        kiln_runtime::WatchdogVerdict::LowConfidence => {
+                            eprintln!("\n[watchdog] aborting: low confidence (top1={})", top1);
+                            break;
+                        }
+                        kiln_runtime::WatchdogVerdict::NonTextOutput => {
+                            eprintln!("\n[watchdog] aborting: non-text output");
+                            break;
+                        }
+                    }
+                    match d.dispatch(RuntimeOp::Forward { tokens: vec![token as i32] }) {
+                        Ok(RuntimeResult::Logits(l)) => next_logits = l,
+                        _ => { eprintln!("\nforward failed"); break; }
+                    }
+                }
+                println!();
+                let dt = t0.elapsed().as_secs_f64().max(1e-6);
+                eprintln!("[{:.2}s, {:.2} tok/s, {} tokens]", dt, n_gen as f64 / dt, n_gen);
+
+                history.push((prompt.to_string(), reply));
+            }
+        }
+        Commands::Doctor { model } => {
+            let model = match model_library::resolve_model_identifier(&model) {
+                Ok(path) => path.display().to_string(),
+                Err(error) => { eprintln!("doctor: {error}"); std::process::exit(2); }
+            };
+            use kiln_runtime::{RuntimeDispatcher, RuntimeOp, RuntimeResult, LlamaCppBackend};
+            use kiln_runtime::run_canaries;
+
+            let path = std::path::PathBuf::from(&model);
+            let prof = kiln_runtime::SystemProfile::load_or_probe();
+            println!("KILN doctor: {}", model);
+            println!("  profile: tier={:?} n_ctx={} n_batch={} n_threads={}",
+                prof.tier, prof.n_ctx, prof.n_batch, prof.n_threads);
+
+            let mut d = RuntimeDispatcher::new();
+            d.register(Box::new(LlamaCppBackend::new()));
+            match d.dispatch(RuntimeOp::Load {
+                path,
+                n_ctx: prof.n_ctx,
+                n_batch: prof.n_batch,
+                n_ubatch: prof.n_batch.min(512),
+                n_threads: prof.n_threads,
+                lazy_moe_experts: false,
+            }) {
+                Ok(_) => println!("  load: PASS"),
+                Err(e) => { println!("  load: FAIL ({})", e); std::process::exit(1); }
+            }
+
+            // Canaries need a LlamaContext. The backend owns it, so
+            // reload through the context directly for the canary pass.
+            let path2 = std::path::PathBuf::from(&model);
+            let mut ctx = match kiln_runtime::LlamaContext::load_with(
+                &path2, Some((prof.n_ctx as i32, prof.n_batch as i32, prof.n_threads as i32))) {
+                Ok(c) => c,
+                Err(e) => { println!("  canary: SKIP (reload failed: {})", e); std::process::exit(1); }
+            };
+            match run_canaries(&mut ctx) {
+                Ok(()) => println!("  canary: PASS ({}/{})", kiln_runtime::CANARIES.len(), kiln_runtime::CANARIES.len()),
+                Err(e) => { println!("  canary: FAIL ({})", e); std::process::exit(1); }
+            }
+            println!("  verdict: model is usable");
+        }
+        Commands::Pipeline { path, json } => {
+            let path_buf = std::path::PathBuf::from(&path);
+            match pipeline_run_once(path_buf, Loader::Gguf) {
+                Ok(report) => {
+                    if json {
+                        println!("{{\"output\":{},\"load_time_nanos\":{},\"select_time_nanos\":{},\"schedule_time_nanos\":{},\"execute_time_nanos\":{},\"total_time_nanos\":{},\"nodes_executed\":{}}}",
+                            report.output,
+                            report.load_time_nanos,
+                            report.select_time_nanos,
+                            report.schedule_time_nanos,
+                            report.execute_time_nanos,
+                            report.total_time_nanos,
+                            report.nodes_executed,
+                        );
+                    } else {
+                        println!("KILN pipeline report");
+                        println!("  output:               {}", report.output);
+                        println!("  nodes_executed:       {}", report.nodes_executed);
+                        println!("  load_time_nanos:      {}", report.load_time_nanos);
+                        println!("  select_time_nanos:    {}", report.select_time_nanos);
+                        println!("  schedule_time_nanos:  {}", report.schedule_time_nanos);
+                        println!("  execute_time_nanos:   {}", report.execute_time_nanos);
+                        println!("  total_time_nanos:     {}", report.total_time_nanos);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("pipeline error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::Diffuse {
+            model, prompt, prompt_file, max_tokens, steps, block_length, threshold, decoder, threads, json,
+        } => {
+            let cases = if let Some(path) = prompt_file {
+                if !json {
+                    eprintln!("diffuse: --prompt-file requires --json so each result retains its case ID");
+                    std::process::exit(2);
+                }
+                (|| -> Result<Vec<(String, String)>, String> {
+                    let contents = std::fs::read_to_string(&path)
+                        .map_err(|e| format!("could not read {}: {e}", path.display()))?;
+                    let mut cases = Vec::new();
+                    let mut ids = std::collections::HashSet::new();
+                    for (line_index, line) in contents.lines().enumerate() {
+                        if line.trim().is_empty() {
+                            continue;
+                        }
+                        let record: serde_json::Value = serde_json::from_str(line)
+                            .map_err(|e| format!("JSONL line {} is invalid: {e}", line_index + 1))?;
+                        let id = record.get("id").and_then(serde_json::Value::as_str)
+                            .filter(|id| !id.trim().is_empty())
+                            .ok_or_else(|| format!("JSONL line {} needs a non-empty string 'id'", line_index + 1))?;
+                        let text = record.get("prompt").and_then(serde_json::Value::as_str)
+                            .filter(|prompt| !prompt.trim().is_empty())
+                            .ok_or_else(|| format!("JSONL line {} needs a non-empty string 'prompt'", line_index + 1))?;
+                        if !ids.insert(id.to_owned()) {
+                            return Err(format!("duplicate prompt ID '{id}'"));
+                        }
+                        cases.push((id.to_owned(), text.to_owned()));
+                    }
+                    if cases.is_empty() {
+                        return Err("prompt suite contains no prompt records".into());
+                    }
+                    Ok(cases)
+                })()
+            } else {
+                prompt.map(|text| vec![(String::from("prompt-1"), text)])
+                    .ok_or_else(|| "--prompt is required unless --prompt-file is provided".to_owned())
+            };
+
+            match cases {
+                Ok(cases) => {
+                    if let Err(error) = phase6_diffusion::run_cases(
+                        &model, &cases, max_tokens, steps, block_length, threshold, threads, json, &decoder,
+                    ) {
+                        eprintln!("diffuse: {error}");
+                        std::process::exit(2);
+                    }
+                }
+                Err(error) => {
+                    eprintln!("diffuse: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Commands::Run { model, max_tokens, keep_context, native_greedy, spec_type, lazy_moe_experts } => {
+            if max_tokens == 0 {
+                eprintln!("run: --max-tokens must be at least 1");
+                std::process::exit(2);
+            }
+            if native_greedy && spec_type.is_some() {
+                eprintln!("run: --native-greedy cannot be combined with --spec-type; n-gram verification already uses the native greedy target path");
+                std::process::exit(2);
+            }
+            let selected_model = if model == "auto" {
+                match model_library::resolve_auto_model() {
+                    Ok(path) => {
+                        println!("Using local GGUF candidate: {}", path.display());
+                        path.display().to_string()
+                    }
+                    Err(error) => { eprintln!("run auto: {error}"); std::process::exit(2); }
+                }
+            } else {
+                match model_library::resolve_model_identifier(&model) {
+                    Ok(path) => path.display().to_string(),
+                    Err(error) => { eprintln!("run: {error}"); std::process::exit(2); }
+                }
+            };
+            if let Err(error) = run_interactive(
+                &selected_model, max_tokens, keep_context, native_greedy,
+                spec_type.as_deref() == Some("ngram-mod"),
+                lazy_moe_experts,
+            ) {
+                eprintln!("run: {}", error);
+                std::process::exit(1);
+            }
+        },
+        Commands::Stream {
+            model, max_tokens, keep_context, lazy_moe_experts, cache_mib, parallel_reads, stdio_json
+        } => {
+            if let Err(error) = experimental_stream::run(
+                &model, max_tokens, keep_context, lazy_moe_experts,
+                cache_mib, parallel_reads, stdio_json,
+            ) {
+                eprintln!("experimental MoE stream: {error}");
+                std::process::exit(2);
+            }
+        },
+        Commands::EvalPpl {
+            model, text_file, max_tokens, window_tokens, threads,
+            lazy_moe_experts, json,
+        } => {
+            if let Err(error) = quality_eval::run(
+                &model, &text_file, max_tokens, window_tokens,
+                threads, lazy_moe_experts, json,
+            ) {
+                eprintln!("quality evaluator: {error}");
+                std::process::exit(2);
+            }
+        },
+        Commands::BenchSpec { model, prompt, tokens, runs, warmup,
+            threads, batch, ubatch, ngram, draft_max, json } => {
+            if let Err(error) = phase35_spec_bench::run(
+                model, prompt, tokens, runs, warmup, threads, batch, ubatch,
+                ngram, draft_max, json
+            ) {
+                eprintln!("bench-spec: {error}");
+                std::process::exit(1);
+            }
+        },
+        Commands::BenchKv { model, first_prompt, second_prompt, assistant_fragment,
+            runs, threads, batch, ubatch, json } => {
+            if let Err(error) = phase35_kv_bench::run(
+                model, first_prompt, second_prompt, assistant_fragment,
+                runs, threads, batch, ubatch, json
+            ) {
+                eprintln!("bench-kv: {error}");
+                std::process::exit(1);
+            }
+        },
+        Commands::BenchKvSnapshot { model, prompt, continuation, max_mib,
+            threads, json } => {
+            if let Err(error) = phase35_kv_bench::run_snapshot(
+                model, prompt, continuation, max_mib, threads, json
+            ) {
+                eprintln!("bench-kv-snapshot: {error}");
+                std::process::exit(1);
+            }
+        },
+        Commands::Pull { model, file, all_shards } => {
+            let result = tokio::task::spawn_blocking(move || {
+                if all_shards {
+                    kiln_models::library::pull_complete_hugging_face_gguf(&model,&file)
+                } else {
+                    model_library::pull_hugging_face(&model,&file).map(|p| vec![p])
+                }
+            }).await;
+            match result {
+                Ok(Ok(paths)) => {
+                    for path in &paths { println!("Verified model file: {}",path.display()); }
+                    println!("Model download complete: {} verified file(s)",paths.len());
+                }
+                Ok(Err(error)) => { eprintln!("pull: {error}"); std::process::exit(1); }
+                Err(error) => { eprintln!("pull worker failed: {error}"); std::process::exit(1); }
+            }
+        }
+        Commands::List { paths, json } => {
+            if let Err(error) = model_library::list_models(&paths, json) {
+                eprintln!("list: {error}"); std::process::exit(1);
+            }
+        }
+        Commands::Search { query, limit } => {
+            match tokio::task::spawn_blocking(move || model_library::search_hugging_face(&query, limit)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => { eprintln!("search: {error}"); std::process::exit(1); }
+                Err(error) => { eprintln!("search worker failed: {error}"); std::process::exit(1); }
+            }
+        }
+        Commands::Bench { model, prompt, tokens, runs, warmup, threads, batch, ubatch, native_greedy, lazy_moe_experts, json } => {
+            let model = match model_library::resolve_model_identifier(&model) {
+                Ok(path) => path.display().to_string(),
+                Err(error) => { eprintln!("bench: {error}"); std::process::exit(2); }
+            };
+            if runs == 0 {
+                eprintln!("bench: --runs must be at least 1");
+                std::process::exit(2);
+            }
+            if tokens == 0 {
+                eprintln!("bench: --tokens must be at least 1");
+                std::process::exit(2);
+            }
+
+            use kiln_runtime::{LlamaCppBackend, RuntimeDispatcher, RuntimeOp, RuntimeResult, SystemProfile};
+            let mut profile = SystemProfile::load_or_probe();
+            if let Some(threads) = threads {
+                if threads == 0 {
+                    eprintln!("bench: --threads must be at least 1");
+                    std::process::exit(2);
+                }
+                profile.n_threads = threads;
+            }
+            if let Some(batch) = batch {
+                if batch == 0 {
+                    eprintln!("bench: --batch must be at least 1");
+                    std::process::exit(2);
+                }
+                profile.n_batch = batch;
+            }
+            let microbatch = ubatch.unwrap_or(profile.n_batch.min(512));
+            if microbatch == 0 || microbatch > profile.n_batch {
+                eprintln!("bench: --ubatch must be 1..=--batch");
+                std::process::exit(2);
+            }
+            let mut dispatcher = RuntimeDispatcher::new();
+            dispatcher.register(Box::new(LlamaCppBackend::new()));
+
+            let memory_before_load = process_memory_kib();
+            let io_before_load = process_io_bytes();
+            let load_start = std::time::Instant::now();
+            if let Err(error) = dispatcher.dispatch(RuntimeOp::Load {
+                path: std::path::PathBuf::from(&model),
+                n_ctx: profile.n_ctx,
+                n_batch: profile.n_batch,
+                n_ubatch: microbatch,
+                n_threads: profile.n_threads,
+                lazy_moe_experts,
+            }) {
+                eprintln!("bench: model load failed: {}", error);
+                std::process::exit(1);
+            }
+            let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
+            let memory_after_load = process_memory_kib();
+            let io_after_load = process_io_bytes();
+            let eos = match dispatcher.dispatch(RuntimeOp::EosToken) {
+                Ok(RuntimeResult::Int(token)) => token,
+                Ok(_) => {
+                    eprintln!("bench: backend returned an unexpected EOS-token result");
+                    std::process::exit(1);
+                }
+                Err(error) => {
+                    eprintln!("bench: unable to read EOS token: {}", error);
+                    std::process::exit(1);
+                }
+            };
+
+            let mut warmup_completed = 0usize;
+            for index in 0..warmup {
+                if let Err(error) = bench_once(&mut dispatcher, &prompt, tokens, eos, native_greedy) {
+                    eprintln!("bench: warm-up run {} failed: {}", index + 1, error);
+                    std::process::exit(1);
+                }
+                warmup_completed += 1;
+            }
+
+            let mut measurements = Vec::with_capacity(runs);
+            for index in 0..runs {
+                let io_before_run = process_io_bytes();
+                match bench_once(&mut dispatcher, &prompt, tokens, eos, native_greedy) {
+                    Ok(mut result) => {
+                        let per_run_io = process_io_delta(io_before_run, process_io_bytes());
+                        result["process_read_syscall_bytes_delta"] =
+                            serde_json::json!(per_run_io.map(|pair| pair.0));
+                        result["process_storage_read_bytes_delta"] =
+                            serde_json::json!(per_run_io.map(|pair| pair.1));
+                        let generated = result.get("generated_tokens").and_then(serde_json::Value::as_u64);
+                        result["process_storage_read_mib_per_generated_token"] = serde_json::json!(
+                            per_run_io.and_then(|(_, bytes)| generated
+                                .filter(|count| *count > 0)
+                                .map(|count| bytes as f64 / (1024.0 * 1024.0 * count as f64)))
+                        );
+                        // VmHWM is process-wide and monotonic: a useful upper
+                        // bound at this checkpoint, not per-run isolated peak.
+                        let sample = process_memory_kib();
+                        result["process_rss_kib_after_run"] = serde_json::json!(sample.map(|m| m.rss_kib));
+                        result["process_peak_rss_kib_to_date"] = serde_json::json!(sample.map(|m| m.peak_rss_kib));
+                        measurements.push(result);
+                    },
+                    Err(error) => {
+                        eprintln!("bench: measured run {} failed: {}", index + 1, error);
+                        std::process::exit(1);
+                    }
+                }
+            }
+
+            let memory_after_benchmark = process_memory_kib();
+            let io_after_benchmark = process_io_bytes();
+
+            // Report distribution statistics as well as means. A mean alone can
+            // hide noisy runs and is insufficient for controlled comparisons.
+            let stats = |key: &str| benchmark_stats(&measurements, key);
+            let model_path = std::fs::canonicalize(&model)
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|_| model.clone());
+            let model_size_bytes = std::fs::metadata(&model).map(|metadata| metadata.len()).ok();
+            let logical_cpus = std::thread::available_parallelism().map(|n| n.get()).ok();
+            let output = serde_json::json!({
+                "model": model,
+                "model_path_canonical": model_path,
+                "model_size_bytes": model_size_bytes,
+                "prompt": prompt,
+                "max_new_tokens": tokens,
+                "warmup_runs": warmup_completed,
+                "requested_threads": profile.n_threads,
+                "requested_batch": profile.n_batch,
+                "requested_microbatch": microbatch,
+                "sampling_path": if native_greedy { "native_greedy" } else { "rust_logits_greedy" },
+                "lazy_moe_experts": lazy_moe_experts,
+                "measured_runs": runs,
+                "load_ms": load_ms,
+                "process_io": {
+                    "source": if cfg!(target_os = "linux") { "linux_proc_self_io" } else { "unsupported_platform" },
+                    "model_load": {
+                        "read_syscall_bytes_delta": process_io_delta(io_before_load, io_after_load).map(|pair| pair.0),
+                        "kernel_storage_read_bytes_delta": process_io_delta(io_before_load, io_after_load).map(|pair| pair.1)
+                    },
+                    "measured_inference": {
+                        "read_syscall_bytes_delta": process_io_delta(io_after_load, io_after_benchmark).map(|pair| pair.0),
+                        "kernel_storage_read_bytes_delta": process_io_delta(io_after_load, io_after_benchmark).map(|pair| pair.1)
+                    },
+                    "limitations": "Kernel process read_bytes counts attributed actual storage reads, including mmap-fault reads but not global device I/O and possibly affected by OS caching and other users. rchar includes cached syscalls; neither equals isolated cold SSD traffic. Measured inference includes warmups and reset overhead."
+                },
+                "process_memory": {
+                    "source": if cfg!(target_os = "linux") { "linux_proc_self_status" } else { "unsupported_platform" },
+                    "unit": "KiB",
+                    "before_load": {
+                        "rss": memory_before_load.map(|m| m.rss_kib),
+                        "peak_rss_to_date": memory_before_load.map(|m| m.peak_rss_kib)
+                    },
+                    "after_load": {
+                        "rss": memory_after_load.map(|m| m.rss_kib),
+                        "peak_rss_to_date": memory_after_load.map(|m| m.peak_rss_kib)
+                    },
+                    "after_benchmark": {
+                        "rss": memory_after_benchmark.map(|m| m.rss_kib),
+                        "peak_rss_to_date": memory_after_benchmark.map(|m| m.peak_rss_kib)
+                    },
+                    "note": "Process RSS and lifetime peak from /proc/self/status. Linux only. Peak is monotonic, not reset per run, and excludes independently cached filesystem pages and other machine processes."
+                },
+                "environment": {
+                    "os": std::env::consts::OS,
+                    "architecture": std::env::consts::ARCH,
+                    "logical_cpus": logical_cpus
+                },
+                "profile": {
+                    "tier": format!("{:?}", profile.tier),
+                    "n_ctx": profile.n_ctx,
+                    "n_batch": profile.n_batch,
+                    "n_ubatch": microbatch,
+                    "n_threads": profile.n_threads
+                },
+                "statistics": {
+                    "prompt_tokens": stats("prompt_tokens"),
+                    "generated_tokens": stats("generated_tokens"),
+                    "prefill_ms": stats("prefill_ms"),
+                    "decode_ms": stats("decode_ms"),
+                    "decode_forward_ms": stats("decode_forward_ms"),
+                    "sampling_ms": stats("sampling_ms"),
+                    "token_conversion_ms": stats("token_conversion_ms"),
+                    "decode_tokens_per_second": stats("decode_tokens_per_second"),
+                    "decode_forward_tokens_per_second": stats("decode_forward_tokens_per_second"),
+                    "process_storage_read_mib_per_generated_token": stats("process_storage_read_mib_per_generated_token"),
+                    "response_tokens_per_second_including_prefill": stats("response_tokens_per_second_including_prefill")
+                },
+                "runs": measurements
+            });
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&output).unwrap_or_else(|_| output.to_string()));
+            } else {
+                println!("KILN benchmark (RuntimeDispatcher / llama.cpp)");
+                println!("  model:             {}", model);
+                println!("  profile:           {:?}, threads={}, batch={}, microbatch={}, context={}",
+                    profile.tier, profile.n_threads, profile.n_batch, microbatch, profile.n_ctx);
+                println!("  lazy MoE experts:  {}", lazy_moe_experts);
+                println!("  load:              {:.2} ms", load_ms);
+                if let Some(memory) = memory_after_benchmark {
+                    println!("  process RSS:       {} KiB (peak to date {} KiB; does not include OS page cache)",
+                        memory.rss_kib, memory.peak_rss_kib);
+                }
+                println!("  prompt:            {:?}", prompt);
+                println!("  warm-up runs:      {}", warmup_completed);
+                println!("  measured runs:     {}", runs);
+                println!("  rate meaning:      sampled rate includes prefill-derived first token; decode forward excludes it");
+                println!("  model size:        {} bytes", model_size_bytes.map(|n| n.to_string()).unwrap_or_else(|| "unknown".into()));
+                println!("  environment:       {} / {}, logical CPUs={}",
+                    std::env::consts::OS, std::env::consts::ARCH,
+                    logical_cpus.map(|n| n.to_string()).unwrap_or_else(|| "unknown".into()));
+                for (label, key, unit) in [
+                    ("prompt tokens", "prompt_tokens", ""),
+                    ("prefill", "prefill_ms", " ms"),
+                    ("generated", "generated_tokens", " tokens"),
+                    ("decode", "decode_ms", " ms"),
+                    ("forward time", "decode_forward_ms", " ms"),
+                    ("sampling", "sampling_ms", " ms"),
+                    ("token conversion", "token_conversion_ms", " ms"),
+                    ("sampled rate", "decode_tokens_per_second", " tokens/s"),
+                    ("decode forward", "decode_forward_tokens_per_second", " steps/s"),
+                    ("including prefill", "response_tokens_per_second_including_prefill", " tokens/s"),
+                ] {
+                    let summary = stats(key);
+                    if let Some(summary) = summary.as_object() {
+                        println!("  {:<18} median {:>8.2}{} | mean {:>8.2} | range {:.2}â€“{:.2}",
+                            format!("{}:", label),
+                            summary["median"].as_f64().unwrap_or(0.0), unit,
+                            summary["mean"].as_f64().unwrap_or(0.0),
+                            summary["min"].as_f64().unwrap_or(0.0),
+                            summary["max"].as_f64().unwrap_or(0.0));
+                    }
+                }
+                println!();
+                for (index, run) in measurements.iter().enumerate() {
+                    println!("  run {}: prefill {:.2} ms; decode {:.2} ms; {:.2} tokens/s ({} prompt, {} generated)",
+                        index + 1,
+                        run["prefill_ms"].as_f64().unwrap_or(0.0),
+                        run["decode_ms"].as_f64().unwrap_or(0.0),
+                        run["decode_tokens_per_second"].as_f64().unwrap_or(0.0),
+                        run["prompt_tokens"].as_u64().unwrap_or(0),
+                        run["generated_tokens"].as_u64().unwrap_or(0));
+                }
+            }
+        },
+        Commands::Plan { model, json } => {
+            let model = match model_library::resolve_model_identifier(&model) {
+                Ok(path) => path.display().to_string(),
+                Err(error) => { eprintln!("kiln plan: {error}"); std::process::exit(2); }
+            };
+            if let Err(error) = model_plan::run(&model, json) {
+                eprintln!("kiln plan: {error}");
+                std::process::exit(2);
+            }
+        },
+        Commands::Measure { model, out, tokens, runs, threads, reference, corpus,
+            cache_mib, min_tps, max_rss_gib } => {
+            if let Err(error) = measure::run(model, out, tokens, runs, threads, reference,
+                corpus, cache_mib, min_tps, max_rss_gib) {
+                eprintln!("measure: {error}");
+                std::process::exit(2);
+            }
+        },
+    }
+}
+
+/// Summarize one numeric metric across benchmark runs.
+fn benchmark_stats(measurements: &[serde_json::Value], key: &str) -> serde_json::Value {
+    let mut values: Vec<f64> = measurements.iter()
+        .filter_map(|run| run.get(key).and_then(serde_json::Value::as_f64))
+        .collect();
+    if values.is_empty() {
+        return serde_json::Value::Null;
+    }
+    values.sort_by(f64::total_cmp);
+    let count = values.len();
+    let mean = values.iter().sum::<f64>() / count as f64;
+    let median = if count % 2 == 0 {
+        (values[count / 2 - 1] + values[count / 2]) / 2.0
+    } else {
+        values[count / 2]
+    };
+    let variance = values.iter().map(|value| (value - mean).powi(2)).sum::<f64>() / count as f64;
+    serde_json::json!({
+        "mean": mean,
+        "median": median,
+        "min": values[0],
+        "max": values[count - 1],
+        "stddev_population": variance.sqrt()
+    })
+}
+
+#[cfg(test)]
+mod benchmark_stats_tests {
+    use super::benchmark_stats;
+    use serde_json::json;
+
+    #[test]
+    fn reports_median_range_and_population_spread() {
+        let runs = vec![
+            json!({"rate": 1.0}),
+            json!({"rate": 3.0}),
+            json!({"rate": 2.0}),
+        ];
+        let stats = benchmark_stats(&runs, "rate");
+        assert_eq!(stats["mean"].as_f64().unwrap(), 2.0);
+        assert_eq!(stats["median"].as_f64().unwrap(), 2.0);
+        assert_eq!(stats["min"].as_f64().unwrap(), 1.0);
+        assert_eq!(stats["max"].as_f64().unwrap(), 3.0);
+    }
+
+    #[test]
+    fn even_count_median_averages_middle_values() {
+        let runs = vec![json!({"rate": 1.0}), json!({"rate": 3.0})];
+        assert_eq!(benchmark_stats(&runs, "rate")["median"].as_f64().unwrap(), 2.0);
+    }
+
+    #[test]
+    fn missing_metric_returns_null() {
+        assert!(benchmark_stats(&[json!({"other": 1})], "rate").is_null());
+    }
+}
+
+/// Buffer token bytes until complete UTF-8 characters are available.
+fn decode_utf8_piece(pending: &mut Vec<u8>, bytes: &[u8]) -> String {
+    pending.extend_from_slice(bytes);
+    match std::str::from_utf8(pending) {
+        Ok(text) => {
+            let decoded = text.to_string();
+            pending.clear();
+            decoded
+        }
+        Err(error) => {
+            let valid = error.valid_up_to();
+            let decoded = String::from_utf8_lossy(&pending[..valid]).into_owned();
+            if error.error_len().is_some() {
+                let remainder = String::from_utf8_lossy(&pending[valid..]).into_owned();
+                pending.clear();
+                format!("{}{}", decoded, remainder)
+            } else {
+                let remainder = pending.split_off(valid);
+                *pending = remainder;
+                decoded
+            }
+        }
+    }
+}
+
+/// Validate backend draft-verification metadata before updating history/KV.
+fn validate_verified_draft(accepted: usize, draft_len: usize, next: i32)
+    -> Result<(usize, i32), String>
+{
+    if accepted > draft_len {
+        return Err(format!("verifier accepted {accepted} tokens from a {draft_len}-token draft"));
+    }
+    if next < 0 {
+        return Err(format!("verifier returned invalid next token ID {next}"));
+    }
+    Ok((accepted, next))
+}
+
+/// Extend generation history only with the prefix retained in native KV.
+fn record_verified_draft(history: &mut Vec<i32>, draft: &[i32], accepted: usize, next: i32)
+    -> Result<i32, String>
+{
+    let (accepted, next) = validate_verified_draft(accepted, draft.len(), next)?;
+    history.extend_from_slice(&draft[..accepted]);
+    Ok(next)
+}
+
+#[cfg(test)]
+mod speculative_cli_tests {
+    use super::{record_verified_draft, validate_verified_draft};
+
+    #[test]
+    fn accepts_valid_full_and_partial_draft_results() {
+        assert_eq!(validate_verified_draft(0, 4, 9), Ok((0, 9)));
+        assert_eq!(validate_verified_draft(2, 4, 9), Ok((2, 9)));
+        assert_eq!(validate_verified_draft(4, 4, 9), Ok((4, 9)));
+    }
+
+    #[test]
+    fn rejects_impossible_accept_count_and_negative_token() {
+        assert!(validate_verified_draft(5, 4, 9).is_err());
+        assert!(validate_verified_draft(0, 4, -1).is_err());
+    }
+
+    #[test]
+    fn records_only_the_native_kv_accepted_prefix() {
+        let mut history = vec![1, 2, 3];
+        let next = record_verified_draft(&mut history, &[4, 5, 6], 2, 7).unwrap();
+        assert_eq!(next, 7);
+        assert_eq!(history, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn invalid_verification_does_not_mutate_history() {
+        let mut history = vec![1, 2, 3];
+        assert!(record_verified_draft(&mut history, &[4, 5], 3, 7).is_err());
+        assert_eq!(history, vec![1, 2, 3]);
+    }
+}
+
+#[cfg(test)]
+mod utf8_stream_tests {
+    use super::decode_utf8_piece;
+
+    #[test]
+    fn handles_multibyte_character_split_across_tokens() {
+        let mut pending = Vec::new();
+        assert_eq!(decode_utf8_piece(&mut pending, &[0xe2]), "");
+        assert_eq!(decode_utf8_piece(&mut pending, &[0x82]), "");
+        assert_eq!(decode_utf8_piece(&mut pending, &[0xac]), "â‚¬");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn preserves_valid_prefix_while_buffering_incomplete_suffix() {
+        let mut pending = Vec::new();
+        assert_eq!(decode_utf8_piece(&mut pending, &[b'A', 0xc3]), "A");
+        assert_eq!(decode_utf8_piece(&mut pending, &[0xa9]), "Ã©");
+    }
+}
+
+/// Truncate display text by Unicode scalar values, never by UTF-8 byte offset.
+fn truncate_for_display(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let prefix: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{}...", prefix)
+    } else {
+        prefix
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::{truncate_for_display, Cli, Commands};
+    use clap::Parser;
+
+    #[test]
+    fn native_greedy_remains_explicit_opt_in() {
+        let default = Cli::try_parse_from(["kiln", "run", "model.gguf"]).unwrap();
+        assert!(matches!(default.command,
+            Commands::Run { native_greedy: false, .. }));
+        let selected = Cli::try_parse_from(["kiln", "run", "model.gguf", "--native-greedy"]).unwrap();
+        assert!(matches!(selected.command,
+            Commands::Run { native_greedy: true, .. }));
+        let baseline_bench = Cli::try_parse_from(["kiln", "bench", "model.gguf"]).unwrap();
+        assert!(matches!(baseline_bench.command,
+            Commands::Bench { native_greedy: false, .. }));
+        let tuned = Cli::try_parse_from(["kiln", "bench", "model.gguf", "--native-greedy"]).unwrap();
+        assert!(matches!(tuned.command,
+            Commands::Bench { native_greedy: true, .. }));
+    }
+
+    #[test]
+    fn keep_context_is_explicit_opt_in() {
+        let regular = Cli::try_parse_from(["kiln", "run", "model.gguf"]).unwrap();
+        assert!(matches!(regular.command, Commands::Run { keep_context: false, .. }));
+        let opted = Cli::try_parse_from([
+            "kiln", "run", "model.gguf", "--keep-context", "--max-tokens", "32",
+        ]).unwrap();
+        assert!(matches!(opted.command, Commands::Run {
+            keep_context: true, max_tokens: 32, ..
+        }));
+    }
+
+    #[test]
+    fn ngram_speculation_is_explicit_and_conflicts_with_plain_native_greedy_flag() {
+        let selected = Cli::try_parse_from([
+            "kiln", "run", "model.gguf", "--spec-type", "ngram-mod",
+        ]).unwrap();
+        assert!(matches!(selected.command, Commands::Run {
+            spec_type: Some(ref kind), native_greedy: false, ..
+        } if kind == "ngram-mod"));
+        assert!(Cli::try_parse_from([
+            "kiln", "run", "model.gguf", "--spec-type", "unknown",
+        ]).is_err());
+        assert!(Cli::try_parse_from([
+            "kiln", "run", "model.gguf", "--spec-type", "ngram-mod", "--native-greedy",
+        ]).is_err());
+    }
+
+    #[test]
+    fn display_truncation_preserves_unicode_boundaries() {
+        assert_eq!(truncate_for_display("Ã©ç•Œx", 2), "Ã©ç•Œ...");
+        assert_eq!(truncate_for_display("Ã©ç•Œ", 2), "Ã©ç•Œ");
+        assert_eq!(truncate_for_display("abc", 0), "...");
+        assert_eq!(truncate_for_display("", 3), "");
+    }
+}
+
+/// Track exactly which tokens were executed into the native KV cache.
+/// This state never guesses prefix equality from decoded text or retokenization.
+/// The most recently emitted token may not have been forwarded yet.
+#[derive(Debug, Default)]
+struct InteractiveKvState {
+    cached_tokens: usize,
+    pending_token: Option<i32>,
+}
+
+impl InteractiveKvState {
+    /// Return (must_reset, tokens_to_forward). A reset is required if
+    /// continuing would exceed the configured context including generation.
+    fn prepare(&mut self, turn_tokens: Vec<i32>, max_new: usize, ctx_limit: usize)
+        -> Result<(bool, Vec<i32>), String>
+    {
+        if turn_tokens.is_empty() {
+            return Err("empty turn tokenization".to_string());
+        }
+        let needed_fresh = turn_tokens.len().checked_add(max_new)
+            .ok_or_else(|| "context length arithmetic overflow".to_string())?;
+        if needed_fresh > ctx_limit {
+            return Err(format!(
+                "turn requires at least {needed_fresh} context tokens, but configured n_ctx is {ctx_limit}; shorten the prompt or lower --max-tokens"
+            ));
+        }
+        let needed_continued = self.cached_tokens
+            .checked_add(turn_tokens.len())
+            .and_then(|n| n.checked_add(usize::from(self.pending_token.is_some())))
+            .and_then(|n| n.checked_add(max_new))
+            .unwrap_or(usize::MAX);
+        if needed_continued > ctx_limit {
+            self.cached_tokens = 0;
+            self.pending_token = None;
+            return Ok((true, turn_tokens));
+        }
+        let mut tail = Vec::with_capacity(turn_tokens.len() + usize::from(self.pending_token.is_some()));
+        if let Some(pending) = self.pending_token.take() {
+            tail.push(pending);
+        }
+        tail.extend(turn_tokens);
+        Ok((false, tail))
+    }
+
+    fn forwarded(&mut self, count: usize) {
+        self.cached_tokens += count;
+    }
+
+    fn emitted(&mut self, token: i32) {
+        self.pending_token = Some(token);
+    }
+
+    /// EOS was sampled but never decoded; it must not enter next turn's KV.
+    fn ended_on_eos(&mut self) {
+        self.pending_token = None;
+    }
+}
+
+#[cfg(test)]
+mod interactive_kv_tests {
+    use super::InteractiveKvState;
+
+    #[test]
+    fn appends_only_unexecuted_token_and_new_turn() {
+        let mut cache = InteractiveKvState::default();
+        let (reset, tail) = cache.prepare(vec![1, 2], 3, 20).unwrap();
+        assert!(!reset);
+        assert_eq!(tail, vec![1, 2]);
+        cache.forwarded(tail.len());
+        cache.emitted(7);
+        let (reset, tail) = cache.prepare(vec![3, 4], 3, 20).unwrap();
+        assert!(!reset);
+        assert_eq!(tail, vec![7, 3, 4]);
+        assert_eq!(cache.cached_tokens, 2);
+    }
+
+    #[test]
+    fn resets_before_context_overflow_and_drops_pending() {
+        let mut cache = InteractiveKvState { cached_tokens: 12, pending_token: Some(42) };
+        let (reset, tail) = cache.prepare(vec![1, 2], 4, 16).unwrap();
+        assert!(reset);
+        assert_eq!(tail, vec![1, 2]);
+        assert_eq!(cache.cached_tokens, 0);
+        assert_eq!(cache.pending_token, None);
+    }
+
+    #[test]
+    fn rejects_single_turn_too_large_without_mutating_state() {
+        let mut cache = InteractiveKvState { cached_tokens: 2, pending_token: Some(5) };
+        assert!(cache.prepare(vec![1, 2, 3], 6, 8).is_err());
+        assert_eq!(cache.cached_tokens, 2);
+        assert_eq!(cache.pending_token, Some(5));
+    }
+
+    #[test]
+    fn eos_is_never_appended_to_next_turn() {
+        let mut cache = InteractiveKvState::default();
+        let (_, first) = cache.prepare(vec![10, 11], 3, 32).unwrap();
+        cache.forwarded(first.len());
+        // Simulate one emitted token that was decoded, then model EOS.
+        cache.emitted(55);
+        // The emitted token has now been evaluated (as in the decode loop).
+        cache.pending_token = None;
+        cache.forwarded(1);
+        // EOS is sampled from that evaluation and is never forwarded.
+        cache.ended_on_eos();
+        let (reset, next) = cache.prepare(vec![20, 21], 3, 32).unwrap();
+        assert!(!reset);
+        assert_eq!(next, vec![20, 21]);
+        assert_eq!(cache.cached_tokens, 3);
+    }
+
+    #[test]
+    fn budget_excludes_eos_when_it_was_not_forwarded() {
+        let mut cache = InteractiveKvState {
+            cached_tokens: 5,
+            pending_token: Some(99),
+        };
+        cache.ended_on_eos();
+        let (reset, tail) = cache.prepare(vec![8, 9], 2, 9).unwrap();
+        assert!(!reset);
+        assert_eq!(tail, vec![8, 9]);
+    }
+
+    #[test]
+    fn exact_fit_keeps_context() {
+        let mut cache = InteractiveKvState { cached_tokens: 3, pending_token: Some(8) };
+        let (reset, tail) = cache.prepare(vec![1, 2], 4, 10).unwrap();
+        assert!(!reset);
+        assert_eq!(tail, vec![8, 1, 2]);
+    }
+
+    #[test]
+    fn accepted_batched_tokens_extend_context_once_before_corrected_pending_token() {
+        let mut cache = InteractiveKvState::default();
+        let (_, prompt) = cache.prepare(vec![1, 2], 8, 32).unwrap();
+        cache.forwarded(prompt.len());
+        // A two-token draft was accepted and is already resident in native KV.
+        cache.forwarded(2);
+        cache.emitted(9); // corrected next token is output but not forwarded yet
+        let (reset, next_turn) = cache.prepare(vec![10, 11], 8, 32).unwrap();
+        assert!(!reset);
+        assert_eq!(cache.cached_tokens, 4);
+        assert_eq!(next_turn, vec![9, 10, 11]);
+    }
+}
+
+/// Run a real interactive text session using the runtime dispatcher.
+fn run_interactive(model: &str, max_tokens: usize, keep_context: bool, native_greedy: bool, speculative: bool, lazy_moe_experts: bool) -> Result<(), String> {
+    use kiln_core::chat::{Sampler, SamplingStrategy};
+    use kiln_runtime::{draft_ngram, LlamaCppBackend, NgramDraftConfig, RuntimeDispatcher, RuntimeOp, RuntimeResult, SystemProfile};
+    use std::io::{self, Write};
+
+    let profile = SystemProfile::load_or_probe();
+    let mut dispatcher = RuntimeDispatcher::new();
+    dispatcher.register(Box::new(LlamaCppBackend::new()));
+    dispatcher.dispatch(RuntimeOp::Load {
+        path: std::path::PathBuf::from(model),
+        n_ctx: profile.n_ctx,
+        n_batch: profile.n_batch,
+        n_ubatch: profile.n_batch.min(512),
+        n_threads: profile.n_threads,
+        lazy_moe_experts,
+    }).map_err(|e| format!("model load failed: {}", e))?;
+
+    let eos = match dispatcher.dispatch(RuntimeOp::EosToken)
+        .map_err(|e| format!("could not read EOS token: {}", e))? {
+        RuntimeResult::Int(token) => token,
+        _ => return Err("backend returned an unexpected EOS-token result".to_string()),
+    };
+
+    println!("KILN interactive session â€” model: {}", model);
+    println!("Type /exit to quit. Profile: {:?}, threads={}, context={}",
+        profile.tier, profile.n_threads, profile.n_ctx);
+    if speculative {
+        println!("Speculative decode: ngram-mod (experimental; target-verified)");
+    }
+
+    let stdin = io::stdin();
+    let mut kv_state = InteractiveKvState::default();
+    let mut speculative_history = Vec::<i32>::new();
+    let draft_config = NgramDraftConfig::default();
+    let fast_greedy = native_greedy || speculative;
+    let mut first_turn = true;
+    loop {
+        print!("you> ");
+        io::stdout().flush().map_err(|e| format!("prompt output failed: {}", e))?;
+        let mut prompt = String::new();
+        let bytes = stdin.read_line(&mut prompt).map_err(|e| format!("input failed: {}", e))?;
+        if bytes == 0 {
+            break;
+        }
+        let prompt = prompt.trim();
+        if prompt.eq_ignore_ascii_case("/exit") || prompt.eq_ignore_ascii_case("/quit") {
+            break;
+        }
+        if prompt.is_empty() {
+            continue;
+        }
+
+        // Keep the existing independent, raw-prompt behavior by default.
+        // The opt-in mode builds a token stream incrementally and never
+        // re-prefills a prefix that already exists in the native KV cache.
+        let prompt_text = if keep_context {
+            if first_turn {
+                format!("User: {prompt}\nAssistant:")
+            } else {
+                format!("\nUser: {prompt}\nAssistant:")
+            }
+        } else {
+            prompt.to_string()
+        };
+        let tokens = match dispatcher.dispatch(RuntimeOp::Tokenize { text: prompt_text })
+            .map_err(|e| format!("tokenization failed: {}", e))? {
+            RuntimeResult::Tokens(tokens) => tokens,
+            _ => return Err("backend returned an unexpected tokenization result".to_string()),
+        };
+        if tokens.is_empty() {
+            eprintln!("warning: prompt tokenized to no tokens");
+            continue;
+        }
+        let previous_cached = kv_state.cached_tokens;
+        let tokens = if keep_context {
+            let (must_reset, tail) = kv_state.prepare(tokens, max_tokens, profile.n_ctx as usize)?;
+            if must_reset {
+                // After evicting the old dialogue, restart the prompt without
+                // the continuation-only leading newline.
+                let fresh = match dispatcher.dispatch(RuntimeOp::Tokenize {
+                    text: format!("User: {prompt}\nAssistant:"),
+                }).map_err(|e| format!("fresh turn tokenization failed: {e}"))? {
+                    RuntimeResult::Tokens(tokens) => tokens,
+                    _ => return Err("backend returned an unexpected tokenization result".to_string()),
+                };
+                let (_, fresh) = kv_state.prepare(fresh, max_tokens, profile.n_ctx as usize)?;
+                dispatcher.dispatch(RuntimeOp::Reset)
+                    .map_err(|e| format!("KV reset on context boundary failed: {e}"))?;
+                speculative_history.clear();
+                eprintln!("note: context limit approached; starting a fresh conversation window");
+                fresh
+            } else {
+                tail
+            }
+        } else {
+            dispatcher.dispatch(RuntimeOp::Reset)
+                .map_err(|e| format!("session reset failed: {}", e))?;
+            speculative_history.clear();
+            tokens
+        };
+        let prefill_count = tokens.len();
+        let prefill_tokens = if speculative { Some(tokens.clone()) } else { None };
+        let prefill_start = std::time::Instant::now();
+        let (mut logits, mut native_next) = if fast_greedy {
+            match dispatcher.dispatch(RuntimeOp::ForwardGreedy { tokens })
+                .map_err(|e| format!("native greedy prompt evaluation failed: {e}"))? {
+                RuntimeResult::Int(token) => (None, Some(token)),
+                _ => return Err("backend returned unexpected native token".to_string()),
+            }
+        } else {
+            match dispatcher.dispatch(RuntimeOp::Forward { tokens })
+                .map_err(|e| format!("prompt evaluation failed: {e}"))? {
+                RuntimeResult::Logits(logits) => (Some(logits), None),
+                _ => return Err("backend returned an unexpected prompt result".to_string()),
+            }
+        };
+        if keep_context {
+            kv_state.forwarded(prefill_count);
+            first_turn = false;
+            tracing::debug!(
+                prefill_tokens = prefill_count,
+                cached_before_turn = previous_cached,
+                cached_after_prefill = kv_state.cached_tokens,
+                prefill_ms = prefill_start.elapsed().as_secs_f64() * 1000.0,
+                "append-only interactive prefill"
+            );
+        }
+        if let Some(tokens) = prefill_tokens {
+            speculative_history.extend(tokens);
+        }
+
+        print!("kiln> ");
+        io::stdout().flush().map_err(|e| format!("response output failed: {}", e))?;
+        let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
+        let mut pending_utf8 = Vec::new();
+        let mut generated = 0usize;
+        let mut proposed_draft_tokens = 0usize;
+        let mut accepted_draft_tokens = 0usize;
+        let generation_started = std::time::Instant::now();
+        while generated < max_tokens {
+            if speculative {
+                let mut draft = draft_ngram(&speculative_history, draft_config, Some(eos));
+                draft.truncate(max_tokens - generated);
+                if !draft.is_empty() {
+                    proposed_draft_tokens += draft.len();
+                    let verification = match dispatcher.dispatch(RuntimeOp::VerifyGreedyDraft {
+                        tokens: draft.clone(),
+                    }).map_err(|e| format!("n-gram target verification failed: {e}"))? {
+                        RuntimeResult::VerifiedGreedy { accepted, next } => (accepted, next),
+                        _ => return Err("backend returned an unexpected n-gram verification result".to_string()),
+                    };
+                    let (accepted, corrected_next) = {
+                        let corrected_next = record_verified_draft(
+                            &mut speculative_history, &draft, verification.0, verification.1,
+                        )?;
+                        (verification.0, corrected_next)
+                    };
+                    accepted_draft_tokens += accepted;
+                    // The verifier retains only this accepted prefix in KV and
+                    // rolls back rejected/unverified draft positions.
+                    if keep_context {
+                        kv_state.forwarded(accepted);
+                    }
+                    for &draft_token in &draft[..accepted] {
+                        let piece = match dispatcher.dispatch(RuntimeOp::TokenToStr { token: draft_token })
+                            .map_err(|e| format!("speculative token decoding failed: {e}"))? {
+                            RuntimeResult::Bytes(bytes) => decode_utf8_piece(&mut pending_utf8, &bytes),
+                            RuntimeResult::Str(text) => text,
+                            _ => return Err("backend returned an unexpected speculative token-string result".to_string()),
+                        };
+                        print!("{}", piece);
+                        io::stdout().flush().map_err(|e| format!("response output failed: {e}"))?;
+                        generated += 1;
+                    }
+                    if generated >= max_tokens {
+                        break;
+                    }
+                    native_next = Some(corrected_next);
+                }
+            }
+
+            let token = if fast_greedy {
+                native_next.ok_or_else(|| "no native next token".to_string())?
+            } else {
+                sampler.sample(logits.as_deref().ok_or("missing logits")?)
+                    .ok_or_else(|| "sampler returned no token".to_string())? as i32
+            };
+            if token == eos {
+                // EOS is not an output token and is not evaluated into the
+                // native KV cache. Forwarding it at the next turn would
+                // change the continuation compared with the executed prefix.
+                if keep_context { kv_state.ended_on_eos(); }
+                break;
+            }
+            if keep_context { kv_state.emitted(token); }
+            let piece = match dispatcher.dispatch(RuntimeOp::TokenToStr { token })
+                .map_err(|e| format!("token decoding failed: {}", e))? {
+                RuntimeResult::Bytes(bytes) => decode_utf8_piece(&mut pending_utf8, &bytes),
+                RuntimeResult::Str(text) => text,
+                _ => return Err("backend returned an unexpected token-string result".to_string()),
+            };
+            print!("{}", piece);
+            io::stdout().flush().map_err(|e| format!("response output failed: {}", e))?;
+            generated += 1;
+            if generated < max_tokens {
+                if fast_greedy {
+                    native_next = match dispatcher.dispatch(RuntimeOp::ForwardGreedy { tokens: vec![token] })
+                        .map_err(|e| format!("native greedy decode failed: {e}"))? {
+                        RuntimeResult::Int(next) => Some(next),
+                        _ => return Err("backend returned unexpected native token".to_string()),
+                    };
+                } else {
+                    logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
+                        .map_err(|e| format!("decode step failed: {e}"))? {
+                        RuntimeResult::Logits(logits) => Some(logits),
+                        _ => return Err("backend returned an unexpected decode result".to_string()),
+                    };
+                }
+                if speculative {
+                    speculative_history.push(token);
+                }
+                if keep_context {
+                    kv_state.pending_token = None;
+                    kv_state.forwarded(1);
+                }
+            }
+        }
+        if !pending_utf8.is_empty() {
+            print!("{}", String::from_utf8_lossy(&pending_utf8));
+        }
+        println!();
+        if speculative {
+            let elapsed = generation_started.elapsed().as_secs_f64().max(f64::MIN_POSITIVE);
+            eprintln!("[ngram-mod: {} proposed, {} accepted ({:.1}%), {:.2} wall-clock interactive tok/s]",
+                proposed_draft_tokens,
+                accepted_draft_tokens,
+                if proposed_draft_tokens == 0 { 0.0 }
+                    else { accepted_draft_tokens as f64 * 100.0 / proposed_draft_tokens as f64 },
+                generated as f64 / elapsed);
+        }
+    }
+    dispatcher.dispatch(RuntimeOp::Unload)
+        .map_err(|e| format!("model unload failed: {}", e))?;
+    Ok(())
+}
+
+/// Execute one benchmark sample through the same runtime dispatcher used by chat.
+fn bench_once(
+    dispatcher: &mut kiln_runtime::RuntimeDispatcher,
+    prompt: &str,
+    max_tokens: usize,
+    eos_token: i32,
+    native_greedy: bool,
+) -> Result<serde_json::Value, String> {
+    use kiln_core::chat::{Sampler, SamplingStrategy};
+    use kiln_runtime::{RuntimeOp, RuntimeResult};
+
+    dispatcher.dispatch(RuntimeOp::Reset).map_err(|e| format!("reset failed: {}", e))?;
+    let tokenization_start = std::time::Instant::now();
+    let prompt_tokens = match dispatcher.dispatch(RuntimeOp::Tokenize { text: prompt.to_string() })
+        .map_err(|e| format!("tokenization failed: {}", e))? {
+        RuntimeResult::Tokens(tokens) => tokens,
+        _ => return Err("backend returned an unexpected tokenization result".to_string()),
+    };
+    let tokenization_ms = tokenization_start.elapsed().as_secs_f64() * 1000.0;
+    if prompt_tokens.is_empty() {
+        return Err("prompt tokenized to an empty sequence".to_string());
+    }
+
+    let prefill_start = std::time::Instant::now();
+    let mut next_logits: Option<Vec<f32>> = None;
+    let mut native_next: Option<i32> = None;
+    if native_greedy {
+        native_next = match dispatcher.dispatch(RuntimeOp::ForwardGreedy { tokens: prompt_tokens.clone() })
+            .map_err(|e| format!("native greedy prefill failed: {e}"))? {
+            RuntimeResult::Int(token) => Some(token),
+            _ => return Err("unexpected native greedy prefill result".into()),
+        };
+    } else {
+        next_logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: prompt_tokens.clone() })
+            .map_err(|e| format!("prompt forward pass failed: {e}"))? {
+            RuntimeResult::Logits(logits) => Some(logits),
+            _ => return Err("unexpected prefill result".into()),
+        };
+    }
+    let prefill_ms = prefill_start.elapsed().as_secs_f64() * 1000.0;
+
+    let mut sampler = Sampler::new(SamplingStrategy::Greedy, 42);
+    let mut generated_tokens = 0usize;
+    // Stable, allocation-free digest of the exact generated token sequence;
+    // compare it between baseline and native greedy runs on the same model.
+    let mut token_fingerprint_fnv1a64 = 0xcbf29ce484222325u64;
+    let mut eos_encountered = false;
+    let mut sampling_ms = 0.0_f64;
+    let mut token_conversion_ms = 0.0_f64;
+    let mut decode_forward_ms = 0.0_f64;
+    let mut decode_forward_steps = 0usize;
+    let decode_start = std::time::Instant::now();
+    for step in 0..max_tokens {
+        let sample_start = std::time::Instant::now();
+        let token = if native_greedy {
+            native_next.ok_or_else(|| "no native greedy token available".to_string())?
+        } else {
+            sampler.sample(next_logits.as_deref().ok_or("missing logits")?)
+                .ok_or_else(|| "sampler returned no token".to_string())? as i32
+        };
+        sampling_ms += sample_start.elapsed().as_secs_f64() * 1000.0;
+        if token == eos_token {
+            eos_encountered = true;
+            break;
+        }
+        for byte in token.to_le_bytes() {
+            token_fingerprint_fnv1a64 ^= u64::from(byte);
+            token_fingerprint_fnv1a64 = token_fingerprint_fnv1a64.wrapping_mul(0x100000001b3);
+        }
+
+        let conversion_start = std::time::Instant::now();
+        match dispatcher.dispatch(RuntimeOp::TokenToStr { token })
+            .map_err(|e| format!("token-to-string failed: {}", e))? {
+            RuntimeResult::Bytes(_) | RuntimeResult::Str(_) => {}
+            _ => return Err("backend returned an unexpected token conversion result".to_string()),
+        }
+        token_conversion_ms += conversion_start.elapsed().as_secs_f64() * 1000.0;
+        generated_tokens += 1;
+        // The final requested output token does not need a follow-up forward
+        // pass. Counting that extra pass would distort the decode benchmark.
+        if step + 1 < max_tokens {
+            let forward_start = std::time::Instant::now();
+            if native_greedy {
+                native_next = match dispatcher.dispatch(RuntimeOp::ForwardGreedy { tokens: vec![token] })
+                    .map_err(|e| format!("native decode forward failed: {e}"))? {
+                    RuntimeResult::Int(next) => Some(next),
+                    _ => return Err("backend returned an unexpected native decode result".into()),
+                };
+            } else {
+                next_logits = match dispatcher.dispatch(RuntimeOp::Forward { tokens: vec![token] })
+                    .map_err(|e| format!("decode forward pass failed: {}", e))? {
+                    RuntimeResult::Logits(logits) => Some(logits),
+                    _ => return Err("backend returned an unexpected decode result".to_string()),
+                };
+            }
+            decode_forward_ms += forward_start.elapsed().as_secs_f64() * 1000.0;
+            decode_forward_steps += 1;
+        }
+    }
+    let decode_seconds = decode_start.elapsed().as_secs_f64();
+    let decode_ms = decode_seconds * 1000.0;
+    // Legacy metric counts output samples, including the first (prefill-derived)
+    // token. Do not compare it with llama.cpp's token-decode throughput.
+    let decode_tokens_per_second = if decode_seconds > 0.0 {
+        generated_tokens as f64 / decode_seconds
+    } else { 0.0 };
+    let decode_forward_tokens_per_second = if decode_forward_ms > 0.0 {
+        decode_forward_steps as f64 * 1000.0 / decode_forward_ms
+    } else { 0.0 };
+    let full_response_ms = prefill_ms + decode_ms;
+    let response_tokens_per_second_including_prefill = if full_response_ms > 0.0 {
+        generated_tokens as f64 * 1000.0 / full_response_ms
+    } else { 0.0 };
+
+    Ok(serde_json::json!({
+        "prompt_tokens": prompt_tokens.len(),
+        "sampling_path": if native_greedy { "native_greedy" } else { "rust_logits_greedy" },
+        "generated_tokens": generated_tokens,
+        "token_fingerprint_fnv1a64": format!("{token_fingerprint_fnv1a64:016x}"),
+        "eos_encountered": eos_encountered,
+        "tokenization_ms": tokenization_ms,
+        "prefill_ms": prefill_ms,
+        "sampling_ms": sampling_ms,
+        "token_conversion_ms": token_conversion_ms,
+        "decode_forward_ms": decode_forward_ms,
+        "decode_forward_steps": decode_forward_steps,
+        "decode_forward_tokens_per_second": decode_forward_tokens_per_second,
+        "response_tokens_per_second_including_prefill": response_tokens_per_second_including_prefill,
+        "decode_ms": decode_ms,
+        "decode_tokens_per_second": decode_tokens_per_second
+    }))
+}
+
+fn not_implemented(cmd: &str, arg: &str) -> ! {
+    if arg.is_empty() {
+        eprintln!("kiln {}: not yet implemented in Phase 0B", cmd);
+    } else {
+        eprintln!("kiln {} {}: not yet implemented in Phase 0B", cmd, arg);
+    }
+    std::process::exit(2);
+}

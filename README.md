@@ -1,4 +1,166 @@
-YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éí÷]¶N‹Z–‹­¦ëeŠw¬ÔŒ-%18((¨©IÕ¸µ½‘•±Ì±…É•ÈÑ¡…¸µ…¡¥¹”µ•µ½Éä°…ĞÕÍ…‰±”ÍÁ••°½¸Ñ¡”¡…É‘İ…É”å½Ô…±É•…‘ä½İ¸¸¨¨()-%18¥Ì…¸½Á•¸µÍ½ÕÉ”±½…°¥¹™•É•¹”ÉÕ¹Ñ¥µ”¥¸…Ñ¥Ù”‘•Ù•±½Áµ•¹Ğ°¥¹Ñ•¹‘•™½È115Ì…¹M15ÌÍÕÁÁ½ÉÑ•‰ä¥ÑÌ¥¹™•É•¹”‰…­•¹‘Ì¸Q¡”ÁÉ½©•Ğ…¥µÌÑ¼½½É‘¥¹…Ñ”AT°AT°9AT½AT½¥AT°I4°…•±•É…Ñ½Èµ•µ½Éä°…¹ÍÑ½É…”İ¥Ñ¡½ÕĞÉ•ÅÕ¥É¥¹œ„Á…ÉÑ¥Õ±…Èµ½‘•°½È„Á…ÉÑ¥Õ±…Èµ…¡¥¹”¸ÑÕ…°‰…­•¹ÍÕÁÁ½ÉĞ…¹Á•É™½Éµ…¹”‘•Á•¹½¸Ñ¡”µ½‘•°…¹¡…É‘İ…É”ìÑ¡¥Ì¥Ì¹½Ğå•Ğ„ÍÑ…‰±”°•¹•É…°µÁÕÉÁ½Í”É•±•…Í”¸((ŒŒÕÉÉ•¹Ğ™Õ¹Ñ¥½¹…±¥Ñä((´IÕÍĞİ½É­ÍÁ…”°ÉÕ¹Ñ¥µ”‘¥ÍÁ…Ñ¡•È°U¥¹ÍÁ•Ñ¥½¸½±½…‘¥¹œ°QDÅ|À•áÁ•É¥µ•¹ÑÌ°1$°…¹„±½½Á‰…¬µ½¹±ä=±±…µ„µ½µÁ…Ñ¥‰±”A$İ¥Ñ „±½…°İ•ˆU$¸(´¥Í½Ù•Éä½˜•á¥ÍÑ¥¹œU™¥±•Ì…¹¥¹ÍÑ…±±•=±±…µ„µ…¹¥™•ÍÑÌ°¥¹±Õ‘¥¹œ¡Õµ…¸µÉ•…‘…‰±”=±±…µ„Ñ…Ì¸]¡•É”„±½…°Ñ…œÉ•Í½±Ù•ÌÕ¹…µ‰¥Õ½ÕÍ±ä°­¥±¸ÉÕ¸€ñ½±±…µ„µÑ…œù€ÕÍ•ÌÑ¡”•á¥ÍÑ¥¹œİ•¥¡Ğ‰±½ˆİ¥Ñ¡½ÕĞ½Áå¥¹œ¥Ğ¸(´AÕ‰±¥Œ!Õ¥¹œ…”UÍ•…É …¹•áÁ±¥¥Ğµ½‘•°µ™¥±”‘½İ¹±½…‘Ì°İ¥Ñ ¥¹Ñ•É¥Ñä¡•­Ì¸(´­¥±¸Á±…¸5=0l´µ©Í½¹u€èÉ•…µ½¹±äU½ÍåÍÑ•´µ•µ½Éä…¹AT™•…Í¥‰¥±¥ÑäÁÉ•™±¥¡Ğ¸%Ğ¥Ì„‘¥…¹½ÍÑ¥Œ°€¨©¹½Ğ¨¨„Õ…É…¹Ñ•”Ñ¡…Ğ„µ½‘•°İ¥±°±½…½ÈÉÕ¸…Ğ„Á…ÉÑ¥Õ±…ÈÍÁ••¸(´€¨©áÁ•É¥µ•¹Ñ…°1¥¹ÕàAT5½ÍÑÉ•…µ¥¹œè¨¨­¥±¸ÍÑÉ•…´5=1€É•Í½±Ù•Ì„½µÁ…Ñ¥‰±”™ÕÍ•µ•áÁ•ÉĞU°É•…Ñ•Ì„Ñ•µÁ½É…ÉäÙ•É¥™¥•Í½ÕÉ”¥¹‘•à°…¹ÍÑ…ÉÑÌ…¸¥Í½±…Ñ•¥¹™•É•¹”¡¥±ÕÍ¥¹œÍ•±•Ñ••áÁ•ÉĞÍ±…‰ÌÉ•…‘¥É•Ñ±ä™É½´Ñ¡”€¨©½É¥¥¹…°U¨¨¸Q¡¥Ì¥ÌÉ•…°½ÁĞµ¥¸É…Á ½µÁÕÑ”°¹½Ğ©ÕÍĞÍå¹Ñ¡•Ñ¥Œ$½<Í¥µÕ±…Ñ¥½¸¸%ĞÍÕÁÁ½ÉÑÌ‰½Õ¹‘•¹…Ñ¥Ù”•áÁ•ÉĞ…¡¥¹œ°½ÁÑ¥½¹…°Á…É…±±•°É•…‘Ì°…¹™…¥°µ±½Í•ÍÑÉ•…´…Õ‘¥Ğ¡•­Ìì¥Ğ‘½•Ì¹½ĞÉ•ÅÕ¥É”‘ÕÁ±¥…Ñ¥¹œµ½‘•°İ•¥¡ÑÌ¸(´A¡…Í”€Ô•¹¥¹••É¥¹œÑ½½±Ì™½ÈÉ•…°É½ÕÑ•Èµ%ÑÉ…•Ì°‰åÑ”µ‰½Õ¹‘•1IT½1T½…‘…ÁÑ¥Ù”…¡”É•Á±…ä°•áÁ•ÉĞ¥¹‘•à½Í¥‘•…ÈÙ…±¥‘…Ñ¥½¸°…Íå¹¡É½¹½ÕÌ$½<°…¹µ½‘•°ÅÕ…±¥Ñä½Ñ¡É½Õ¡ÁÕĞ•Ù¥‘•¹”¸QÉ…”Í¥µÕ±…Ñ¥½¸½µÁ…É•ÌÁ½±¥¥•Ì½¸…ÁÑÕÉ•É½ÕÑ•Ìì¥Ğ‘½•Ì¹½Ğµ•…ÍÕÉ”ÉÕ¹Ñ¥µ”µ…¡”‰•¡…Ù¥½È½È¡…É‘İ…É”Á•É™½Éµ…¹”¸(´€¨©áÁ•É¥µ•¹Ñ…°A¡…Í”€Ø11…‘¥™™ÕÍ¥½¸è¨¨­¥±¸‘¥™™ÕÍ•€ÉÕ¹Ì¹…Ñ¥Ù”µ…Í­•‘•½‘¥¹œİ¥Ñ 1…ÑÑ•¹Ñ¥½¸µÕ¥‘•Á…É…±±•°½µµ¥ÑÌ¸)M=90ÍÕ¥Ñ•ÌÉ•ÕÍ”½¹”±½…‘•µ½‘•°Í•ÍÍ¥½¸…¹Ñ¡”™…ÑÕ…°…ÁÑÕÉ”İ½É­™±½ÜÉ•½É‘ÌÉ•Á•…Ñ…‰±”•Ù¥‘•¹”ì•±°ÍÁ••…¹ÅÕ…±¥ÑäÉ•µ…¥¸Õ¹Ù…±¥‘…Ñ•¸(´Q¡”¹…Ñ¥Ù”ÍÑÉ•…µ•5½Í±…ˆ…¡”…±Í¼¡…Ì…¸•áÁ•É¥µ•¹Ñ…°½ÁĞµ¥¸1TÉ•Á±…•µ•¹ĞÁ½±¥äèÍ•Ğ-%19}5=}MQI5}!}A=1%dõ±™Õ€‰•™½É”­¥±¸ÍÑÉ•…µ€¸1ITÉ•µ…¥¹ÌÑ¡”‘•™…Õ±Ğì1TÁÉ•Í•ÉÙ•ÌÉ½ÕÑ•ÈµÍ•±•Ñ•½ÕÑÁÕĞ‰ÕĞ¡…Ì¹¼±…¥µ•ÍÁ••‰•¹•™¥ĞÕ¹Ñ¥°„½¹ÑÉ½±±•Ñ…É•Ğµ¡…É‘İ…É”½¸((¨©]¡…ĞÑ¡¥Ì‘½•Ì¹½Ğµ•…¸è¨¨Q¡”ÍÑÉ•…µ•Á…Ñ ¥Ì¹½Ğ…ÕÑ½µ…Ñ¥…±±ä•¹…‰±•™½È•Ù•Éäµ½‘•°°…É¡¥Ñ•ÑÕÉ”½È½Á•É…Ñ¥¹œÍåÍÑ•´¸=É‘¥¹…Éä­¥±¸ÉÕ¹€É•µ…¥¹ÌÑ¡”‘•™…Õ±Ğ¥¹™•É•¹”Á…Ñ ì¥¹½µÁ…Ñ¥‰±”•áÁ•ÉĞ±…å½ÕÑÌ…É”É•©•Ñ•™½È…ÕÑ½µ…Ñ¥ŒÍÑÉ•…µ¥¹œ¸Q¡”•á¥ÍÑ¥¹œÁÕ}µ½•}ÍÑÉ•…µ•‘€‰åÑ”µ‘¥ÍÁ…Ñ ½µÁ½¹•¹ÑÌ…¹¹…Ñ¥Ù”50Í•±•Ñ•µ•áÁ•ÉĞ½µÁÕÑ…Ñ¥½¸…É”Í•Á…É…Ñ”µ•¡…¹¥ÍµÌ°…¹¹•¥Ñ¡•È¥Ì„•¹•É…°¡…É‘İ…É”µ‘•Á±½åµ•¹Ğ…•ÁÑ…¹”•ÉÑ¥™¥…Ñ”¸((ŒŒ•ĞÍÑ…ÉÑ•€¡1¥¹Õà‘•Ù•±½Áµ•¹Ğ‰Õ¥±¤()AÉ•É•ÅÕ¥Í¥Ñ•Ìè¥Ğ°IÕÍĞ½…É¼°5…­”°„½¬¬Ñ½½±¡…¥¸°…¹Ñ¡”Á¥¹¹•­¥±¸µ±±…µ…€ÍÕ‰µ½‘Õ±”¸±½¹”İ¥Ñ ÍÕ‰µ½‘Õ±•Ì…¹‰Õ¥±Ñ¡”¹…Ñ¥Ù”ÍÑ…Ñ¥Œ±¥‰É…É¥•Ìè()Í )¥Ğ±½¹”€´µÉ•ÕÉÍ”µÍÕ‰µ½‘Õ±•Ì¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½…¹‘É•¥Á…Ñ ÈØ½-%18¹¥Ğ)-%18()µ…­”€µLÙ•¹‘½È½±±…µ„¹ÁÀ€µÙ•¹‘½È½±±…µ„¹ÁÀ½‰Õ¥±p(€€µ5-}	U%1}QeAõI•±•…Í”€µ	U%1}M!I}1%	Lõ=)µ…­”€´µ‰Õ¥±Ù•¹‘½È½±±…µ„¹ÁÀ½‰Õ¥±€´µ½¹™¥œI•±•…Í”€µ¨()…É¼ÉÕ¸€µÀ­¥±¸µ±¤€´´€´µ¡•±À)€()¥¹…¹ÕÍ”…¸…±É•…‘ä¥¹ÍÑ…±±•±½…°µ½‘•°€¡U½È…¸Õ¹…µ‰¥Õ½ÕÌ¥¹ÍÑ…±±•=±±…µ„Ñ…œ¤°½È•áÁ±¥¥Ñ±äÍ•…É ½‘½İ¹±½…„ÁÕ‰±¥ŒUè()Í )…É¼ÉÕ¸€µÀ­¥±¸µ±¤€´´±¥ÍĞ)…É¼ÉÕ¸€µÀ­¥±¸µ±¤€´´±¥ÍĞ€´µ©Í½¸)…É¼ÉÕ¸€µÀ­¥±¸µ±¤€´´±¥ÍĞ€´µÁ…Ñ €½Á…Ñ ½Ñ¼½µ½‘•±Ì)…É¼ÉÕ¸€µÀ­¥±¸µ±¤€´´ÉÕ¸…ÕÑ¼)…É¼ÉÕ¸€µÀ­¥±¸µ±¤€´´ÉÕ¸€½Á…Ñ ½Ñ¼½µ½‘•°¹Õ˜€´µµ…àµÑ½­•¹Ì€ÔÀ)…É¼ÉÕ¸€µÀ­¥±¸µ±¤€´´ÉÕ¸€å½ÕÈµ¥¹ÍÑ…±±•µ½±±…µ„µÑ…œœ)…É¼ÉÕ¸€µÀ­¥±¸µ±¤€´´Í•…É €‰µ½‘•°™…µ¥±äˆ)…É¼ÉÕ¸€µÀ­¥±¸µ±¤€´´ÁÕ±°=]9H½IA=M%Q=Id€´µ™¥±”Á…Ñ ½¥¸½É•Á½Í¥Ñ½Éä½µ½‘•°¹Õ˜)€()IÕ¸Ñ¡”½¹Í½±¥‘…Ñ•µ•…ÍÕÉ•µ•¹ĞÍÕ¥Ñ”……¥¹ÍĞ„±½…°Uè()Í )…É¼ÉÕ¸€µÀ­¥±¸µ±¤€´´µ•…ÍÕÉ”€½Á…Ñ ½Ñ¼½µ½‘•°¹Õ˜€´µ½ÕĞ€¸½µ•…ÍÕÉ•µ•¹ÑÌ½µ½‘•°µÉÕ¸p(€€´µÑ½­•¹Ì€ÄÈà€´µÉÕ¹Ì€Ô€´µÑ¡É•…‘Ì€Ğ)€()Q¡”½µµ…¹‰Õ¥±‘ÌÑ¡”É•±•…Í”Ñ½½±Ì°…ÁÑÕÉ•Ì¡½ÍĞ½µ½‘•°½É•Ù¥Í¥½¸ÁÉ½Ù•¹…¹”°ÉÕ¹Ì„É•Í¥‘•¹Ğ‰…Í•±¥¹”°…ÑÑ•µÁÑÌÙ•É¥™¥••áÁ•ÉĞ¥¹‘•á¥¹œ…¹±¥Ù”¹¼µ…¡”½1IT½1T5½µ•…ÍÕÉ•µ•¹ÑÌ°…ÁÑÕÉ•ÌÉ½ÕÑ•È…¹Í½ÕÉ”µ$½<•Ù¥‘•¹”°…¹É•Á±…åÌ…¡”Á½±¥¥•Ì…Ì„Í•Á…É…Ñ•±ä±…‰•±•Í¥µÕ±…Ñ¥½¸¸‘€´µÉ•™•É•¹”€½Á…Ñ ½Ñ¼½™ÀÄØ¹Õ˜€´µ½ÉÁÕÌ€½Á…Ñ ½Ñ¼½•Ù…°¹ÑáÑ€Ñ¼½µÁ…É”…¹‘¥‘…Ñ”½É•™•É•¹”910½¸Ñ¡”Í…µ”½ÉÁÕÌ¸%Ğ¹•Ù•È‘½İ¹±½…‘Ìİ•¥¡ÑÌ¸… ÉÕ¸•ÑÌ„¹•Ü½ÕÑÁÕĞ‘¥É•Ñ½Éä½¹Ñ…¥¹¥¹œÍÕµµ…Éä¹©Í½¹€°½µµ…¹É•½É‘Ì°)M=8É•Á½ÉÑÌ°…¹Á•ÈµÍÑ…”ÍÑ‘½ÕĞ½ÍÑ‘•ÉÈ±½Ìì™…¥±•ÍÑ…•ÌÉ•Ñ…¥¸Ñ¡•¥È±½Ì…¹‘¼¹½Ğ•É…Í”•…É±¥•È•Ù¥‘•¹”¸MÁ••…¹IML±¥µ¥ÑÌ…¸‰”¡…¹•İ¥Ñ €´µµ¥¸µÑÁÍ€…¹€´µµ…àµÉÍÌµ¥‰€¸()Q¡”ÍÕµµ…Éä‘•±¥‰•É…Ñ•±ä±•…Ù•Ì½Ù•É…±°…•ÁÑ…¹”¥¹½¹±ÕÍ¥Ù”Õ¹±•ÍÌ•Ù•ÉäÉ•ÅÕ¥É•Ñ…É•Ğµ¡…É‘İ…É”…¹ÅÕ…±¥Ñä…Ñ”¥Ì•Ù¥‘•¹•¸%Ğ‘½•Ì¹½Ğ¥¹™•È¥Í½±…Ñ•Á¡åÍ¥…°MMÑ¡É½Õ¡ÁÕĞ™É½´1¥¹ÕàÁÉ½•ÍÌ$½<½Õ¹Ñ•ÉÌ°…¹„…¡”É•Á±…ä¥Ì„Í¥µÕ±…Ñ¥½¸É…Ñ¡•ÈÑ¡…¸„ÉÕ¹Ñ¥µ”…¡”µ•…ÍÕÉ•µ•¹Ğ¸()ÉÕ¸…ÕÑ½€Í•±•ÑÌ„µ½‘•°½¹±äİ¡•¸‘¥Í½Ù•ÉäÉ•ÑÕÉ¹Ì„Í¥¹±”ÕÍ…‰±”°Õ¹…µ‰¥Õ½ÕÌ…¹‘¥‘…Ñ”ì½Ñ¡•Éİ¥Í”¡½½Í”…¸•áÁ±¥¥ĞÁ…Ñ ½ÈÑ…œ¸¥Í½Ù•Éä‘½•Ì¹½ĞÕ…É…¹Ñ•”Ñ¡…ĞÑ¡”‰…­•¹ÍÕÁÁ½ÉÑÌ„µ½‘•°Ì…É¡¥Ñ•ÑÕÉ”¸ÁÕ±±€É•ÅÕ¥É•Ì…¸•áÁ±¥¥ĞU™¥±”¥¸Ñ¡”Í•±•Ñ•É•Á½Í¥Ñ½Éäì-%18‘½•Ì€¨©¹½Ğ¨¨…ÕÑ½µ…Ñ¥…±±ä‘½İ¹±½…µ½‘•°İ•¥¡ÑÌ‘ÕÉ¥¹œ¥¹ÍÑ…±±…Ñ¥½¸¸½İ¹±½…‘ÌÕÍ”-%19}5=1M}%I€½ÈÑ¡”ÕÍ•ÈÌ‘…Ñ„‘¥É•Ñ½Éä…¹Ù…±¥‘…Ñ”Ñ¡”É•ÑÉ¥•Ù•™¥±”¸()MÑ…ÉĞÑ¡”±½…°Í•ÉÙ•È…¹U$è()Í )…É¼ÉÕ¸€µÀ­¥±¸µ±¤€´´Í•ÉÙ”(Œ=ÁÑ¥½¹…°ÍÑ…ÉÑÕÀµ½‘•°è)-%19}5=1}AQ ô½Á…Ñ ½Ñ¼½µ½‘•°¹Õ˜…É¼ÉÕ¸€µÀ­¥±¸µ±¤€´´Í•ÉÙ”)€()=Á•¸€¨©¡ÑÑÀè¼¼ÄÈÜ¸À¸À¸ÄèÄÄĞÌÔ¼¨¨¸Q¡”U$ÍÕÁÁ½ÉÑÌ±½…°µ½‘•°¥¹Ù•¹Ñ½Éä°ÁÕ‰±¥ŒUÍ•…É ½‘½İ¹±½…°µ½‘•°…Ñ¥Ù…Ñ¥½¸…¹¡…Ğ¸Q¡”A$¥Ì±½½Á‰…¬µ½¹±äì…ÕÑ¡•¹Ñ¥…Ñ•É•µ½Ñ”…•ÍÌ…¹…ÕÑ½µ…Ñ¥Œ¡•Ñ•É½•¹•½ÕÌ¡…É‘İ…É”Á±…•µ•¹Ğ…É”¹½ĞÍ¡¥ÁÁ•¸((ŒŒI•ÕÍ¥¹œ…¸…Ñ¥Ù”µ½‘•°()M•±•Ñ¥¹œ„UÑ¡…Ğ¥Ì€¨©…±É•…‘ä…Ñ¥Ù”¨¨Ñ¡É½Õ Ñ¡”±½…°U$‘½•Ì¹½ĞÑ•…È‘½İ¸…¹É•±½…¥ÑÌ¹…Ñ¥Ù”¥¹™•É•¹”Í•ÍÍ¥½¸¸-%18½µÁ…É•Ì…¹½¹¥…°Í½ÕÉ”Á…Ñ¡Ì…¹ÁÉ•Í•ÉÙ•ÌÑ¡”•á¥ÍÑ¥¹œµ½‘•°°¹…Ñ¥Ù”•áÁ•ÉĞ¡½Ğ…¡”…¹•á•ÕÑ¥½¸µ½‘”°…Ù½¥‘¥¹œÕ¹¹••ÍÍ…ÉäÍÑ½É…”É•…‘Ì…¹ÍÑ…ÉÑÕÀ‘•±…åÌ¸áÁ±¥¥Ñ±äÉ•ÅÕ•ÍÑ¥¹œÍÑÉ•…µ¥¹œ™½È„µ½‘•°ÕÉÉ•¹Ñ±äÉÕ¹¹¥¹œ¥¸ÍÑ…¹‘…Éµ½‘”ÍÑ¥±°Á•É™½ÉµÌ„‘•±¥‰•É…Ñ”µ½‘”Íİ¥Ñ ¸Q¡¥Ì½ÁÑ¥µ¥é…Ñ¥½¸‘½•Ì¹½Ğ¥¹ÑÉ½‘Õ”…¸…ÕÑ½µ…Ñ¥Œ‰…­É½Õ¹µ½‘•°‘½İ¹±½…½È…±Ñ•È±½…°İ•¥¡Ğ™¥±•Ì¸((ŒŒ=Ù•ÉÍ¥é•µ½‘•±Ì¥¸Ñ¡”±½…°İ•ˆU$()]¡•¸å½ÔÍ•±•Ğ€¨©UÍ”µ½‘•°¨¨°-%18•ÍÑ¥µ…Ñ•Ì„½¹Í•ÉÙ…Ñ¥Ù”É•Í¥‘•¹Ğµµ•µ½Éä‰Õ‘•ĞÕÍ¥¹œ1¥¹Õà5•µÙ…¥±…‰±•€…¹°İ¡•É”ÁÉ•Í•¹Ğ°É•µ…¥¹¥¹œÉ½ÕÀµ•µ½Éä¡•…‘É½½´¸%ĞÉ•Í•ÉÙ•ÌÉ½½´™½ÈÑ¡”=L°¥¹™•É•¹”½¹Ñ•áĞ…¹½Ñ¡•È…±±½…Ñ¥½¹Ìì½µÁ…É¥¹œ„Uİ¥Ñ €¨©Ñ½Ñ…°¥¹ÍÑ…±±•I4…±½¹”¨¨¥Ì¥¹ÍÕ™™¥¥•¹Ğ¸=¸1¥¹Õà°…¸½Ù•ÉÍ¥é•€¨©½µÁ…Ñ¥‰±”Í¥¹±”µ™¥±”™ÕÍ•5½U¨¨¥Ì±…Õ¹¡•Ñ¡É½Õ Ñ¡”•áÁ•É¥µ•¹Ñ…°¹…Ñ¥Ù”½¸µ‘•µ…¹•áÁ•ÉĞÍÑÉ•…µ¥¹œ•¹¥¹”°İ¥Ñ Ñ¡”µ½‘•°­•ÁĞ¥¸„Í•Á…É…Ñ”İ½É­•ÈÁÉ½•ÍÌ™½È¡…Ğ…¹•¹•É…Ñ¥½¸¸Q¡”‘Ù…¹•Ñ…ˆ¥‘•¹Ñ¥™¥•ÌÑ¡”…Ñ¥Ù”¥¹™•É•¹”µ½‘”¸¸•áÁ±¥¥Ğ€¨©QÉäÍÑÉ•…µ¥¹œ¨¨½ÁÑ¥½¸¥Ì…Ù…¥±…‰±”™½ÈÍµ…±±•È½µÁ…Ñ¥‰±”5½™¥±•Ì…Ìİ•±°¸MÑÉ•…µ¥¹œÉ•µ…¥¹Ì•áÁ•É¥µ•¹Ñ…°…¹¥Ì¹½ĞÁÉ½½˜½˜ÕÍ…‰±”ÍÁ••°‰½Õ¹‘•Á¡åÍ¥…°I4°½ÈÍÕÁÁ½ÉĞ™½È•Ù•ÉäU…É¡¥Ñ•ÑÕÉ”¸((¨©MÁ±¥Ğµµ½‘•°…Ñ¥Ù…Ñ¥½¸™…¥±Ì±½Í•è¨¨Ñ¡”A$¡•­ÌÑ¡…Ğ•Ù•Éä¹Õµ‰•É•Í½ÕÉ”Í¡…É¥Ì„É•…‘…‰±”É•Õ±…È™¥±”…¹ÕÍ•Ì¡•­•…É¥Ñ¡µ•Ñ¥Œ™½ÈÑ¡”½µ‰¥¹•Í¥é”‰•™½É”‘•¥‘¥¹œİ¡•Ñ¡•ÈÑ¼±½…İ•¥¡ÑÌ¥¸I4½ÈÍÑÉ•…´Ñ¡•´¸5¥ÍÍ¥¹œ½Õ¹É•…‘…‰±”Í¡…É‘Ì…¹Í¥é”½Ù•É™±½ÜÁÉ½‘Õ”…¸•áÁ±¥¥Ğ•ÉÉ½ÈÉ…Ñ¡•ÈÑ¡…¸…¸Õ¹‘•É•ÍÑ¥µ…Ñ•É•Í¥‘•¹Ğµµ•µ½Éä‰Õ‘•Ğ¸á¥ÍÑ¥¹œİ•¥¡ÑÌ…É”¹½Ğµ½‘¥™¥•¸((¨©MÁ±¥ĞUÌ¨¨İ¥Ñ ½¹Ù•¹Ñ¥½¹…°¹…µ•ÌÍÕ …Ìµ½‘•°´ÀÀÀÀÄµ½˜´ÀÀÀÀÈ¹Õ™€µÕÍĞ¡…Ù”€¨©…±°Í¡…É‘Ì¥¸Ñ¡”Í…µ”‘¥É•Ñ½Éä¨¨¸-%18‘•Ñ•ÑÌµ¥ÍÍ¥¹œÁ…ÉÑÌ°Í¡½İÌİ¡¥ ™¥±•¹…µ•Ì…É”…‰Í•¹Ğ°…¹…Ù½¥‘Ì…ÑÑ•µÁÑ¥¹œÑ¼…Ñ¥Ù…Ñ”…¸¥¹½µÁ±•Ñ”Í•Ğ¸]¥Ñ …±°Í¡…É‘ÌÁÉ•Í•¹Ğ°-%18Í•±•ÑÌÍ¡…É€Ä…ÌÑ¡”•¹ÑÉåÁ½¥¹Ğ…¹ÑÉ¥•ÌÑ¡”ÍÕÁÁ½ÉÑ•±½…‘•Èİ¥Ñ ±…éäÉ½ÕÑ•µ•áÁ•ÉĞµµ…À™½Èµ½‘•±Ì•á••‘¥¹œI4¸Q¡”¹…Ñ¥Ù”•áÑ•É¹…°•áÁ•ÉĞÍÑÉ•…µ¥¹œ¥¹‘•à¹½Ü…±Í¼ÍÕÁÁ½ÉÑÌ½µÁ±•Ñ”°½µÁ…Ñ¥‰±”ÍÁ±¥ĞµU™ÕÍ•±…å½ÕÑÌÑ¡É½Õ Ù•ÉÍ¥½¹•Á•ÈµÍ¡…ÉÍ½ÕÉ”µ…ÁÁ¥¹Ì¸%ĞÉ•µ…¥¹Ì½ÁĞµ¥¸•áÁ•É¥µ•¹Ñ…°¥¹™•É•¹”°…¹¹½Ğ…±°µ½‘•±Ì½ÈÅÕ…¹Ñ¥é…Ñ¥½¹Ì…É”ÍÕÁÁ½ÉÑ•¸MÑÉ•…µ•A$Í•ÍÍ¥½¹ÌÕÍ”‰½Õ¹‘•)M=8µ±¥¹•Ìµ•ÍÍ…•Ì‰•Ñİ••¸Ñ¡”±½…°Í•ÉÙ•È…¹¥ÑÌ¥Í½±…Ñ•¹…Ñ¥Ù”İ½É­•È¸%¹Ù…±¥½ÈÑÉÕ¹…Ñ•™É…µ•Ì™…¥°±½Í•°±¥•¹Ğ‘¥Í½¹¹•ÑÌ‘¼¹½Ğ‘•Íå¹¡É½¹¥é”ÍÕ‰Í•ÅÕ•¹ĞÉ•ÍÁ½¹Í•Ì°…¹„İ½É­•ÈÑ¡…Ğ‘½•Ì¹½Ğ•á¥Ğ…Ğµ½‘•°µÍİ¥Ñ Í¡ÕÑ‘½İ¸¥ÌÑ•Éµ¥¹…Ñ•…™Ñ•È„‰½Õ¹‘•É…”Á•É¥½¸¼¹½Ğ‘•±•Ñ”½ÈÉ”µ‘½İ¹±½……¸•á¥ÍÑ¥¹œÍ¡…ÉÕ¹±•ÍÌ¥ÑÌ¥¹Ñ•É¥Ñä¥Ì¥¸ÅÕ•ÍÑ¥½¸¸()ÍÕ•ÍÍ™Õ°Uµ•Ñ…‘…Ñ„Í…¸¥Ì¹½Ğ•Ù¥‘•¹”Ñ¡…Ğ¥ÑÌ…É¡¥Ñ•ÑÕÉ”½ÈÅÕ…¹Ñ¥é…Ñ¥½¸§}vÚÚ$z{-®éÜj×xpert layout, uses a temporary index and audit file, then cleans them up. It is opt-in and fails on unsupported layouts rather than silently claiming successful streaming. `--lazy-moe-experts` alone is a separate mmap-loader experiment, **not** equivalent to native streamed compute.
+# KILN
+
+**Run models larger than machine memory, at usable speed, on the hardware you already own.**
+
+KILN is an open-source local inference runtime in active development, intended for LLMs and SLMs supported by its inference backends. The project aims to coordinate CPU, GPU, NPU/APU/iGPU, RAM, accelerator memory, and storage without requiring a particular model or a particular machine. Actual backend support and performance depend on the model and hardware; this is not yet a stable, general-purpose release.
+
+## Current functionality
+
+- Rust workspace, runtime dispatcher, GGUF inspection/loading, TQ1_0 experiments, CLI, and a loopback-only Ollama-compatible API with a local web UI.
+- Discovery of existing GGUF files and installed Ollama manifests, including human-readable Ollama tags. Where a local tag resolves unambiguously, `kiln run <ollama-tag>` uses the existing weight blob without copying it.
+- Public Hugging Face GGUF search and explicit model-file downloads, with integrity checks.
+- `kiln plan MODEL [--json]`: read-only GGUF/system memory and CPU feasibility preflight. It is a diagnostic, **not** a guarantee that a model will load or run at a particular speed.
+- **Experimental Linux CPU MoE streaming:** `kiln stream MODEL` resolves a compatible fused-expert GGUF, creates a temporary verified source index, and starts an isolated inference child using selected expert slabs read directly from the **original GGUF**. This is real opt-in graph compute, not just synthetic I/O simulation. It supports bounded native expert caching, optional parallel reads, and fail-closed stream audit checks; it does not require duplicating model weights.
+- Phase 5 engineering tools for real router-ID traces, byte-bounded LRU/LFU/adaptive cache replay, expert index/sidecar validation, asynchronous I/O, and model quality/throughput evidence. Trace simulation compares policies on captured routes; it does not measure runtime-cache behavior or hardware performance.
+- **Experimental Phase 6 LLaDA diffusion:** `kiln diffuse` runs native masked decoding with CLAD attention-guided parallel commits. JSONL suites reuse one loaded model session and the factual capture workflow records repeatable evidence; Dell speed and quality remain unvalidated.
+- The native streamed MoE slab cache also has an experimental opt-in LFU replacement policy: set `KILN_MOE_STREAM_CACHE_POLICY=lfu` before `kiln stream`. LRU remains the default; LFU preserves router-selected output but has no claimed speed benefit until a controlled target-hardware A/B.
+
+**What this does not mean:** The streamed path is not automatically enabled for every model, architecture or operating system. Ordinary `kiln run` remains the default inference path; incompatible expert layouts are rejected for automatic streaming. The existing `cpu_moe_streamed` byte-dispatch components and native GGML selected-expert computation are separate mechanisms, and neither is a general hardware-deployment acceptance certificate.
+
+## Get started (Linux development build)
+
+Prerequisites: Git, Rust/Cargo, CMake, a C/C++ toolchain, and the pinned `kiln-llama` submodule. Clone with submodules and build the native static libraries:
+
+```sh
+git clone --recurse-submodules https://github.com/andreipath26/KILN.git
+cd KILN
+
+cmake -S vendor/llama.cpp -B vendor/llama.cpp/build \
+  -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
+cmake --build vendor/llama.cpp/build --config Release -j
+
+cargo run -p kiln-cli -- --help
+```
+
+Find and use an already installed local model (GGUF or an unambiguous installed Ollama tag), or explicitly search/download a public GGUF:
+
+```sh
+cargo run -p kiln-cli -- list
+cargo run -p kiln-cli -- list --json
+cargo run -p kiln-cli -- list --path /path/to/models
+cargo run -p kiln-cli -- run auto
+cargo run -p kiln-cli -- run /path/to/model.gguf --max-tokens 50
+cargo run -p kiln-cli -- run 'your-installed-ollama-tag'
+cargo run -p kiln-cli -- search "model family"
+cargo run -p kiln-cli -- pull OWNER/REPOSITORY --file path/in/repository/model.gguf
+```
+
+Run the consolidated measurement suite against a local GGUF:
+
+```sh
+cargo run -p kiln-cli -- measure /path/to/model.gguf --out ./measurements/model-run \
+  --tokens 128 --runs 5 --threads 4
+```
+
+The command builds the release tools, captures host/model/revision provenance, runs a resident baseline, attempts verified expert indexing and live no-cache/LRU/LFU MoE measurements, captures router and source-I/O evidence, and replays cache policies as a separately labeled simulation. Add `--reference /path/to/fp16.gguf --corpus /path/to/eval.txt` to compare candidate/reference NLL on the same corpus. It never downloads weights. Each run gets a new output directory containing `summary.json`, command records, JSON reports, and per-stage stdout/stderr logs; failed stages retain their logs and do not erase earlier evidence. Speed and RSS limits can be changed with `--min-tps` and `--max-rss-gib`.
+
+The summary deliberately leaves overall acceptance inconclusive unless every required target-hardware and quality gate is evidenced. It does not infer isolated physical SSD throughput from Linux process I/O counters, and a cache replay is a simulation rather than a runtime cache measurement.
+
+`run auto` selects a model only when discovery returns a single usable, unambiguous candidate; otherwise choose an explicit path or tag. Discovery does not guarantee that the backend supports a model's architecture. `pull` requires an explicit GGUF file in the selected repository; KILN does **not** automatically download model weights during installation. Downloads use `KILN_MODELS_DIR` or the user's data directory and validate the retrieved file.
+
+Start the local server and UI:
+
+```sh
+cargo run -p kiln-cli -- serve
+# Optional startup model:
+KILN_MODEL_PATH=/path/to/model.gguf cargo run -p kiln-cli -- serve
+```
+
+Open **http://127.0.0.1:11435/**. The UI supports local model inventory, public GGUF search/download, model activation and chat. The API is loopback-only; authenticated remote access and automatic heterogeneous hardware placement are not shipped.
+
+## Reusing an active model
+
+Selecting a GGUF that is **already active** through the local UI does not tear down and reload its native inference session. KILN compares canonical source paths and preserves the existing model, native expert hot cache and execution mode, avoiding unnecessary storage reads and startup delays. Explicitly requesting streaming for a model currently running in standard mode still performs a deliberate mode switch. This optimization does not introduce an automatic background model download or alter local weight files.
+
+## Oversized models in the local web UI
+
+When you select **Use model**, KILN estimates a conservative resident-memory budget using Linux `MemAvailable` and, where present, remaining cgroup memory headroom. It reserves room for the OS, inference context and other allocations; comparing a GGUF with **total installed RAM alone** is insufficient. On Linux, an oversized **compatible single-file fused MoE GGUF** is launched through the experimental native on-demand expert streaming engine, with the model kept in a separate worker process for chat and generation. The Advanced tab identifies the active inference mode. An explicit **Try streaming** option is available for smaller compatible MoE files as well. Streaming remains experimental and is not proof of usable speed, bounded physical RAM, or support for every GGUF architecture.
+
+**Split-model activation fails closed:** the API checks that every numbered source shard is a readable regular file and uses checked arithmetic for the combined size before deciding whether to load weights in RAM or stream them. Missing/unreadable shards and size overflow produce an explicit error rather than an underestimated resident-memory budget. Existing weights are not modified.
+
+**Split GGUFs** with conventional names such as `model-00001-of-00002.gguf` must have **all shards in the same directory**. KILN detects missing parts, shows which filenames are absent, and avoids attempting to activate an incomplete set. With all shards present, KILN selects shard 1 as the entrypoint and tries the supported loader with lazy routed-expert mmap for models exceeding RAM. The native external expert streaming index now also supports complete, compatible split-GGUF fused layouts through versioned per-shard source mappings. It remains opt-in experimental inference, and not all models or quantizations are supported. Streamed API sessions use bounded JSON-lines messages between the local server and its isolated native worker. Invalid or truncated frames fail closed, client disconnects do not desynchronize subsequent responses, and a worker that does not exit at model-switch shutdown is terminated after a bounded grace period. Do not delete or re-download an existing shard unless its integrity is in question.
+
+A successful GGUF metadata scan is not evidence that its architecture or quantization is supported by the native inference fork. Incompatible layouts or failed memory allocations remain explicit load errors rather than silent fallback claims.
+
+## Download complete split models and resume safely
+
+For public Hugging Face models supplied as numbered GGUF shards, the web UI offers **Download complete model (N shards)** when the repository lists every part. It downloads each original GGUF file separately with size and SHA-256 validation. If a transfer is cancelled, already completed shards remain intact, and the partial in-progress file is removed. A later attempt verifies and reuses existing shards rather than overwriting or downloading them again. Incomplete remote shard groups are not advertised as complete models.
+
+The CLI provides the same complete-file workflow:
+
+```sh
+kiln pull OWNER/REPOSITORY --file "model-00001-of-00002.gguf" --all-shards
+```
+
+Use a nested repository file path when appropriate. The command checks that all numbered parts and their trusted digests exist in the public repository before starting transfers, and it verifies each installed file. **This is download completeness, not inference compatibility**: some architectures and quantizers remain unsupported, and KILN still requires native multi-shard expert compute validation before calling large split-model streaming production-ready.
+
+## Real-model streamed-session recovery gate
+
+The Linux CI smoke test now keeps one actual native MoE model loaded while exercising two HTTP 400 paths: an over-context prompt that fits the raw IPC request bound, and a control-character prompt whose escaped JSONL frame exceeds the native worker limit. It then sends a short generation request to the same native session and verifies that the streaming mode remains active. The response and recovery evidence are archived after the full smoke sequence. Passing this gate verifies protocol/session recovery for a small test GGUF only; it is not a large-model Tier 0 speed, memory, SSD I/O, or WikiText-2 quality result.
+
+## Parallel CI feedback
+
+GitHub Actions runs a lightweight `fast-checks` job alongside the native real-model integration job. It validates Python evidence/feasibility utilities, shell script syntax, and local browser JavaScript syntax without compiling the pinned llama.cpp submodule or downloading GGUF weights. The long native test job retains workspace, real-model parity, release, and UI smoke gates. Both jobs must pass before CI is green; this split avoids duplicating the fast tests in the long-running job.
+
+## Safe model-switch source preflight
+
+Before evicting the currently running model during a switch, KILN validates the replacement GGUF's source files. For a conventional split GGUF, every named shard must be a readable regular file and its size must be included in the checked aggregate. If a shard is missing or unreadable, activation rejects the new model **without unloading the old session**. The normal loader performs the same verification when it actually opens the requested model; this is an availability safeguard, not a guarantee that unsupported architecture or out-of-memory failures can always restore the prior session.
+
+## Repeatable real-model CI fixtures
+
+The smoke workflow reuses verified GGUF files by hard link for alternate-model and Ollama-manifest checks. Restored caches may already contain these paths, so fixture setup compares inode identity and only repairs a missing or stale link; it does not copy or modify source model weights. This avoids failing an otherwise successful native integration run because a cache-restored test link already exists.
+
+## Phase 5 CI evidence preservation
+
+The GitHub Actions real-model evidence archive runs **after** the complete model, split-GGUF, native-worker, portable-release, and browser smoke sequence (including API shutdown). The archive step uses `always()` so failed tests still preserve whatever evidence was produced. A failed artifact upload remains a visible CI failure and must be investigated; an uploaded artifact is not proof that every test or Tier 0 performance target passed.
+
+## GGUF tensor safety and oversized metadata
+
+GGUF tensor-size inspection uses checked, row-oriented encoded-byte arithmetic. Known quantization formats with malformed row dimensions, arithmetic overflow, or out-of-file tensor ranges are rejected instead of being treated as valid but unreadable weights. Unknown quantization types remain visible to discovery and diagnostics, but even unknown tensor offsets must belong to the source file. Parsing rejects out-of-range metadata offsets and data-section alignment overflow. This protects model inspection and expert-source mapping; it does **not** make an unsupported model architecture runnable.
+
+
+## Split GGUF Phase 5 source mapping
+
+`kiln plan /path/to/model-00001-of-00002.gguf --json` validates **every** part of a split GGUF and reports the **combined** model size, per-shard tensor counts, and verified source byte ranges for recognized routed-expert tensors. It does not combine the original files or read all the model weights into RAM. Supported tensor types are checked for row alignment, byte-range overflow and source-file bounds, while unknown quantizers remain explicitly unsupported. Missing shards, inconsistent split metadata and duplicate tensor names fail closed.
+
+The `kiln-io` multi-source expert reader can independently open and pin the original source files, read selected exact tensor ranges into caller-owned buffers, and fork independent positional readers for parallel access. It also resolves verified third-axis **fused expert slabs** across all model shards, allowing a specific (layer, expert, projection) range to be read without loading the whole tensor.
+
+Benchmark the real source-file I/O with:
+
+```sh
+cargo run --release -p kiln-bench -- expert-io-split \
+  --source-gguf /path/to/model-00001-of-00002.gguf \
+  --requests 64 --max-read-mib 256 --json
+```
+
+This reports explicit read bytes, per-shard request counts, wall-clock throughput and maximum caller buffer. Linux page cache is uncontrolled; the figures **do not** represent physical SSD traffic, inference throughput or accuracy.
+ **Experimental native multi-shard compute:** the pinned KILN llama.cpp CPU backend now consumes a versioned `KILN-MOE-STREAM-2` index, resolves every graph-selected expert slab to its original GGUF shard, and issues bounded positional reads from that source. `kiln stream` creates the temporary verified index automatically for complete, supported fused three-projection MoE layouts, while leaving model files unchanged. The UI may select this mode for eligible split models exceeding current memory headroom. Unknown quantizers, incomplete projections and unsupported architectures still fail closed. Support for a verified source layout is **not** a Tier 0 performance, quality or physical SSD-traffic acceptance result.
+
+## Bound native model startup
+
+For compatible oversized MoE models, the local UI launches an isolated native streaming worker. The initial model-loading handshake now has a bounded deadline rather than allowing an indefinite loading spinner. The default is **300 seconds**; operators may set `KILN_STREAM_STARTUP_TIMEOUT_SECS` (clamped to 30â€“900 seconds) when slow storage or large model metadata requires longer. On timeout, KILN terminates the dedicated native launcher process group, including nested workers, and reports an explicit activation error. Existing model files remain untouched, and failed model switches still attempt to restore the previous session. This does not guarantee that a model architecture is supported or that inference meets the Tier 0 throughput target.
+
+
+## Memory-budgeted native MoE caching
+
+When activating a compatible MoE model through the local UI, KILN now derives its native expert cache capacity from the **currently available resident-memory budget**, including Linux cgroup headroom. The experimental default is approximately 1 MiB of cache for each 64 MiB of estimated resident budget, capped at **256 MiB**, and it may be zero when memory is exhausted. If memory information is unavailable, KILN uses the previous 64 MiB fallback. The Advanced tab reports the chosen per-session native expert cache size.
+
+This policy controls one *native expert hot cache*, not the process RSS, OS page cache, KV memory, working set of shared weights or SSD physical I/O. Cache sizing is a conservative heuristic, not evidence of sustained Tier 0 throughput or a guarantee of a model fitting in RAM. Expert cache sizes for explicit `kiln stream --cache-mib N` are still user-controlled.
+
+## Experimental streamed MoE inference (Linux only)
+
+For a **compatible fused-expert MoE GGUF**, use the explicit opt-in command:
+
+```sh
+cargo run -p kiln-cli -- plan /path/to/model.gguf --json
+cargo run -p kiln-cli -- stream /path/to/model.gguf --max-tokens 50
+# Or use an unambiguous installed Ollama tag:
+cargo run -p kiln-cli -- stream 'your-installed-ollama-tag' --cache-mib 64 --parallel-reads
+# For experimental zero-cache comparison:
+cargo run -p kiln-cli -- stream /path/to/model.gguf --cache-mib 0
+```
+
+`stream` accepts a GGUF path, a resolvable installed model identifier, or `auto`. Options include `--cache-mib 0..512` (64 by default), `--parallel-reads`, `--max-tokens`, `--keep-context`, and `--lazy-moe-experts`. It verifies the recognized expert layout, uses a temporary index and audit file, then cleans them up. It is opt-in and fails on unsupported layouts rather than silently claiming successful streaming. `--lazy-moe-experts` alone is a separate mmap-loader experiment, **not** equivalent to native streamed compute.
 
 The native streamed worker now preserves token output bytes without using lossy UTF-8 replacement on an incomplete final codepoint. Its incremental decoder emits any complete prefix immediately while retaining at most the unfinished multi-byte suffix, including token fragments that combine ordinary text with a partial Unicode character. Invalid UTF-8 fails explicitly, while valid multi-byte characters split across token pieces are assembled intact. Worker JSONL token limits reject invalid types instead of defaulting silently, and out-of-order response frames poison the session rather than being treated as recoverable prompt errors.
 
