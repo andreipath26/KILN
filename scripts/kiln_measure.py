@@ -78,6 +78,72 @@ def model_block_device_delta(before: dict | None, after: dict | None) -> dict:
     }
 
 
+def _meminfo_bytes() -> dict[str, int]:
+    values = {}
+    for line in Path("/proc/meminfo").read_text(encoding="ascii").splitlines():
+        key, _, raw = line.partition(":")
+        parts = raw.split()
+        if key in {"MemTotal", "MemAvailable", "Cached", "SReclaimable"} and parts:
+            values[f"{key.lower()}_bytes"] = int(parts[0]) * 1024
+    return values
+
+
+def stage_memory_snapshot(pid: int | None) -> dict | None:
+    """Best-effort Linux sample; host/cgroup values are shared-scope, not attribution."""
+    if not sys.platform.startswith("linux"):
+        return None
+    snapshot = {"captured_monotonic": time.monotonic()}
+    try:
+        snapshot["host"] = _meminfo_bytes()
+    except (OSError, ValueError):
+        snapshot["host"] = None
+    if pid is not None:
+        try:
+            status = (Path("/proc") / str(pid) / "status").read_text(encoding="ascii")
+            for line in status.splitlines():
+                if line.startswith("VmRSS:"):
+                    snapshot["stage_process_rss_bytes"] = int(line.split()[1]) * 1024
+                    break
+        except (OSError, ValueError, IndexError):
+            pass
+    cgroup = Path("/sys/fs/cgroup")
+    if cgroup.is_dir():
+        usage = {}
+        for name in ("memory.current", "memory.peak", "memory.max"):
+            try:
+                raw = (cgroup / name).read_text(encoding="ascii").strip()
+                usage[name] = None if raw == "max" else int(raw)
+            except (OSError, ValueError):
+                continue
+        snapshot["cgroup"] = usage or None
+    else:
+        snapshot["cgroup"] = None
+    return snapshot
+
+
+def summarize_stage_memory(samples: list[dict]) -> dict:
+    process_rss = [sample["stage_process_rss_bytes"] for sample in samples
+                   if isinstance(sample.get("stage_process_rss_bytes"), int)]
+    host = [sample["host"] for sample in samples if isinstance(sample.get("host"), dict)]
+    cgroup = [sample["cgroup"] for sample in samples if isinstance(sample.get("cgroup"), dict)]
+    result = {
+        "status": "captured" if samples else "unavailable",
+        "samples": len(samples),
+        "stage_process_peak_rss_bytes_sampled": max(process_rss) if process_rss else None,
+        "host_mem_available_bytes_min_sampled": min((item["memavailable_bytes"] for item in host
+                                                       if "memavailable_bytes" in item), default=None),
+        "host_cached_bytes_max_sampled": max((item["cached_bytes"] for item in host
+                                                if "cached_bytes" in item), default=None),
+        "cgroup_memory_current_bytes_max_sampled": max((item["memory.current"] for item in cgroup
+                                                         if isinstance(item.get("memory.current"), int)),
+                                                        default=None),
+        "cgroup_memory_max_bytes": next((item.get("memory.max") for item in reversed(cgroup)
+                                           if item.get("memory.max") is not None), None),
+        "scope": "sampled stage process RSS; host and cgroup counters include other work in their respective scopes",
+    }
+    return result
+
+
 class Run:
     def __init__(self, out: Path, model: Path | None = None):
         self.out = out
@@ -101,11 +167,27 @@ class Run:
         self._write_command(record)
         try:
             with out_path.open("wb") as out_stream, err_path.open("wb") as err_stream:
-                result = subprocess.run(argv, cwd=ROOT, env={**os.environ, **(env or {})},
-                                        stdin=subprocess.DEVNULL, stdout=out_stream,
-                                        stderr=err_stream, check=False)
-            record["exit_code"] = result.returncode
-            record["status"] = "passed" if result.returncode == 0 else "failed"
+                process = subprocess.Popen(argv, cwd=ROOT, env={**os.environ, **(env or {})},
+                                           stdin=subprocess.DEVNULL, stdout=out_stream,
+                                           stderr=err_stream)
+                memory_samples = []
+                initial_sample = stage_memory_snapshot(process.pid)
+                if initial_sample:
+                    memory_samples.append(initial_sample)
+                while True:
+                    try:
+                        return_code = process.wait(timeout=0.25)
+                        break
+                    except subprocess.TimeoutExpired:
+                        sample = stage_memory_snapshot(process.pid)
+                        if sample:
+                            memory_samples.append(sample)
+                final_sample = stage_memory_snapshot(None)
+                if final_sample:
+                    memory_samples.append(final_sample)
+            record["exit_code"] = return_code
+            record["status"] = "passed" if return_code == 0 else "failed"
+            record["memory_usage"] = summarize_stage_memory(memory_samples)
         except OSError as error:
             record["status"] = "failed"
             record["error"] = str(error)
@@ -530,6 +612,7 @@ def main() -> int:
                 "expert_io_audit": read_audit(out / f"stream-{policy}.audit.tsv") if policy != "resident" else None,
                 "token_parity_vs_resident": token_comparison,
                 "host_block_device_io": stage_record.get("storage_device_io"),
+                "stage_memory": stage_record.get("memory_usage"),
             }
     quality = reports["quality"]
     predictor = reports["predictor"]
@@ -608,6 +691,15 @@ def main() -> int:
             "process_peak_rss": {"status": memory_status, "observed_gib": rss,
                                   "maximum_gib": args.max_rss_gib,
                                   "basis": "process peak RSS; excludes OS page cache"},
+            "host_and_cgroup_memory_samples": {
+                "status": "captured" if any(
+                    isinstance(stage.get("memory_usage"), dict)
+                    and stage["memory_usage"].get("host_mem_available_bytes_min_sampled") is not None
+                    for stage in runner.stages) else "unavailable",
+                "stage_reports": {stage.get("name"): stage.get("memory_usage")
+                                  for stage in runner.stages if stage.get("memory_usage")},
+                "scope": "Best-effort 250 ms stage samples; host/cgroup readings include unrelated work and can miss short peaks.",
+            },
             "quality_parity": {"status": quality_status,
                                "report": "quality-parity.json" if quality else None},
             "generated_token_parity": {"status": parity_status,

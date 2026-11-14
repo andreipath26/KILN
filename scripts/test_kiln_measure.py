@@ -7,7 +7,8 @@ import unittest
 from unittest.mock import patch
 
 from scripts.kiln_measure import (Run, compare_token_outputs, file_identity, host_info,
-                                  mean_metric, model_block_device_delta, peak_rss_gib, read_audit)
+                                  mean_metric, model_block_device_delta, peak_rss_gib, read_audit,
+                                  summarize_stage_memory)
 
 
 class MeasureReportTests(unittest.TestCase):
@@ -43,6 +44,19 @@ class MeasureReportTests(unittest.TestCase):
             model.write_bytes(b"model")
             info = host_info(model, None)
         self.assertIsNone(info["model_sha256"])
+
+    def test_stage_memory_summary_keeps_host_and_cgroup_scopes_separate(self):
+        summary = summarize_stage_memory([
+            {"stage_process_rss_bytes": 20, "host": {"memavailable_bytes": 80, "cached_bytes": 30},
+             "cgroup": {"memory.current": 25, "memory.max": 100}},
+            {"stage_process_rss_bytes": 40, "host": {"memavailable_bytes": 60, "cached_bytes": 50},
+             "cgroup": {"memory.current": 45, "memory.max": 100}},
+        ])
+        self.assertEqual(summary["stage_process_peak_rss_bytes_sampled"], 40)
+        self.assertEqual(summary["host_mem_available_bytes_min_sampled"], 60)
+        self.assertEqual(summary["host_cached_bytes_max_sampled"], 50)
+        self.assertEqual(summary["cgroup_memory_current_bytes_max_sampled"], 45)
+        self.assertEqual(summary["cgroup_memory_max_bytes"], 100)
 
     def test_token_parity_passes_for_identical_greedy_runs(self):
         runs = [{"generated_tokens": 12, "token_fingerprint_fnv1a64": "0123456789abcdef",
@@ -120,6 +134,9 @@ class MeasureReportTests(unittest.TestCase):
                 "import sys; print('partial output'); print('failure detail', file=sys.stderr); sys.exit(7)"])
             self.assertEqual(stage["status"], "failed")
             self.assertEqual(stage["exit_code"], 7)
+            self.assertIn("memory_usage", stage)
+            if sys.platform.startswith("linux"):
+                self.assertEqual(stage["memory_usage"]["status"], "captured")
             self.assertIn("partial output", Path(stage["stdout_log"]).read_text())
             self.assertIn("failure detail", Path(stage["stderr_log"]).read_text())
             commands = [json.loads(line) for line in runner.commands.read_text().splitlines()]
