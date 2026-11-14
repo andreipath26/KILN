@@ -843,6 +843,13 @@ jobs:
           assert set(parity["per_policy"]) == {"none", "lru", "lfu"}, parity
           assert all(row["status"] == "pass" for row in parity["per_policy"].values()), parity
           assert all(row["total_runs"] == 2 for row in parity["per_policy"].values()), parity
+          stages=[row["name"] for row in summary["stages"]]
+          assert stages.index("stream-lfu") < stages.index("router-source-io"), stages
+          assert stages.index("stream-lfu") < stages.index("cache-trace-replay"), stages
+          model_hash=json.load(open(root/"model-hash.json",encoding="utf-8"))
+          assert model_hash["status"] == "captured", model_hash
+          assert model_hash["duration_seconds"] >= 0, model_hash
+          assert summary["model_sha256"] == model_hash["sha256"]
           source_io=json.load(open(root/"router-source-io.json",encoding="utf-8"))
           if source_io["direct_io_diagnostic"]["status"] == "captured":
               assert len(source_io["direct_io_diagnostic"]["runs"]) == 2
