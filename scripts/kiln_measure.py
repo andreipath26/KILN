@@ -473,6 +473,7 @@ def main() -> int:
             }
     quality = reports["quality"]
     predictor = reports["predictor"]
+    source_io = read_json(out / "router-source-io.json")
     try:
         model_stable = file_identity(model) == model_identity
     except OSError:
@@ -520,14 +521,16 @@ def main() -> int:
             },
             "physical_storage_traffic": {
                 "status": "not_measured",
-                "reason": "Linux process read_bytes is kernel-attributed and page-cache/readahead influenced, not isolated SSD telemetry.",
+                "direct_io_diagnostic": ((source_io or {}).get("direct_io_diagnostic")
+                                          if source_io else None),
+                "reason": "O_DIRECT is a page-cache-bypassing source-read diagnostic when supported; it is not isolated SSD telemetry or proof of physical-media completion.",
             },
         },
         "phase5_gate_coverage": {
             "5A_storage_ram_compute": {
                 "status": "partial" if reports["cache_replay"] else "inconclusive",
-                "evidence": ["live process RSS and process-attributed I/O", "indexed source expert-read replay when supported"],
-                "still_needed": ["cold/warm-controlled random-read latency", "isolated device telemetry", "full host memory and thermal acceptance run"],
+                "evidence": ["live process RSS and process-attributed I/O", "indexed source expert-read replay when supported"] + (["best-effort O_DIRECT replay of traced expert ranges"] if (source_io or {}).get("direct_io_diagnostic", {}).get("status") == "captured" else []),
+                "still_needed": ["repeated target-host storage runs and isolated device telemetry", "full host memory and thermal acceptance run"],
             },
             "5B_cache_and_predictor": {
                 "status": "partial" if reports["cache_replay"] or predictor else "inconclusive",

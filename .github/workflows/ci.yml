@@ -59,6 +59,7 @@ jobs:
         run: |
           python3 -m py_compile scripts/kiln_measure.py
           python3 -m unittest scripts.test_kiln_measure -v
+          python3 -m unittest scripts.test_capture_direct_gguf_expert_io -v
 
 
   test:
@@ -797,6 +798,7 @@ jobs:
           assert replay["trace_events_available"]>0
           assert replay["trace_events_replayed_per_run"]>0
           assert replay["runs"][0]["bytes_read"]>0
+          assert replay["direct_io_diagnostic"]["status"] in {"captured", "unavailable"}
           print("Direct-source expert trace replay passed on the real single-file MoE fixture")
           PY
           python3 scripts/replay_moe_cache_trace.py "$MODEL" \

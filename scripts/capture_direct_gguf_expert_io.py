@@ -9,9 +9,11 @@ this is diagnostic I/O evidence, not an inference or acceptance benchmark.
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
 import math
+import mmap
 import os
 import platform
 import re
@@ -124,6 +126,70 @@ def sha256_file(path: Path) -> str:
     return value.hexdigest()
 
 
+def capture_odirect(model: Path,
+                    replay: list[tuple[str, int, int, int, int | None, int]],
+                    alignment: int = 4096) -> dict:
+    """Measure best-effort page-cache-bypassing reads of the traced ranges."""
+    if platform.system() != "Linux" or not hasattr(os, "O_DIRECT") or not hasattr(os, "preadv"):
+        return {"status": "unavailable", "reason": "Linux O_DIRECT and preadv are not available"}
+    if alignment <= 0 or alignment & (alignment - 1):
+        return {"status": "unavailable", "reason": "direct-I/O alignment must be a positive power of two"}
+    spans = []
+    for _tensor, _expert, offset, length, _decode_id, _row in replay:
+        start = offset - (offset % alignment)
+        end = ((offset + length + alignment - 1) // alignment) * alignment
+        spans.append((start, end, offset - start, length))
+    buffer_size = max(end - start for start, end, _delta, _length in spans)
+    try:
+        descriptor = os.open(model, os.O_RDONLY | os.O_DIRECT)
+    except OSError as error:
+        return {"status": "unavailable", "reason": f"could not open model with O_DIRECT: {error}"}
+
+    request_latencies_us = []
+    logical_bytes = 0
+    direct_bytes = 0
+    checksum = 0
+    started = time.perf_counter()
+    try:
+        with mmap.mmap(-1, buffer_size) as buffer:
+            for start, end, delta, length in spans:
+                view = memoryview(buffer)[:end - start]
+                before = time.perf_counter()
+                try:
+                    count = os.preadv(descriptor, [view], start)
+                finally:
+                    view.release()
+                request_latencies_us.append((time.perf_counter() - before) * 1_000_000)
+                if count < delta + length:
+                    raise OSError(f"short O_DIRECT read at byte {start}: got {count}, need {delta + length}")
+                checksum = (checksum * 31 + buffer[delta] + buffer[delta + length - 1]) & 0xFFFFFFFFFFFFFFFF
+                logical_bytes += length
+                direct_bytes += count
+    except (OSError, ValueError) as error:
+        status = "unavailable" if isinstance(error, OSError) and error.errno in {
+            errno.EINVAL, errno.EOPNOTSUPP, errno.ENOTSUP, errno.ENOSYS
+        } else "failed"
+        return {"status": status, "reason": f"O_DIRECT replay failed: {error}",
+                "events_completed": len(request_latencies_us)}
+    finally:
+        os.close(descriptor)
+    elapsed = time.perf_counter() - started
+    return {
+        "status": "captured",
+        "cache_path": "Linux O_DIRECT; bypasses the page cache on supported filesystems",
+        "alignment_bytes": alignment,
+        "events": len(spans),
+        "logical_expert_bytes": logical_bytes,
+        "aligned_bytes_returned": direct_bytes,
+        "elapsed_seconds": elapsed,
+        "mib_per_second_aligned": direct_bytes / (1024 * 1024) / elapsed if elapsed else 0.0,
+        "request_latency_us_p50": statistics.median(request_latencies_us),
+        "request_latency_us_p95": percentile(request_latencies_us, 0.95),
+        "checksum": checksum,
+        "interpretation": "Page-cache-bypassing source-read diagnostic; not device telemetry, inference throughput, or proof of physical-media completion.",
+    }
+
+
 def validate_index_report(path: Path, model: Path, index: Path, entry_count: int) -> str:
     if path.stat().st_size > MAX_INPUT_BYTES:
         raise ValueError("index report exceeds 256 MiB")
@@ -214,6 +280,7 @@ def capture(model: Path, index: Path, index_report: Path, trace: Path, runs: int
         raise ValueError("source GGUF changed while hashing provenance")
     index_sha = hashlib.sha256(index.read_bytes()).hexdigest()
     trace_sha = hashlib.sha256(trace.read_bytes()).hexdigest()
+    direct_io = capture_odirect(model, replay)
     return {
         "status": "direct_source_trace_replay_diagnostic",
         "model_path": str(model),
@@ -234,6 +301,7 @@ def capture(model: Path, index: Path, index_report: Path, trace: Path, runs: int
         "trace_prefix_truncated_by_read_budget": len(replay) < len(trace_events),
         "read_byte_budget": maximum_bytes,
         "runs": run_reports,
+        "direct_io_diagnostic": direct_io,
         "median_mib_per_second": statistics.median(row["mib_per_second"] for row in run_reports),
         "peak_rss_platform_units": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
         "host": {"system": platform.platform(), "machine": platform.machine()},
@@ -242,7 +310,8 @@ def capture(model: Path, index: Path, index_report: Path, trace: Path, runs: int
             "The model SHA-256 is computed after timed reads to avoid prewarming the file. "
             "The trace-producing inference may have warmed OS page cache; cache state is uncontrolled. "
             "This does not measure physical SSD traffic, inference throughput, cache overlap, total system "
-            "memory, model quality, or Tier 0 acceptance."
+            "memory, model quality, or Tier 0 acceptance. The separate O_DIRECT diagnostic, when available, "
+            "bypasses the OS page cache but is not device-level telemetry or proof of physical-media completion."
         ),
     }
 
@@ -287,6 +356,7 @@ def main() -> int:
         "events_available": report["trace_events_available"],
         "events_replayed": report["trace_events_replayed_per_run"],
         "median_mib_per_second": report["median_mib_per_second"],
+        "direct_io_status": report["direct_io_diagnostic"]["status"],
     }, indent=2))
     return 0
 
