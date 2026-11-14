@@ -834,6 +834,10 @@ jobs:
           summary=json.load(open(root/"summary.json",encoding="utf-8"))
           assert summary["acceptance_claim"] is False
           assert summary["overall_status"] == "inconclusive"
+          parity=summary["checks"]["generated_token_parity"]
+          assert parity["status"] == "pass", parity
+          assert set(parity["per_policy"]) == {"none", "lru", "lfu"}, parity
+          assert all(row["status"] == "pass" for row in parity["per_policy"].values()), parity
           assert (root/"resident-baseline.json").is_file()
           assert (root/"native-expert-index.tsv").is_file()
           assert (root/"router-trace.tsv").is_file()
