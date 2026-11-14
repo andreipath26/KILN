@@ -122,6 +122,7 @@ def host_info(model: Path) -> dict:
         "captured_utc": datetime.now(timezone.utc).isoformat(),
         "hostname": platform.node(), "platform": platform.platform(),
         "architecture": platform.machine(), "processor": platform.processor(),
+        "logical_cpus": os.cpu_count(),
         "python": sys.version, "model_path": str(model),
         "model_size_bytes": model.stat().st_size, "model_sha256": sha256(model),
         "model_filesystem_free_bytes": shutil.disk_usage(model.parent).free,
@@ -139,6 +140,49 @@ def host_info(model: Path) -> dict:
         }
     except OSError:
         pass
+    cgroup = Path("/sys/fs/cgroup")
+    if cgroup.exists():
+        info["cgroup_limits"] = {}
+        for name in ("memory.max", "cpu.max", "memory.swap.max"):
+            value = cgroup / name
+            if value.is_file():
+                try:
+                    info["cgroup_limits"][name] = value.read_text().strip()
+                except OSError:
+                    continue
+    cpu_freq = Path("/sys/devices/system/cpu/cpu0/cpufreq")
+    if cpu_freq.exists():
+        info["cpu_frequency"] = {}
+        for name in ("scaling_governor", "scaling_cur_freq", "scaling_min_freq",
+                     "scaling_max_freq", "cpuinfo_max_freq"):
+            value = cpu_freq / name
+            if value.is_file():
+                try:
+                    info["cpu_frequency"][name] = value.read_text().strip()
+                except OSError:
+                    continue
+    devices = []
+    for path in sorted(Path("/sys/class/drm").glob("card[0-9]*/device")):
+        device = {"name": path.parent.name}
+        for key in ("vendor", "device", "class"):
+            try:
+                device[key] = (path / key).read_text().strip()
+            except OSError:
+                pass
+        if len(device) > 1:
+            devices.append(device)
+    if devices:
+        info["drm_devices"] = devices
+    findmnt = shutil.which("findmnt")
+    if findmnt:
+        mount = subprocess.run([findmnt, "--json", "--target", str(model),
+                                "--output", "SOURCE,FSTYPE,OPTIONS"],
+                               text=True, capture_output=True, check=False)
+        if mount.returncode == 0:
+            try:
+                info["model_filesystem"] = json.loads(mount.stdout)
+            except json.JSONDecodeError:
+                info["model_filesystem_raw"] = mount.stdout.strip()
     thermal = Path("/sys/class/thermal")
     if thermal.exists():
         info["thermal_zones"] = {}
