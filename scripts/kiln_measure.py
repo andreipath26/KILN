@@ -411,7 +411,7 @@ def main() -> int:
                 "still_needed": ["cold/warm-controlled random-read latency", "isolated device telemetry", "full host memory and thermal acceptance run"],
             },
             "5B_cache_and_predictor": {
-                "status": "partial" if reports["cache_replay"] else "inconclusive",
+                "status": "partial" if reports["cache_replay"] or predictor else "inconclusive",
                 "evidence": ["live no-cache/LRU/LFU runs when native indexing is supported", "offline LRU/LFU/adaptive policy simulation"] + (["chronological real-router grouped holdout"] if predictor else []),
                 "predictor_holdout": ({key: predictor.get(key) for key in
                     ("train_events", "test_events", "top_k", "accuracy_at_k", "coverage",
