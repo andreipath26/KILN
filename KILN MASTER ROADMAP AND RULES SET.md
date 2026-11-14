@@ -1,6 +1,6 @@
 # KILN MASTER ROADMAP AND RULES SET
 
-**Version:** 9.8 — measurement suite records stage memory; Tier 0 acceptance pending
+**Version:** 9.9 — measurement suite retains host and thermal samples; Tier 0 acceptance pending
 **Last updated:** 2026-11-14
 **Status:** Active master roadmap  
 **Repository:** https://github.com/andreipath26/KILN  
@@ -804,3 +804,9 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Added 250 ms best-effort per-command samples for child-process RSS, host available/cache memory and cgroup usage/limits. Reports preserve their different scopes and label shared host readings as non-attributable; short peaks may be missed. Run #863 asserted the memory sample data in the real-MoE measurement output.
 - Full hosted CI run #863 passed at commit `842d550de11cff95c513953c39f645f7048258e5`, including the one-command suite on the real tiny-MoE fixture with two measured runs, generated-token parity, stage memory samples, portable Linux single-binary install/recovery checks, and real-model API/UI smoke. The captured fixture remains integration evidence only.
 - Tier 0 remains unaccepted. Qwen3-30B-A3B throughput (≥3 tok/s), total peak RAM (<15 GB), pinned-corpus quality parity, sustained behavior and physical storage bounds still require measurements on the Dell Latitude 7490; this CI run does not satisfy those gates.
+
+### 2026-11-14 — Measurement telemetry retention
+
+- Added raw per-stage samples to `stage-memory.jsonl`, including child-process RSS, host available/cache memory, cgroup usage/limit, CPU scaling frequencies and thermal-zone temperatures when exposed by Linux.
+- `summary.json` reports sampled ranges while keeping host/cgroup and process scopes distinct. The raw log remains available for diagnosing changes across a long inference run; sampling can miss brief peaks and does not attribute shared host usage to KILN.
+- Local verification passes all 72 Python script tests. The suite remains a source-checkout measurement tool; target-hardware Phase 5 acceptance is still open.
