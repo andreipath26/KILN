@@ -4,11 +4,26 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from scripts.kiln_measure import Run, compare_token_outputs, mean_metric, peak_rss_gib, read_audit
+from scripts.kiln_measure import (Run, compare_token_outputs, file_identity, host_info,
+                                  mean_metric, peak_rss_gib, read_audit)
 
 
 class MeasureReportTests(unittest.TestCase):
+    def test_model_identity_is_stable_and_host_capture_reuses_precomputed_digest(self):
+        with tempfile.TemporaryDirectory() as temp:
+            model = Path(temp) / "model.gguf"
+            model.write_bytes(b"model")
+            before = file_identity(model)
+            with patch("scripts.kiln_measure.sha256", side_effect=AssertionError("rehash")):
+                info = host_info(model, "precomputed-digest")
+            self.assertEqual(info["model_size_bytes"], 5)
+            self.assertEqual(info["model_sha256"], "precomputed-digest")
+            self.assertEqual(file_identity(model), before)
+            model.write_bytes(b"changed model")
+            self.assertNotEqual(file_identity(model), before)
+
     def test_token_parity_passes_for_identical_greedy_runs(self):
         runs = [{"generated_tokens": 12, "token_fingerprint_fnv1a64": "0123456789abcdef",
                  "token_ids_sha256_le_i32": "a" * 64},

@@ -25,6 +25,11 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def file_identity(path: Path) -> tuple[int, int, int, int]:
+    stat = path.stat()
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns
+
+
 class Run:
     def __init__(self, out: Path):
         self.out = out
@@ -155,14 +160,18 @@ def read_audit(path: Path) -> dict | None:
     return result
 
 
-def host_info(model: Path) -> dict:
+def host_info(model: Path, model_sha256: str) -> dict:
+    try:
+        model_size = model.stat().st_size
+    except OSError:
+        model_size = None
     info = {
         "captured_utc": datetime.now(timezone.utc).isoformat(),
         "hostname": platform.node(), "platform": platform.platform(),
         "architecture": platform.machine(), "processor": platform.processor(),
         "logical_cpus": os.cpu_count(),
         "python": sys.version, "model_path": str(model),
-        "model_size_bytes": model.stat().st_size, "model_sha256": sha256(model),
+        "model_size_bytes": model_size, "model_sha256": model_sha256,
         "model_filesystem_free_bytes": shutil.disk_usage(model.parent).free,
     }
     try:
@@ -277,7 +286,11 @@ def main() -> int:
     out.mkdir(mode=0o700)
     os.chmod(out, 0o700)
     runner = Run(out)
-    (out / "host-and-model.json").write_text(json.dumps(host_info(model), indent=2) + "\n")
+    model_identity = file_identity(model)
+    model_digest = sha256(model)
+    if file_identity(model) != model_identity:
+        parser.error("model changed while its initial digest was being captured")
+    (out / "host-and-model.json").write_text(json.dumps(host_info(model, model_digest), indent=2) + "\n")
     try:
         revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True,
                                   capture_output=True, check=False)
@@ -289,7 +302,7 @@ def main() -> int:
             "kiln_commit": revision.stdout.strip() if revision.returncode == 0 else None,
             "kiln_dirty": bool(dirty.stdout.strip()) if dirty.returncode == 0 else None,
             "llama_submodule": submodule.stdout.strip() if submodule.returncode == 0 else None,
-            "build_profile": "release", "model_sha256": sha256(model),
+            "build_profile": "release", "model_sha256": model_digest,
             "scope_note": "A single host run; Linux process I/O is not physical SSD telemetry.",
         }
         (out / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
@@ -460,6 +473,17 @@ def main() -> int:
             }
     quality = reports["quality"]
     predictor = reports["predictor"]
+    try:
+        model_stable = file_identity(model) == model_identity
+    except OSError:
+        model_stable = False
+    if not model_stable:
+        failures.append("model-file-stability")
+        blocking_failures.append("model-file-stability")
+        record = {"name": "model-file-stability", "command": [], "status": "failed",
+                  "reason": "model file identity, size, or modification time changed during measurement"}
+        runner.stages.append(record)
+        runner._write_command(record)
     primary = reports["stream_none"] or reports["resident"]
     tps = mean_metric(primary, "decode_tokens_per_second")
     rss = peak_rss_gib(primary)
@@ -473,7 +497,7 @@ def main() -> int:
     summary = {
         "schema_version": 1,
         "run_directory": str(out),
-        "model_sha256": sha256(model),
+        "model_sha256": model_digest,
         "overall_status": "fail" if observed_failure else "inconclusive",
         "acceptance_claim": False,
         "checks": {
@@ -488,6 +512,8 @@ def main() -> int:
             "generated_token_parity": {"status": parity_status,
                                        "per_policy": parity,
                                        "basis": "generated-token count and two token-ID hashes against the resident baseline"},
+            "model_file_stability": {"status": "pass" if model_stable else "fail",
+                                     "basis": "device, inode, size, and modification time compared before and after measurement"},
             "phase5_target_hardware_and_sustained_acceptance": {
                 "status": "inconclusive",
                 "reason": "A single run does not prove the named Tier 0 host, sustained behavior, or all roadmap gates.",
@@ -537,7 +563,7 @@ def main() -> int:
         "logs": {"commands": "commands.jsonl", "build": "build.log", "stderr_pattern": "*.stderr.log"},
         "interpretation": "Inconclusive means evidence is missing or target acceptance conditions were not established. Review every stage log; failed stages do not erase artifacts from successful stages.",
     }
-    (out / "host-after.json").write_text(json.dumps(host_info(model), indent=2) + "\n")
+    (out / "host-after.json").write_text(json.dumps(host_info(model, model_digest), indent=2) + "\n")
     (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"status": summary["overall_status"], "run_directory": str(out),
                       "summary": str(out / "summary.json"), "failed_stages": failures}, indent=2))
