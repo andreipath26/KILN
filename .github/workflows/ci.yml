@@ -854,6 +854,10 @@ jobs:
           memory=summary["checks"]["host_and_cgroup_memory_samples"]
           assert memory["status"] == "captured", memory
           assert memory["stage_reports"]["resident-baseline"]["samples"] >= 2
+          memory_log=root/"stage-memory.jsonl"
+          assert memory_log.is_file()
+          assert any(json.loads(line)["stage"] == "resident-baseline"
+                     for line in memory_log.read_text(encoding="utf-8").splitlines())
           source_io=json.load(open(root/"router-source-io.json",encoding="utf-8"))
           if source_io["direct_io_diagnostic"]["status"] == "captured":
               assert len(source_io["direct_io_diagnostic"]["runs"]) == 2

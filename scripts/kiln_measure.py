@@ -118,6 +118,22 @@ def stage_memory_snapshot(pid: int | None) -> dict | None:
         snapshot["cgroup"] = usage or None
     else:
         snapshot["cgroup"] = None
+    frequencies = {}
+    for path in sorted(Path("/sys/devices/system/cpu").glob("cpu[0-9]*/cpufreq/scaling_cur_freq")):
+        try:
+            frequencies[path.parents[1].name] = int(path.read_text(encoding="ascii").strip())
+        except (OSError, ValueError):
+            continue
+    snapshot["cpu_scaling_frequency_khz"] = frequencies or None
+    temperatures = {}
+    for path in sorted(Path("/sys/class/thermal").glob("thermal_zone*/temp")):
+        try:
+            zone = path.parent
+            label = (zone / "type").read_text(encoding="utf-8").strip()
+            temperatures[label or zone.name] = int(path.read_text(encoding="ascii").strip())
+        except (OSError, ValueError):
+            continue
+    snapshot["thermal_zone_millicelsius"] = temperatures or None
     return snapshot
 
 
@@ -126,6 +142,12 @@ def summarize_stage_memory(samples: list[dict]) -> dict:
                    if isinstance(sample.get("stage_process_rss_bytes"), int)]
     host = [sample["host"] for sample in samples if isinstance(sample.get("host"), dict)]
     cgroup = [sample["cgroup"] for sample in samples if isinstance(sample.get("cgroup"), dict)]
+    frequencies = [value for sample in samples
+                   for value in (sample.get("cpu_scaling_frequency_khz") or {}).values()]
+    temperatures: dict[str, list[int]] = {}
+    for sample in samples:
+        for name, value in (sample.get("thermal_zone_millicelsius") or {}).items():
+            temperatures.setdefault(name, []).append(value)
     result = {
         "status": "captured" if samples else "unavailable",
         "samples": len(samples),
@@ -139,7 +161,11 @@ def summarize_stage_memory(samples: list[dict]) -> dict:
                                                         default=None),
         "cgroup_memory_max_bytes": next((item.get("memory.max") for item in reversed(cgroup)
                                            if item.get("memory.max") is not None), None),
-        "scope": "sampled stage process RSS; host and cgroup counters include other work in their respective scopes",
+        "cpu_scaling_frequency_khz_min_sampled": min(frequencies, default=None),
+        "cpu_scaling_frequency_khz_max_sampled": max(frequencies, default=None),
+        "thermal_zone_millicelsius_max_sampled": {name: max(values)
+                                                   for name, values in temperatures.items()},
+        "scope": "sampled stage process RSS; host and cgroup counters include other work in their respective scopes; CPU frequency and thermal zones are host sensors",
     }
     return result
 
@@ -150,6 +176,7 @@ class Run:
         self.model = model
         self.stages: list[dict] = []
         self.commands = out / "commands.jsonl"
+        self.memory_log = out / "stage-memory.jsonl"
 
     def stage(self, name: str, argv: list[str], *, env: dict[str, str] | None = None,
               stdout: str | None = None, stderr: str | None = None,
@@ -174,6 +201,7 @@ class Run:
                 initial_sample = stage_memory_snapshot(process.pid)
                 if initial_sample:
                     memory_samples.append(initial_sample)
+                    self._write_memory_sample(name, initial_sample)
                 while True:
                     try:
                         return_code = process.wait(timeout=0.25)
@@ -182,12 +210,16 @@ class Run:
                         sample = stage_memory_snapshot(process.pid)
                         if sample:
                             memory_samples.append(sample)
+                            self._write_memory_sample(name, sample)
                 final_sample = stage_memory_snapshot(None)
                 if final_sample:
                     memory_samples.append(final_sample)
+                    self._write_memory_sample(name, final_sample)
             record["exit_code"] = return_code
             record["status"] = "passed" if return_code == 0 else "failed"
             record["memory_usage"] = summarize_stage_memory(memory_samples)
+            if memory_samples:
+                record["memory_usage"]["raw_samples_log"] = str(self.memory_log)
         except OSError as error:
             record["status"] = "failed"
             record["error"] = str(error)
@@ -201,6 +233,11 @@ class Run:
     def _write_command(self, record: dict) -> None:
         with self.commands.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(record, sort_keys=True) + "\n")
+
+    def _write_memory_sample(self, stage: str, sample: dict) -> None:
+        with self.memory_log.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"stage": stage, **sample}, sort_keys=True) + "\n")
+            stream.flush()
 
 
 def read_json(path: Path) -> dict | None:

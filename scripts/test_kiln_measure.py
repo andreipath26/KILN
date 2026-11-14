@@ -48,15 +48,22 @@ class MeasureReportTests(unittest.TestCase):
     def test_stage_memory_summary_keeps_host_and_cgroup_scopes_separate(self):
         summary = summarize_stage_memory([
             {"stage_process_rss_bytes": 20, "host": {"memavailable_bytes": 80, "cached_bytes": 30},
-             "cgroup": {"memory.current": 25, "memory.max": 100}},
+             "cgroup": {"memory.current": 25, "memory.max": 100},
+             "cpu_scaling_frequency_khz": {"cpu0": 1000},
+             "thermal_zone_millicelsius": {"x86_pkg_temp": 42000}},
             {"stage_process_rss_bytes": 40, "host": {"memavailable_bytes": 60, "cached_bytes": 50},
-             "cgroup": {"memory.current": 45, "memory.max": 100}},
+             "cgroup": {"memory.current": 45, "memory.max": 100},
+             "cpu_scaling_frequency_khz": {"cpu0": 1800},
+             "thermal_zone_millicelsius": {"x86_pkg_temp": 77000}},
         ])
         self.assertEqual(summary["stage_process_peak_rss_bytes_sampled"], 40)
         self.assertEqual(summary["host_mem_available_bytes_min_sampled"], 60)
         self.assertEqual(summary["host_cached_bytes_max_sampled"], 50)
         self.assertEqual(summary["cgroup_memory_current_bytes_max_sampled"], 45)
         self.assertEqual(summary["cgroup_memory_max_bytes"], 100)
+        self.assertEqual(summary["cpu_scaling_frequency_khz_min_sampled"], 1000)
+        self.assertEqual(summary["cpu_scaling_frequency_khz_max_sampled"], 1800)
+        self.assertEqual(summary["thermal_zone_millicelsius_max_sampled"], {"x86_pkg_temp": 77000})
 
     def test_token_parity_passes_for_identical_greedy_runs(self):
         runs = [{"generated_tokens": 12, "token_fingerprint_fnv1a64": "0123456789abcdef",
@@ -137,6 +144,10 @@ class MeasureReportTests(unittest.TestCase):
             self.assertIn("memory_usage", stage)
             if sys.platform.startswith("linux"):
                 self.assertEqual(stage["memory_usage"]["status"], "captured")
+                self.assertTrue(Path(stage["memory_usage"]["raw_samples_log"]).is_file())
+                samples = [json.loads(line) for line in Path(stage["memory_usage"]["raw_samples_log"]).read_text().splitlines()]
+                self.assertTrue(samples)
+                self.assertTrue(all(row["stage"] == "deliberate-failure" for row in samples))
             self.assertIn("partial output", Path(stage["stdout_log"]).read_text())
             self.assertIn("failure detail", Path(stage["stderr_log"]).read_text())
             commands = [json.loads(line) for line in runner.commands.read_text().splitlines()]
