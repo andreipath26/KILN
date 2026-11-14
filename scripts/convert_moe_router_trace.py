@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Convert opt-in KILN CPU MAT_ID router TSV events to expert-io JSON replay.
 
-The trace records selected experts for individual MAT_ID operators. Distinct
-weight projections can repeat a token/expert selection; this tool preserves
-those events instead of guessing unique per-token router labels. Only valid
-standard blk.<layer>. tensor names are accepted; no model family is assumed.
+The trace records selected experts for individual MAT_ID operators. Version 2
+traces also contain @decode markers, which this conversion skips while
+preserving operator events. Distinct weight projections can repeat a route;
+this tool preserves those events instead of guessing unique per-token labels.
 """
 from __future__ import annotations
 
@@ -31,6 +31,9 @@ def convert(source: Path, output: Path, maximum: int = MAX_EVENTS) -> dict:
         raise FileExistsError(f"refusing to overwrite existing trace: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
     count = 0
+    decode_markers = 0
+    last_decode_id = 0
+    batch_tokens: int | None = None
     name_counts: Counter[str] = Counter()
     digest = hashlib.sha256()
     # Write to a private temporary file, and remove it if validation fails.
@@ -48,8 +51,18 @@ def convert(source: Path, output: Path, maximum: int = MAX_EVENTS) -> dict:
                 except UnicodeDecodeError as error:
                     raise ValueError(f"line {line_no}: invalid UTF-8") from error
                 parts = line.split("\t")
+                if len(parts) == 3 and parts[0] == "@decode":
+                    marker_values = parts[1:]
+                    if not all(value.isascii() and value.isdecimal() for value in marker_values):
+                        raise ValueError(f"line {line_no}: malformed decode marker")
+                    decode_id, batch_tokens = map(int, marker_values)
+                    if decode_id <= last_decode_id or batch_tokens <= 0:
+                        raise ValueError(f"line {line_no}: decode IDs must increase and token count must be positive")
+                    last_decode_id = decode_id
+                    decode_markers += 1
+                    continue
                 if len(parts) != 4:
-                    raise ValueError(f"line {line_no}: expected four tab-separated fields")
+                    raise ValueError(f"line {line_no}: expected decode marker or four tab-separated fields")
                 layer_text, expert_text, row_text, tensor = parts
                 name = NAME_RE.fullmatch(tensor)
                 if not name:
@@ -59,6 +72,8 @@ def convert(source: Path, output: Path, maximum: int = MAX_EVENTS) -> dict:
                 layer, expert, row = map(int, (layer_text, expert_text, row_text))
                 if layer != int(name.group(1)) or layer > 65535 or expert > 65535 or row > 1_000_000:
                     raise ValueError(f"line {line_no}: invalid or conflicting expert route")
+                if batch_tokens is not None and row >= batch_tokens:
+                    raise ValueError(f"line {line_no}: row is outside the marked decode batch")
                 if count >= maximum:
                     raise ValueError("router trace exceeds max-events; capture a shorter inference run")
                 if not first:
@@ -76,8 +91,10 @@ def convert(source: Path, output: Path, maximum: int = MAX_EVENTS) -> dict:
         raise
     return {
         "source": str(source), "source_bytes": size, "source_sha256": digest.hexdigest(),
-        "output": str(output), "events": count, "tensor_operator_counts": dict(sorted(name_counts.items())),
-        "meaning": "Exact CPU MAT_ID expert operations, including repeated tensor projections. Not unique per-token router labels or SSD reads.",
+        "output": str(output), "events": count, "decode_markers": decode_markers,
+        "trace_granularity": "decode_call_row_operator" if decode_markers else "operator_event_legacy",
+        "tensor_operator_counts": dict(sorted(name_counts.items())),
+        "meaning": "Exact CPU MAT_ID expert operations, including repeated tensor projections. Decode markers are preserved in the source digest but omitted from this operator-only JSON. This is not unique per-token router labels or SSD reads.",
     }
 
 

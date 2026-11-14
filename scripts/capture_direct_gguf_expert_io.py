@@ -62,16 +62,30 @@ def load_index(path: Path, source_size: int) -> dict[tuple[str, int], tuple[int,
 
 
 def load_trace(path: Path, entries: dict[tuple[str, int], tuple[int, int]],
-               maximum: int) -> list[tuple[str, int, int, int]]:
+               maximum: int) -> list[tuple[str, int, int, int, int | None, int]]:
     size = path.stat().st_size
     if size <= 0 or size > MAX_INPUT_BYTES:
         raise ValueError("router trace must be nonempty and at most 256 MiB")
     events = []
+    decode_id: int | None = None
+    batch_tokens: int | None = None
+    last_decode_id = 0
     with path.open("r", encoding="utf-8", newline="") as stream:
         for number, line in enumerate(stream, 1):
             fields = line.rstrip("\r\n").split("\t")
+            if len(fields) == 3 and fields[0] == "@decode":
+                sequence_text, token_count_text = fields[1:]
+                if not all(value.isascii() and value.isdecimal()
+                           for value in (sequence_text, token_count_text)):
+                    raise ValueError(f"trace line {number}: malformed decode marker")
+                sequence, token_count = map(int, (sequence_text, token_count_text))
+                if sequence <= last_decode_id or token_count <= 0:
+                    raise ValueError(f"trace line {number}: decode IDs must increase and token count must be positive")
+                decode_id, batch_tokens = sequence, token_count
+                last_decode_id = sequence
+                continue
             if len(fields) != 4:
-                raise ValueError(f"trace line {number}: expected layer, expert, row, tensor")
+                raise ValueError(f"trace line {number}: expected decode marker or layer, expert, row, tensor")
             layer_text, expert_text, row_text, tensor = fields
             match = TENSOR_RE.fullmatch(tensor)
             values = (layer_text, expert_text, row_text)
@@ -80,15 +94,20 @@ def load_trace(path: Path, entries: dict[tuple[str, int], tuple[int, int]],
             layer, expert, _row = map(int, values)
             if layer != int(match.group(1)):
                 raise ValueError(f"trace line {number}: layer does not match tensor name")
+            if batch_tokens is not None and _row >= batch_tokens:
+                raise ValueError(f"trace line {number}: row is outside the marked decode batch")
             key = (tensor, expert)
             if key not in entries:
                 raise ValueError(f"trace line {number}: selected expert is absent from native index")
             offset, length = entries[key]
-            events.append((tensor, expert, offset, length))
+            events.append((tensor, expert, offset, length, decode_id, _row))
             if len(events) > maximum:
                 raise ValueError(f"trace exceeds maximum of {maximum} events")
     if not events:
         raise ValueError("router trace contains no events")
+    has_markers = any(event[4] is not None for event in events)
+    if has_markers and any(event[4] is None for event in events):
+        raise ValueError("router trace mixes decode-marked and legacy operator events")
     return events
 
 
@@ -131,6 +150,7 @@ def capture(model: Path, index: Path, index_report: Path, trace: Path, runs: int
     entries = load_index(index, source_stat.st_size)
     report_sha = validate_index_report(index_report, model, index, len(entries))
     trace_events = load_trace(trace, entries, maximum_events)
+    decode_ids = {event[4] for event in trace_events if event[4] is not None}
 
     replay = []
     replay_bytes = 0
@@ -155,7 +175,7 @@ def capture(model: Path, index: Path, index_report: Path, trace: Path, runs: int
             by_tensor: Counter[str] = Counter()
             started = time.perf_counter()
             bytes_read = 0
-            for tensor, _expert, offset, length in replay:
+            for tensor, _expert, offset, length, _decode_id, _row in replay:
                 before = time.perf_counter()
                 data = os.pread(descriptor, length, offset)
                 if len(data) != length:
@@ -209,6 +229,8 @@ def capture(model: Path, index: Path, index_report: Path, trace: Path, runs: int
         "indexed_tensor_expert_ranges": len(entries),
         "trace_events_available": len(trace_events),
         "trace_events_replayed_per_run": len(replay),
+        "decode_calls_in_trace": len(decode_ids),
+        "trace_granularity": "decode_call_row_operator" if decode_ids else "legacy_operator_event",
         "trace_prefix_truncated_by_read_budget": len(replay) < len(trace_events),
         "read_byte_budget": maximum_bytes,
         "runs": run_reports,
