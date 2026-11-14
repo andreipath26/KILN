@@ -1,6 +1,6 @@
 # KILN MASTER ROADMAP AND RULES SET
 
-**Version:** 9.7 — measurement suite strengthened; Tier 0 acceptance pending
+**Version:** 9.8 — measurement suite records stage memory; Tier 0 acceptance pending
 **Last updated:** 2026-11-14
 **Status:** Active master roadmap  
 **Repository:** https://github.com/andreipath26/KILN  
@@ -801,5 +801,6 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 
 - Moved buffered source replay and the full-checkpoint SHA-256 scan until after all timed inference. The measurement output records hash status and duration, and fails if hashing fails or the model file identity changes.
 - Added an explicit `os_page_cache_conditioning: uncontrolled` result. The resident baseline runs before the streaming policies, so later policies may use warmed shared kernel pages; this suite does not claim a cold-cache result. The real MoE CI run asserts the ordering, hash consistency, and limitation field.
-- Full hosted CI run #861 passed at commit `0d34deaccd5a9709003efc1920bb719fad7a32a0`, including the one-command suite on the real tiny-MoE fixture with two measured runs and generated-token parity, portable Linux single-binary install/recovery checks, and real-model API/UI smoke. The captured fixture remains integration evidence only.
+- Added 250 ms best-effort per-command samples for child-process RSS, host available/cache memory and cgroup usage/limits. Reports preserve their different scopes and label shared host readings as non-attributable; short peaks may be missed. Run #863 asserted the memory sample data in the real-MoE measurement output.
+- Full hosted CI run #863 passed at commit `842d550de11cff95c513953c39f645f7048258e5`, including the one-command suite on the real tiny-MoE fixture with two measured runs, generated-token parity, stage memory samples, portable Linux single-binary install/recovery checks, and real-model API/UI smoke. The captured fixture remains integration evidence only.
 - Tier 0 remains unaccepted. Qwen3-30B-A3B throughput (≥3 tok/s), total peak RAM (<15 GB), pinned-corpus quality parity, sustained behavior and physical storage bounds still require measurements on the Dell Latitude 7490; this CI run does not satisfy those gates.
