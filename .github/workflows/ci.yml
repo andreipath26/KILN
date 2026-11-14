@@ -816,7 +816,8 @@ jobs:
           assert observed==expected
           for row in report["results"]:
               assert row["resident_bytes_at_end"]<=row["cache_capacity_bytes"]
-              assert row["hits"]+row["misses"]==report["trace_events"]
+              assert row["hits"]+row["misses"]==report["cache_demand_events"]
+          assert report["trace_events"]>=report["cache_demand_events"]
           print("Real router trace replayed through bounded LRU/LFU/adaptive policies")
           PY
 

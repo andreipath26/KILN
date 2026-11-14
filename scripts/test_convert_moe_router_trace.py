@@ -52,6 +52,38 @@ class RouterTraceConversionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "nonempty"):
                 converter.convert(source, output)
 
+    def test_grouped_conversion_collapses_projection_repeats_and_orders_tokens(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source, output = Path(folder) / "route.tsv", Path(folder) / "grouped.json"
+            source.write_text(
+                "@decode\t1\t2\n"
+                "0\t1\t0\tblk.0.ffn_up_exps\n"
+                "0\t1\t0\tblk.0.ffn_down_exps\n"
+                "0\t2\t0\tblk.0.ffn_down_exps\n"
+                "1\t3\t0\tblk.1.ffn_up_exps\n"
+                "0\t4\t1\tblk.0.ffn_up_exps\n"
+                "@decode\t2\t1\n"
+                "0\t2\t0\tblk.0.ffn_up_exps\n",
+                encoding="utf-8")
+            report = converter.convert_grouped(source, output)
+            self.assertEqual(report["decode_tokens"], 3)
+            self.assertEqual(report["raw_operator_events"], 6)
+            self.assertEqual(report["collapsed_projection_events"], 2)
+            self.assertEqual(json.loads(output.read_text()), [
+                {"token_position": 0, "layer": 0, "active_experts": [1, 2]},
+                {"token_position": 0, "layer": 1, "active_experts": [3]},
+                {"token_position": 1, "layer": 0, "active_experts": [4]},
+                {"token_position": 2, "layer": 0, "active_experts": [2]},
+            ])
+
+    def test_grouped_conversion_rejects_legacy_trace_without_token_boundaries(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source, output = Path(folder) / "route.tsv", Path(folder) / "grouped.json"
+            source.write_text("0\t1\t0\tblk.0.ffn_up_exps\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "decode-marked"):
+                converter.convert_grouped(source, output)
+            self.assertFalse(output.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

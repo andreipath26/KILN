@@ -252,22 +252,57 @@ def main() -> int:
         record_failure(stage, blocking=False)  # Unsupported MoE layout is a coverage gap, not a baseline failure.
         index_ok = stage["status"] == "passed" and index.is_file() and index.stat().st_size > 0
 
-        if trace.is_file() and trace.stat().st_size > 0 and index_ok:
-            stage = runner.stage("router-source-io", [sys.executable,
-                                 str(ROOT / "scripts/capture_direct_gguf_expert_io.py"),
-                                 str(model), str(index), str(index_report), str(trace),
-                                 "--max-read-mib", "1024", "--output", str(out / "router-source-io.json")],
-                                 stdout="router-source-io-summary.json", stderr="router-source-io.stderr.log")
+        if trace.is_file() and trace.stat().st_size > 0:
+            if index_ok:
+                stage = runner.stage("router-source-io", [sys.executable,
+                                     str(ROOT / "scripts/capture_direct_gguf_expert_io.py"),
+                                     str(model), str(index), str(index_report), str(trace),
+                                     "--max-read-mib", "1024", "--output", str(out / "router-source-io.json")],
+                                     stdout="router-source-io-summary.json", stderr="router-source-io.stderr.log")
+                record_failure(stage, blocking=False)
+                stage = runner.stage("cache-trace-replay", [sys.executable,
+                                     str(ROOT / "scripts/replay_moe_cache_trace.py"), str(model),
+                                     str(index), str(index_report), str(trace), "--cache-mib",
+                                     "0", str(args.cache_mib), "--output", str(out / "cache-replay.json")],
+                                     stdout="cache-replay-summary.json", stderr="cache-replay.stderr.log")
+                record_failure(stage, blocking=False)
+            else:
+                runner.stage("router-source-io", [], skip_reason="verified native expert index unavailable")
+                runner.stage("cache-trace-replay", [], skip_reason="verified native expert index unavailable")
+            grouped_trace = out / "router-holdout-input.json"
+            stage = runner.stage("group-router-holdout-input", [sys.executable,
+                                 str(ROOT / "scripts/convert_moe_router_trace.py"), str(trace),
+                                 "--out", str(out / "router-operator-events.json"),
+                                 "--grouped-out", str(grouped_trace)],
+                                 stdout="router-trace-conversion.json",
+                                 stderr="router-trace-conversion.stderr.log")
             record_failure(stage, blocking=False)
-            stage = runner.stage("cache-trace-replay", [sys.executable,
-                                 str(ROOT / "scripts/replay_moe_cache_trace.py"), str(model),
-                                 str(index), str(index_report), str(trace), "--cache-mib",
-                                 "0", str(args.cache_mib), "--output", str(out / "cache-replay.json")],
-                                 stdout="cache-replay-summary.json", stderr="cache-replay.stderr.log")
-            record_failure(stage, blocking=False)
+            try:
+                grouped_events = json.loads(grouped_trace.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                grouped_events = None
+            if stage["status"] == "passed" and isinstance(grouped_events, list):
+                token_count = len({event["token_position"] for event in grouped_events})
+                train_until = int(token_count * 0.8)
+                if 2 <= train_until < token_count:
+                    stage = runner.stage("router-predictor-holdout", [str(bench), "router-holdout",
+                                         "--trace-file", str(grouped_trace),
+                                         "--train-until-token", str(train_until),
+                                         "--top-k", "2", "--json"],
+                                         stdout="router-predictor-holdout.json",
+                                         stderr="router-predictor-holdout.stderr.log")
+                    record_failure(stage, blocking=False)
+                else:
+                    runner.stage("router-predictor-holdout", [], skip_reason=
+                                 f"need at least 3 distinct decode rows; captured {token_count}")
+            else:
+                runner.stage("router-predictor-holdout", [], skip_reason=
+                             "router trace lacks usable decode-boundary grouped events; see conversion logs")
         else:
             runner.stage("router-source-io", [], skip_reason="trace or verified single-file MoE index unavailable")
             runner.stage("cache-trace-replay", [], skip_reason="trace or verified single-file MoE index unavailable")
+            runner.stage("group-router-holdout-input", [], skip_reason="decode-marked router trace unavailable")
+            runner.stage("router-predictor-holdout", [], skip_reason="decode-marked router trace unavailable")
 
         # Execute the real graph-selected source path under no-cache, LRU and LFU.
         # These are paired inference runs; replay above is separately labeled simulation.
@@ -313,7 +348,8 @@ def main() -> int:
             runner.stage("quality-parity", [], skip_reason="FP16 reference and matched corpus were not supplied")
     else:
         for name in ("preflight-plan", "resident-baseline", "native-index-export", "router-source-io",
-                     "cache-trace-replay", "stream-none", "stream-lru", "stream-lfu",
+                     "cache-trace-replay", "group-router-holdout-input", "router-predictor-holdout",
+                     "stream-none", "stream-lru", "stream-lfu",
                      "quality-reference", "quality-candidate", "quality-parity"):
             runner.stage(name, [], skip_reason="release build failed; see build.log and build.stderr.log")
 
@@ -321,6 +357,7 @@ def main() -> int:
         "resident": "resident-baseline.json", "stream_none": "stream-none.json",
         "stream_lru": "stream-lru.json", "stream_lfu": "stream-lfu.json",
         "quality": "quality-parity.json", "cache_replay": "cache-replay.json",
+        "predictor": "router-predictor-holdout.json",
     }.items()}
     metrics = {}
     for name, report in reports.items():
@@ -335,6 +372,7 @@ def main() -> int:
                 "expert_io_audit": read_audit(out / f"stream-{policy}.audit.tsv") if policy != "resident" else None,
             }
     quality = reports["quality"]
+    predictor = reports["predictor"]
     primary = reports["stream_none"] or reports["resident"]
     tps = mean_metric(primary, "decode_tokens_per_second")
     rss = peak_rss_gib(primary)
@@ -374,8 +412,12 @@ def main() -> int:
             },
             "5B_cache_and_predictor": {
                 "status": "partial" if reports["cache_replay"] else "inconclusive",
-                "evidence": ["live no-cache/LRU/LFU runs when native indexing is supported", "offline LRU/LFU/adaptive policy simulation"],
-                "still_needed": ["leakage-free predictor holdout with coverage/precision/recall", "prefetch useful/wasted bytes and end-to-end impact"],
+                "evidence": ["live no-cache/LRU/LFU runs when native indexing is supported", "offline LRU/LFU/adaptive policy simulation"] + (["chronological real-router grouped holdout"] if predictor else []),
+                "predictor_holdout": ({key: predictor.get(key) for key in
+                    ("train_events", "test_events", "top_k", "accuracy_at_k", "coverage",
+                     "active_expert_recall_at_k", "unigram_baseline_accuracy_at_k",
+                     "exploratory_threshold_80_percent")} if predictor else None),
+                "still_needed": ["prefetch useful/wasted bytes and end-to-end impact"],
             },
             "5C_async_io_overlap": {
                 "status": "not_measured",
@@ -393,6 +435,9 @@ def main() -> int:
             "kind": "offline trace simulation; not runtime cache performance",
             "report": "cache-replay.json" if reports["cache_replay"] else None,
         },
+        "predictor_holdout": {"status": "captured" if predictor else "inconclusive",
+                              "kind": "chronological grouped holdout; exploratory only",
+                              "report": "router-predictor-holdout.json" if predictor else None},
         "stages": runner.stages,
         "failed_stages": failures,
         "blocking_failures": blocking_failures,
