@@ -829,7 +829,7 @@ jobs:
           MODEL="$RUNNER_TEMP/kiln-models/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
           OUT="$RUNNER_TEMP/kiln-measure-smoke"
           timeout 240 target/debug/kiln measure "$MODEL" --out "$OUT" \
-            --tokens 8 --runs 1 --threads 2 --min-tps 0 --max-rss-gib 64
+            --tokens 8 --runs 2 --threads 2 --min-tps 0 --max-rss-gib 64
           python3 - "$OUT" <<'PY'
           import json,pathlib,sys
           root=pathlib.Path(sys.argv[1])
@@ -842,6 +842,10 @@ jobs:
           assert parity["status"] == "pass", parity
           assert set(parity["per_policy"]) == {"none", "lru", "lfu"}, parity
           assert all(row["status"] == "pass" for row in parity["per_policy"].values()), parity
+          assert all(row["total_runs"] == 2 for row in parity["per_policy"].values()), parity
+          source_io=json.load(open(root/"router-source-io.json",encoding="utf-8"))
+          if source_io["direct_io_diagnostic"]["status"] == "captured":
+              assert len(source_io["direct_io_diagnostic"]["runs"]) == 2
           assert (root/"resident-baseline.json").is_file()
           assert (root/"native-expert-index.tsv").is_file()
           assert (root/"router-trace.tsv").is_file()
