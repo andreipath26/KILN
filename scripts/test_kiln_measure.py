@@ -37,6 +37,13 @@ class MeasureReportTests(unittest.TestCase):
             model.write_bytes(b"changed model")
             self.assertNotEqual(file_identity(model), before)
 
+    def test_host_capture_allows_digest_to_be_deferred_until_after_measurement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            model = Path(temp) / "model.gguf"
+            model.write_bytes(b"model")
+            info = host_info(model, None)
+        self.assertIsNone(info["model_sha256"])
+
     def test_token_parity_passes_for_identical_greedy_runs(self):
         runs = [{"generated_tokens": 12, "token_fingerprint_fnv1a64": "0123456789abcdef",
                  "token_ids_sha256_le_i32": "a" * 64},

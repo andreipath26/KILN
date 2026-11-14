@@ -11,6 +11,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 
 
@@ -212,7 +213,7 @@ def read_audit(path: Path) -> dict | None:
     return result
 
 
-def host_info(model: Path, model_sha256: str) -> dict:
+def host_info(model: Path, model_sha256: str | None) -> dict:
     try:
         model_size = model.stat().st_size
     except OSError:
@@ -339,10 +340,8 @@ def main() -> int:
     os.chmod(out, 0o700)
     runner = Run(out, model)
     model_identity = file_identity(model)
-    model_digest = sha256(model)
-    if file_identity(model) != model_identity:
-        parser.error("model changed while its initial digest was being captured")
-    (out / "host-and-model.json").write_text(json.dumps(host_info(model, model_digest), indent=2) + "\n")
+    model_digest: str | None = None
+    (out / "host-and-model.json").write_text(json.dumps(host_info(model, None), indent=2) + "\n")
     try:
         revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True,
                                   capture_output=True, check=False)
@@ -354,7 +353,8 @@ def main() -> int:
             "kiln_commit": revision.stdout.strip() if revision.returncode == 0 else None,
             "kiln_dirty": bool(dirty.stdout.strip()) if dirty.returncode == 0 else None,
             "llama_submodule": submodule.stdout.strip() if submodule.returncode == 0 else None,
-            "build_profile": "release", "model_sha256": model_digest,
+            "build_profile": "release", "model_sha256": None,
+            "model_sha256_status": "deferred_until_after_measurements_to_avoid_page-cache_warming",
             "scope_note": "A single host run; Linux process I/O is not physical SSD telemetry.",
         }
         (out / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
@@ -400,23 +400,6 @@ def main() -> int:
         index_ok = stage["status"] == "passed" and index.is_file() and index.stat().st_size > 0
 
         if trace.is_file() and trace.stat().st_size > 0:
-            if index_ok:
-                stage = runner.stage("router-source-io", [sys.executable,
-                                     str(ROOT / "scripts/capture_direct_gguf_expert_io.py"),
-                                     str(model), str(index), str(index_report), str(trace),
-                                     "--runs", str(args.runs), "--max-read-mib", "1024",
-                                     "--output", str(out / "router-source-io.json")],
-                                     stdout="router-source-io-summary.json", stderr="router-source-io.stderr.log")
-                record_failure(stage, blocking=False)
-                stage = runner.stage("cache-trace-replay", [sys.executable,
-                                     str(ROOT / "scripts/replay_moe_cache_trace.py"), str(model),
-                                     str(index), str(index_report), str(trace), "--cache-mib",
-                                     "0", str(args.cache_mib), "--output", str(out / "cache-replay.json")],
-                                     stdout="cache-replay-summary.json", stderr="cache-replay.stderr.log")
-                record_failure(stage, blocking=False)
-            else:
-                runner.stage("router-source-io", [], skip_reason="verified native expert index unavailable")
-                runner.stage("cache-trace-replay", [], skip_reason="verified native expert index unavailable")
             grouped_trace = out / "router-holdout-input.json"
             stage = runner.stage("group-router-holdout-input", [sys.executable,
                                  str(ROOT / "scripts/convert_moe_router_trace.py"), str(trace),
@@ -447,13 +430,11 @@ def main() -> int:
                 runner.stage("router-predictor-holdout", [], skip_reason=
                              "router trace lacks usable decode-boundary grouped events; see conversion logs")
         else:
-            runner.stage("router-source-io", [], skip_reason="trace or verified single-file MoE index unavailable")
-            runner.stage("cache-trace-replay", [], skip_reason="trace or verified single-file MoE index unavailable")
             runner.stage("group-router-holdout-input", [], skip_reason="decode-marked router trace unavailable")
             runner.stage("router-predictor-holdout", [], skip_reason="decode-marked router trace unavailable")
 
         # Execute the real graph-selected source path under no-cache, LRU and LFU.
-        # These are paired inference runs; replay above is separately labeled simulation.
+        # These are paired inference runs; replay below is separately labeled simulation.
         if index_ok:
             for policy in ("none", "lru", "lfu"):
                 audit = out / f"stream-{policy}.audit.tsv"
@@ -473,6 +454,29 @@ def main() -> int:
         else:
             for policy in ("none", "lru", "lfu"):
                 runner.stage(f"stream-{policy}", [], skip_reason="verified native expert index unavailable")
+
+        # Buffered replay and full-file hashing can warm the OS page cache. Defer
+        # both until all live inference measurements have completed.
+        if trace.is_file() and trace.stat().st_size > 0 and index_ok:
+            stage = runner.stage("router-source-io", [sys.executable,
+                                 str(ROOT / "scripts/capture_direct_gguf_expert_io.py"),
+                                 str(model), str(index), str(index_report), str(trace),
+                                 "--runs", str(args.runs), "--max-read-mib", "1024",
+                                 "--output", str(out / "router-source-io.json")],
+                                 stdout="router-source-io-summary.json", stderr="router-source-io.stderr.log")
+            record_failure(stage, blocking=False)
+            stage = runner.stage("cache-trace-replay", [sys.executable,
+                                 str(ROOT / "scripts/replay_moe_cache_trace.py"), str(model),
+                                 str(index), str(index_report), str(trace), "--cache-mib",
+                                 "0", str(args.cache_mib), "--output", str(out / "cache-replay.json")],
+                                 stdout="cache-replay-summary.json", stderr="cache-replay.stderr.log")
+            record_failure(stage, blocking=False)
+        elif trace.is_file() and trace.stat().st_size > 0:
+            runner.stage("router-source-io", [], skip_reason="verified native expert index unavailable")
+            runner.stage("cache-trace-replay", [], skip_reason="verified native expert index unavailable")
+        else:
+            runner.stage("router-source-io", [], skip_reason="trace or verified single-file MoE index unavailable")
+            runner.stage("cache-trace-replay", [], skip_reason="trace or verified single-file MoE index unavailable")
 
         if reference and corpus:
             for label, quality_model in (("reference", reference), ("candidate", model)):
@@ -530,6 +534,46 @@ def main() -> int:
     quality = reports["quality"]
     predictor = reports["predictor"]
     source_io = read_json(out / "router-source-io.json")
+
+    # Capture checkpoint identity after inference and buffered diagnostics so
+    # the full-file scan cannot prewarm the timed streaming runs.
+    hash_started = time.monotonic()
+    hash_report = {"status": "captured", "started_at": datetime.now(timezone.utc).isoformat()}
+    try:
+        model_digest = sha256(model)
+        hash_report["sha256"] = model_digest
+    except (OSError, ValueError) as error:
+        hash_report.update({"status": "failed", "error": str(error)})
+        failures.append("model-sha256")
+        blocking_failures.append("model-sha256")
+    hash_report["duration_seconds"] = time.monotonic() - hash_started
+    try:
+        hash_report["identity_matches_start"] = file_identity(model) == model_identity
+    except OSError:
+        hash_report["identity_matches_start"] = False
+    if not hash_report["identity_matches_start"]:
+        hash_report["status"] = "failed"
+        hash_report.setdefault("error", "model file identity changed during measurement or final hash")
+        model_digest = None
+        failures.append("model-file-stability")
+        blocking_failures.append("model-file-stability")
+    (out / "model-hash.json").write_text(json.dumps(hash_report, indent=2) + "\n", encoding="utf-8")
+    hash_stage = {"name": "model-sha256", "command": ["sha256", str(model)],
+                  "status": hash_report["status"], "stdout_log": str(out / "model-hash.json")}
+    if hash_report.get("error"):
+        hash_stage["error"] = hash_report["error"]
+    runner.stages.append(hash_stage)
+    runner._write_command(hash_stage)
+    (out / "host-and-model.json").write_text(json.dumps(host_info(model, model_digest), indent=2) + "\n")
+    try:
+        provenance_path = out / "provenance.json"
+        provenance = read_json(provenance_path)
+        if provenance is not None:
+            provenance["model_sha256"] = model_digest
+            provenance["model_sha256_status"] = hash_report["status"]
+            provenance_path.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+    except OSError as error:
+        (out / "provenance-error.txt").write_text(str(error) + "\n")
     try:
         model_stable = file_identity(model) == model_identity
     except OSError:
@@ -571,6 +615,8 @@ def main() -> int:
                                        "basis": "generated-token count and two token-ID hashes against the resident baseline"},
             "model_file_stability": {"status": "pass" if model_stable else "fail",
                                      "basis": "device, inode, size, and modification time compared before and after measurement"},
+            "model_sha256": {"status": hash_report["status"], "report": "model-hash.json",
+                             "duration_seconds": hash_report["duration_seconds"]},
             "phase5_target_hardware_and_sustained_acceptance": {
                 "status": "inconclusive",
                 "reason": "A single run does not prove the named Tier 0 host, sustained behavior, or all roadmap gates.",
