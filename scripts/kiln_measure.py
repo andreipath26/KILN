@@ -78,6 +78,30 @@ def mean_metric(report: dict | None, metric: str) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
 
+def compare_token_outputs(reference: dict | None, candidate: dict | None) -> dict:
+    """Fail closed unless every paired greedy run emitted identical tokens."""
+    if not reference or not candidate:
+        return {"status": "inconclusive", "matched_runs": 0, "total_runs": 0,
+                "reason": "baseline or candidate report is missing"}
+    expected, observed = reference.get("runs"), candidate.get("runs")
+    if not isinstance(expected, list) or not isinstance(observed, list) or not expected or len(expected) != len(observed):
+        return {"status": "fail", "matched_runs": 0,
+                "total_runs": len(expected) if isinstance(expected, list) else 0,
+                "reason": "reports do not contain the same nonempty run count"}
+    mismatches = []
+    for index, (left, right) in enumerate(zip(expected, observed)):
+        required = ("generated_tokens", "token_fingerprint_fnv1a64")
+        if any(key not in left or key not in right for key in required):
+            return {"status": "fail", "matched_runs": index, "total_runs": len(expected),
+                    "reason": f"run {index + 1} is missing token parity fields"}
+        if any(left[key] != right[key] for key in required):
+            mismatches.append(index + 1)
+    return {"status": "fail" if mismatches else "pass",
+            "matched_runs": len(expected) - len(mismatches), "total_runs": len(expected),
+            "mismatched_run_numbers": mismatches,
+            "comparison": "generated token count and exact token-ID FNV-1a fingerprint"}
+
+
 def peak_rss_gib(report: dict | None) -> float | None:
     if not report:
         return None
@@ -404,9 +428,13 @@ def main() -> int:
         "predictor": "router-predictor-holdout.json",
     }.items()}
     metrics = {}
+    parity = {}
     for name, report in reports.items():
         if name.startswith("stream_") or name == "resident":
             policy = name.removeprefix("stream_")
+            token_comparison = compare_token_outputs(reports["resident"], report) if policy != "resident" else None
+            if token_comparison is not None:
+                parity[policy] = token_comparison
             metrics[name] = {
                 "decode_tokens_per_second_mean": mean_metric(report, "decode_tokens_per_second"),
                 "decode_forward_tokens_per_second_mean": mean_metric(report, "decode_forward_tokens_per_second"),
@@ -414,6 +442,7 @@ def main() -> int:
                 "kernel_attributed_read_bytes": (report or {}).get("process_io", {})
                     .get("measured_inference", {}).get("kernel_storage_read_bytes_delta"),
                 "expert_io_audit": read_audit(out / f"stream-{policy}.audit.tsv") if policy != "resident" else None,
+                "token_parity_vs_resident": token_comparison,
             }
     quality = reports["quality"]
     predictor = reports["predictor"]
@@ -423,7 +452,10 @@ def main() -> int:
     speed_status = "inconclusive" if tps is None else ("pass" if tps >= args.min_tps else "fail")
     memory_status = "inconclusive" if rss is None else ("pass" if rss < args.max_rss_gib else "fail")
     quality_status = quality.get("status") if quality else "inconclusive"
-    observed_failure = bool(blocking_failures) or "fail" in (speed_status, memory_status, quality_status)
+    parity_status = ("fail" if any(item["status"] == "fail" for item in parity.values())
+                     else "pass" if parity and all(item["status"] == "pass" for item in parity.values())
+                     else "inconclusive")
+    observed_failure = bool(blocking_failures) or "fail" in (speed_status, memory_status, quality_status, parity_status)
     summary = {
         "schema_version": 1,
         "run_directory": str(out),
@@ -439,6 +471,9 @@ def main() -> int:
                                   "basis": "process peak RSS; excludes OS page cache"},
             "quality_parity": {"status": quality_status,
                                "report": "quality-parity.json" if quality else None},
+            "generated_token_parity": {"status": parity_status,
+                                       "per_policy": parity,
+                                       "basis": "exact generated-token count and token-ID fingerprint against the resident baseline"},
             "phase5_target_hardware_and_sustained_acceptance": {
                 "status": "inconclusive",
                 "reason": "A single run does not prove the named Tier 0 host, sustained behavior, or all roadmap gates.",
@@ -469,7 +504,7 @@ def main() -> int:
             },
             "5D_end_to_end_quality_and_acceptance": {
                 "status": "partial" if quality else "inconclusive",
-                "evidence": ["resident and selected-expert inference throughput/RSS when supported"] + (["matched-corpus reference parity"] if quality else []),
+                "evidence": ["resident and selected-expert inference throughput/RSS when supported"] + (["exact generated-token parity across live cache policies"] if parity_status == "pass" else []) + (["matched-corpus reference parity"] if quality else []),
                 "still_needed": ["named Tier 0 host and sustained acceptance-duration run", "official corpus and model/weight/tokenizer pin where applicable"],
             },
         },
