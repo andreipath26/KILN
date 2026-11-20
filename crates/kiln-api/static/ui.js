@@ -445,7 +445,7 @@ async function activateLocalModel(path, mode = "auto") {
     $("#auto-setup-status").textContent = `Ready. KILN selected ${payload.model} and chose the runtime path from current system resources.`;
   } catch (error) {
     await refresh();
-    setModelActionState(false, error.message || "Model activation failed.");
+    setModelActionState(false, "Model activation failed; see setup status above.");
     $("#auto-setup-status").textContent = `KILN could not load the selected model: ${error.message || "unknown error"}. Choose another local model or inspect Advanced status.`;
   }
 }
