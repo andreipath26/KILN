@@ -425,15 +425,31 @@ pub async fn ui_models(State(state): State<ApiState>) -> Result<Json<Value>, Err
         candidates.sort_by(|left, right|
             right.0.cmp(&left.0).then_with(|| right.1.cmp(&left.1))
         );
-        let startup_candidates: Vec<Value> = if active_model.is_some() {
-            Vec::new()
-        } else {
-            candidates.iter().map(|(_, _, path, name, mode)| json!({
+        // The browser limits automatic activation to three attempts. Reserve
+        // one slot for a verified streamed MoE candidate so a large local
+        // library cannot crowd out the only viable fallback with resident-fit
+        // models that may fail backend compatibility checks.
+        let mut startup_order: Vec<usize> = Vec::new();
+        if active_model.is_none() {
+            startup_order.extend(candidates.iter().enumerate()
+                .filter_map(|(index, candidate)| candidate.0.then_some(index))
+                .take(2));
+            if let Some(index) = candidates.iter().position(|candidate| !candidate.0) {
+                startup_order.push(index);
+            }
+            for (index, _) in candidates.iter().enumerate() {
+                if startup_order.len() >= 3 { break; }
+                if !startup_order.contains(&index) { startup_order.push(index); }
+            }
+        }
+        let startup_candidates: Vec<Value> = startup_order.iter().map(|index| {
+            let (_, _, path, name, mode) = &candidates[*index];
+            json!({
                 "model_path": path,
                 "model_name": name,
                 "mode": mode,
-            })).collect()
-        };
+            })
+        }).collect();
         let recommendation = active_model.or_else(|| startup_candidates.first().and_then(|model| Some((
             model.get("model_path")?.as_str()?.to_owned(),
             model.get("model_name")?.as_str()?.to_owned(),
