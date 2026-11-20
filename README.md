@@ -59,15 +59,13 @@ The summary deliberately leaves overall acceptance inconclusive unless every req
 
 `run auto` selects a model only when discovery returns a single usable, unambiguous candidate; otherwise choose an explicit path or tag. Discovery does not guarantee that the backend supports a model's architecture. `pull` requires an explicit GGUF file in the selected repository; KILN does **not** automatically download model weights during installation. Downloads use `KILN_MODELS_DIR` or the user's data directory and validate the retrieved file.
 
-Start the local server and UI:
+Start the local dashboard with one command:
 
 ```sh
-cargo run -p kiln-cli -- serve
-# Optional startup model:
-KILN_MODEL_PATH=/path/to/model.gguf cargo run -p kiln-cli -- serve
+cargo run -p kiln-cli -- dashboard
 ```
 
-Open **http://127.0.0.1:11435/**. On opening, the dashboard assesses the machine and automatically starts a suitable installed model when one is available; it also supports local model inventory, public GGUF search/download, model switching and chat. Remote search/download remains explicit. The API is loopback-only; authenticated remote access and automatic heterogeneous hardware placement are not shipped.
+`kiln dashboard` starts the loopback API, waits for its health endpoint, and opens **http://127.0.0.1:11435/** in the default browser. If the API is already running, it opens the existing dashboard. `kiln serve` remains available for terminal and service-manager use. On opening, the dashboard assesses the machine and automatically starts a suitable installed model when one is available; it also supports local model inventory, public GGUF search/download, model switching and chat. Remote search/download remains explicit. The API is loopback-only; authenticated remote access and automatic heterogeneous hardware placement are not shipped.
 
 ## Reusing an active model
 
@@ -228,12 +226,12 @@ bash scripts/build_linux_release.sh
 # Use the exact archive emitted in dist/ (with its adjacent .json and .sha256):
 bash scripts/install_linux_release.sh dist/kiln-linux-ARCH-COMMIT.tar.gz
 
-# Ensure ~/.local/bin is on PATH, then:
-kiln --help
-kiln list
+# Ensure ~/.local/bin is on PATH, then launch KILN from the desktop app menu,
+# or run:
+kiln dashboard
 ```
 
-Replace `ARCH-COMMIT` with the actual artifact name. The installer verifies checksums, architecture and executable startup and refuses to overwrite an existing installation. The binary contains **no model weights** and still depends on compatible target-system libraries; portability and inference quality need real-machine validation.
+Replace `ARCH-COMMIT` with the actual artifact name. The installer verifies checksums, architecture and executable startup, refuses to overwrite an existing binary or KILN desktop launcher, and installs a desktop-menu shortcut that starts the dashboard. The binary contains **no model weights** and still depends on compatible target-system libraries; portability and inference quality need real-machine validation.
 
 ## Performance and deployment status
 

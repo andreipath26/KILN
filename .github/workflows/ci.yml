@@ -928,12 +928,16 @@ jobs:
         run: |
           ARCHIVE="$(find "$RUNNER_TEMP/kiln-portable-release" -maxdepth 1 -name '*.tar.gz' -print -quit)"
           test -s "$ARCHIVE"
-          bash scripts/install_linux_release.sh "$ARCHIVE" "$RUNNER_TEMP/kiln-installed" \
+          XDG_DATA_HOME="$RUNNER_TEMP/kiln-user-data" \
+            bash scripts/install_linux_release.sh "$ARCHIVE" "$RUNNER_TEMP/kiln-installed" \
             > "$RUNNER_TEMP/kiln-install-proof.txt"
+          DESKTOP_ENTRY="$RUNNER_TEMP/kiln-user-data/applications/kiln.desktop"
+          test -s "$DESKTOP_ENTRY"
+          grep -F "Exec=\"$RUNNER_TEMP/kiln-installed/kiln\" dashboard" "$DESKTOP_ENTRY"
           "$RUNNER_TEMP/kiln-installed/kiln" --help > "$RUNNER_TEMP/kiln-installed-help.txt"
           "$RUNNER_TEMP/kiln-installed/kiln" stream --help > "$RUNNER_TEMP/kiln-installed-stream-help.txt"
           KILN_MODELS_DIR="$RUNNER_TEMP/kiln-models" \
-            "$RUNNER_TEMP/kiln-installed/kiln" serve --host 127.0.0.1 --port 11436 \
+            "$RUNNER_TEMP/kiln-installed/kiln" dashboard --no-open --port 11436 \
             > "$RUNNER_TEMP/kiln-installed-api.log" 2>&1 &
           INSTALLED_PID=$!
           READY=0
@@ -984,7 +988,7 @@ jobs:
           fi
           test -s "$RUNNER_TEMP/kiln-installed/kiln"
           test -s "$RUNNER_TEMP/kiln-install-proof.txt"
-          echo "Archive checksum, executable digest, architecture, one-binary and no-overwrite install checks passed"
+          echo "Archive checksum, executable digest, architecture, desktop launcher, dashboard startup, one-binary and no-overwrite install checks passed"
 
       - name: Archive portable one-binary KILN Linux release candidate
         if: always()
