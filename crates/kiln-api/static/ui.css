@@ -43,7 +43,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .recent-section { min-height: 0; max-height: 42vh; margin-top: 23px; padding-top: 16px; overflow: hidden; border-top: 1px solid var(--line); }
 .recent-section h2 { margin: 0 8px 9px; color: #899189; font-size: 10px; font-weight: 620; }
 .recent-chats { display: grid; gap: 3px; overflow-y: auto; max-height: calc(42vh - 42px); }
-.recent-empty { margin: 0; padding: 6px 8px; color: #707870; font-size: 10px; line-height: 1.5; }
+.recent-empty { margin: 0; padding: 6px 8px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .recent-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
 .recent-chat { display: flex; align-items: center; justify-content: space-between; gap: 7px; flex: 1; min-width: 0; padding: 8px; border: 1px solid transparent; border-radius: 7px; color: #b8beb8; background: transparent; text-align: left; cursor: pointer; }
 .recent-chat:hover, .recent-chat.is-active { color: #e1e5df; background: #1d201d; }
@@ -105,7 +105,7 @@ main { width: 100%; min-width: 0; margin: 0 auto; padding: 0 clamp(22px, 3.2vw, 
 .composer textarea::placeholder { color: #7f887f; }
 .composer textarea:focus-visible { outline: none; }
 .composer-footer { display: flex; align-items: center; gap: 12px; min-height: 33px; }
-.composer-hint { flex: 1; color: #757d76; font-size: 9px; }
+.composer-hint { flex: 1; color: var(--muted); font-size: 9px; }
 .inline-error { color: var(--danger); font-size: 11px; }
 .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 35px; padding: 0 13px; border: 1px solid transparent; border-radius: 8px; font-size: 11px; font-weight: 680; cursor: pointer; transition: transform .12s ease, background .12s ease, border-color .12s ease; }
 .button:hover:not(:disabled) { transform: translateY(-1px); }
@@ -115,7 +115,7 @@ main { width: 100%; min-width: 0; margin: 0 auto; padding: 0 clamp(22px, 3.2vw, 
 .button-secondary:hover:not(:disabled), .button-quiet:hover:not(:disabled) { border-color: #535a52; background: #252925; }
 .button-quiet { min-height: 31px; padding: 0 10px; color: #afb6af; border-color: #343934; background: transparent; }
 #send-button { width: 34px; min-height: 32px; padding: 0; border-radius: 8px; font-size: 19px; line-height: 1; }
-.chat-meta { display: flex; justify-content: space-between; gap: 12px; width: min(820px, 100%); align-self: center; padding: 9px 2px 0; color: #727972; font-size: 9px; }
+.chat-meta { display: flex; justify-content: space-between; gap: 12px; width: min(820px, 100%); align-self: center; padding: 9px 2px 0; color: var(--muted); font-size: 9px; }
 .chat-meta .small { font-size: inherit; }
 .machine-panel { align-self: start; margin-top: clamp(42px, 8vh, 96px); padding: 18px 0 16px 23px; border-left: 1px solid var(--line); }
 .machine-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 21px; }
@@ -143,8 +143,8 @@ h2 { margin: 0; font-size: 15px; letter-spacing: -.02em; font-weight: 650; }
 .machine-details .value-warn { color: #e2cc8c; }
 .diagnostics-link { margin-top: 16px; padding: 0; border: 0; color: #c2c9c1; background: transparent; font-size: 10px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .diagnostics-link span { margin-left: 4px; color: #9ba59a; text-decoration: none; }
-.footnote { margin: 4px 0 0; padding: 0 2px; color: #707870; font-size: 9px; line-height: 1.5; }
-.app-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 clamp(22px, 3.2vw, 48px); border-top: 1px solid #252925; color: #707770; font-size: 9px; letter-spacing: .03em; }
+.footnote { margin: 4px 0 0; padding: 0 2px; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.app-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 clamp(22px, 3.2vw, 48px); border-top: 1px solid #252925; color: var(--muted); font-size: 9px; letter-spacing: .03em; }
 .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; margin: 34px 0 24px; }
 .page-heading .muted { margin: 0; font-size: 12px; }
 .inline-status { min-height: 1.3em; margin: 10px 0; color: var(--muted); font-size: 11px; }
