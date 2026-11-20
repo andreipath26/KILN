@@ -457,18 +457,22 @@ async function autoStartRecommended(candidates) {
   try {
     for (const candidate of attempts) {
       const name = candidate.model_name || "recommended local model";
-      $("#auto-setup-status").textContent = `KILN is configuring ${name} from the detected system profile…`;
+      const mode = candidate.mode === "experimental_cpu_moe_stream" ? "stream" : "auto";
+      const setupKind = mode === "stream" ? "experimental CPU expert streaming for" : "the best supported run path for";
+      $("#auto-setup-status").textContent = `KILN is configuring ${name} with ${setupKind} this machine…`;
       setModelActionState(true, `Starting ${name} automatically…`);
       try {
         const response = await fetch("/api/ui/models/activate", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ path: candidate.model_path, mode: "auto" }),
+          body: JSON.stringify({ path: candidate.model_path, mode }),
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error || `Model activation failed (${response.status}).`);
         await refresh();
         setModelActionState(false, `Ready with ${payload.model}.`);
-        $("#auto-setup-status").textContent = `Ready. KILN assessed this machine, selected ${payload.model}, and chose the supported runtime path automatically.`;
+        $("#auto-setup-status").textContent = mode === "stream"
+          ? `Ready. KILN assessed this machine and started ${payload.model} with experimental CPU expert streaming.`
+          : `Ready. KILN assessed this machine, selected ${payload.model}, and chose the supported runtime path automatically.`;
         return;
       } catch (error) {
         failures.push(`${name}: ${error.message || "activation failed"}`);
