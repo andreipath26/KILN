@@ -1,273 +1,136 @@
 # KILN
 
-**Run models larger than machine memory, at usable speed, on the hardware you already own.**
+**Run local language models with a runtime that adapts to the machine you already own.**
 
-KILN is an open-source local inference runtime in active development, intended for LLMs and SLMs supported by its inference backends. The project aims to coordinate CPU, GPU, NPU/APU/iGPU, RAM, accelerator memory, and storage without requiring a particular model or a particular machine. Actual backend support and performance depend on the model and hardware; this is not yet a stable, general-purpose release.
+KILN is an open-source inference runtime for local language models. It includes a native desktop window on Linux, a loopback-only Ollama-compatible API, model discovery, hardware-aware setup, and experimental paths for compatible models that exceed available memory.
 
-## Current functionality
+KILN is still under active development. Its large-model speed, quality, memory and storage targets have **not** been accepted on the Tier 0 test laptop. Experimental streaming and passing CI are not deployment certification.
 
-- Rust workspace, runtime dispatcher, GGUF inspection/loading, TQ1_0 experiments, CLI, and a loopback-only Ollama-compatible API with a local web UI.
-- Discovery of existing GGUF files and installed Ollama manifests, including human-readable Ollama tags. Where a local tag resolves unambiguously, `kiln run <ollama-tag>` uses the existing weight blob without copying it.
-- The local dashboard probes system resources and inventories local GGUFs when opened. If no model is active, it automatically tries up to three safe candidates: first the largest model estimated to fit the current resident budget, then verified experimental CPU-streamable MoE candidates. The runtime rechecks resources and layout during activation; unsupported candidates are skipped with their errors shown. This avoids CLI tuning for the common local-model path, but does not silently download weights or guarantee a model-specific speed/quality result.
-- Public Hugging Face GGUF search and explicit model-file downloads, with integrity checks.
-- `kiln plan MODEL [--json]`: read-only GGUF/system memory and CPU feasibility preflight. It is a diagnostic, **not** a guarantee that a model will load or run at a particular speed.
-- **Experimental Linux CPU MoE streaming:** `kiln stream MODEL` resolves a compatible fused-expert GGUF, creates a temporary verified source index, and starts an isolated inference child using selected expert slabs read directly from the **original GGUF**. This is real opt-in graph compute, not just synthetic I/O simulation. It supports bounded native expert caching, optional parallel reads, and fail-closed stream audit checks; it does not require duplicating model weights.
-- Phase 5 engineering tools for real router-ID traces, byte-bounded LRU/LFU/adaptive cache replay, expert index/sidecar validation, asynchronous I/O, and model quality/throughput evidence. Trace simulation compares policies on captured routes; it does not measure runtime-cache behavior or hardware performance.
-- **Experimental Phase 6 LLaDA diffusion:** `kiln diffuse` runs native masked decoding with CLAD attention-guided parallel commits. JSONL suites reuse one loaded model session and the factual capture workflow records repeatable evidence; Dell speed and quality remain unvalidated.
-- The native streamed MoE slab cache also has an experimental opt-in LFU replacement policy: set `KILN_MOE_STREAM_CACHE_POLICY=lfu` before `kiln stream`. LRU remains the default; LFU preserves router-selected output but has no claimed speed benefit until a controlled target-hardware A/B.
+## Desktop workspace
 
-**What this does not mean:** The streamed path is not automatically enabled for every model, architecture or operating system. Ordinary `kiln run` remains the default inference path; incompatible expert layouts are rejected for automatic streaming. The existing `cpu_moe_streamed` byte-dispatch components and native GGML selected-expert computation are separate mechanisms, and neither is a general hardware-deployment acceptance certificate.
+On Kali and Debian, the prebuilt package installs KILN’s desktop launcher and GTK/WebKit runtime. Run KILN from the app menu or:
 
-## Get started (Linux development build)
+    kiln dashboard
 
-Prerequisites: Git, Rust/Cargo, CMake, a C/C++ toolchain, and the pinned `kiln-llama` submodule. Clone with submodules and build the native static libraries:
+The app opens in its own window. It checks the machine, finds installed models, and may start a suitable candidate automatically. Chat, Models, Activity, and System details are served locally. KILN does not download model weights during install or send prompts to a cloud service.
 
-```sh
-git clone --recurse-submodules https://github.com/andreipath26/KILN.git
-cd KILN
-
-cmake -S vendor/llama.cpp -B vendor/llama.cpp/build \
-  -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
-cmake --build vendor/llama.cpp/build --config Release -j
-
-cargo run -p kiln-cli -- --help
-```
-
-Find and use an already installed local model (GGUF or an unambiguous installed Ollama tag), or explicitly search/download a public GGUF:
-
-```sh
-cargo run -p kiln-cli -- list
-cargo run -p kiln-cli -- list --json
-cargo run -p kiln-cli -- list --path /path/to/models
-cargo run -p kiln-cli -- run auto
-cargo run -p kiln-cli -- run /path/to/model.gguf --max-tokens 50
-cargo run -p kiln-cli -- run 'your-installed-ollama-tag'
-cargo run -p kiln-cli -- search "model family"
-cargo run -p kiln-cli -- pull OWNER/REPOSITORY --file path/in/repository/model.gguf
-```
-
-Run the consolidated measurement suite against a local GGUF:
-
-```sh
-cargo run -p kiln-cli -- measure /path/to/model.gguf --out ./measurements/model-run \
-  --tokens 128 --runs 5 --threads 4
-```
-
-The command builds the release tools, captures host/model/revision provenance, runs a resident baseline, attempts verified expert indexing and live no-cache/LRU/LFU MoE measurements, captures a chronological top-2 router holdout when token boundaries are available, and then runs source-I/O and cache replay diagnostics. Buffered source reads and the full-checkpoint SHA-256 scan are deliberately deferred until after timed inference so they do not prewarm its OS page cache. The final hash and its duration/status are saved in `model-hash.json`; a failed hash or changed checkpoint makes the run fail. The resident baseline runs before the streaming policies, and all policies share the host kernel page cache; the report marks page-cache conditioning as uncontrolled. On Linux, each stage samples child-process RSS, host available/cache bytes, cgroup usage, CPU frequencies, and thermal zones about every 250 ms; raw samples are retained in `stage-memory.jsonl`. Host/cgroup readings include unrelated work and can miss short peaks; the benchmark's process peak RSS remains the configured limit check. On Linux filesystems that support it, source-I/O evidence also includes a best-effort `O_DIRECT` replay of traced expert ranges to bypass the OS page cache. Stage records include read-sector deltas for the model's backing block device when exposed by sysfs; those counters cover the whole device and may include unrelated processes. Neither diagnostic is isolated device telemetry or a substitute for target-host inference measurements. Add `--reference /path/to/fp16.gguf --corpus /path/to/eval.txt` to compare candidate/reference NLL on the same corpus. It never downloads weights. Each run gets a new output directory containing `summary.json`, command records, JSON reports, and per-stage stdout/stderr logs; failed stages retain their logs and do not erase earlier evidence. Speed and RSS limits can be changed with `--min-tps` and `--max-rss-gib`.
-
-The summary deliberately leaves overall acceptance inconclusive unless every required target-hardware and quality gate is evidenced. It does not infer isolated physical SSD throughput from Linux process I/O counters, and a cache replay is a simulation rather than a runtime cache measurement.
-
-### One-command Tier 0 qualification capture
-
-To collect the dense-path, streamed-MoE and LLaDA/CLAD evidence in one run, copy [the example qualification config](docs/tier0-qualification.example.json), set its three pinned local GGUF paths (and optional FP16 reference/corpus), then run:
-
-```sh
-cargo run -p kiln-cli -- qualify --config ./tier0-qualification.json --out ./measurements/tier0-run
-```
-
-Relative model paths resolve from the config file. The command builds KILN, runs the existing Phase 3.5, Phase 5 and paired Phase 6 suites, and retains per-command stdout/stderr, reports, model hashes, host metadata and failures under the new output directory. Reusing an output directory is rejected. A nonzero exit means a capture was blocked or failed; review `qualification.json` and `commands.json` to locate it. `overall_status` deliberately stays `inconclusive` and `deployment_ready` stays `false`: a run cannot verify that it was performed on the Dell Latitude 7490, replace manual review of quality misses, or establish sustained thermals and isolated physical storage bounds.
-
-`run auto` selects a model only when discovery returns a single usable, unambiguous candidate; otherwise choose an explicit path or tag. Discovery does not guarantee that the backend supports a model's architecture. `pull` requires an explicit GGUF file in the selected repository; KILN does **not** automatically download model weights during installation. Downloads use `KILN_MODELS_DIR` or the user's data directory and validate the retrieved file.
-
-Start the local dashboard with one command:
-
-```sh
-cargo run -p kiln-cli -- dashboard
-```
-
-On Kali/Debian, `kiln dashboard` starts the loopback API and opens KILN in its own desktop window. It uses the system GTK/WebKit runtime; the `.deb` installs those dependencies automatically. If the API is already running, KILN opens another app window against that local instance. `kiln serve` remains available for terminal and service-manager use, and `kiln dashboard --no-open` runs the API without opening a window. On opening, KILN assesses the machine and automatically starts a suitable installed model when one is available; the app also supports local model inventory, explicit public GGUF search/download, model switching, chat, activity history and runtime details. The UI and API stay local; authenticated remote access and automatic heterogeneous hardware placement are not shipped.
-
-The GTK window uses `python3-gi` and `gir1.2-webkit2-4.1`, which the Kali/Debian package installs through APT dependencies. The GTK window is Linux-only in this release; macOS and Windows dashboard launches still open the local URL with the platform's default browser.
-
-### Desktop UI previews
-
-These approved design previews show the Chat workspace and system-readiness dashboard. The model and hardware values shown are illustrative, not captured from a live KILN run.
+The previews below show the approved interface direction. Model and hardware values are illustrative, not captured from a live run.
 
 ![KILN chat workspace design preview](docs/screenshots/kiln-chat-preview.png)
 
 ![KILN dashboard design preview](docs/screenshots/kiln-dashboard-preview.png)
 
-## Reusing an active model
+### Install on Kali or Debian
 
-Selecting a GGUF that is **already active** through the local UI does not tear down and reload its native inference session. KILN compares canonical source paths and preserves the existing model, native expert hot cache and execution mode, avoiding unnecessary storage reads and startup delays. Explicitly requesting streaming for a model currently running in standard mode still performs a deliberate mode switch. This optimization does not introduce an automatic background model download or alter local weight files.
+Download the amd64 or arm64 .deb from [KILN Releases](https://github.com/andreipath26/KILN/releases), then install it:
 
-## Oversized models in the local web UI
+    sudo apt install ./kiln-linux-ARCH-COMMIT.deb
 
-When you select **Use model**, KILN estimates a conservative resident-memory budget using Linux `MemAvailable` and, where present, remaining cgroup memory headroom. It reserves room for the OS, inference context and other allocations; comparing a GGUF with **total installed RAM alone** is insufficient. On Linux, an oversized **compatible single-file fused MoE GGUF** is launched through the experimental native on-demand expert streaming engine, with the model kept in a separate worker process for chat and generation. System details identifies the active inference mode. An explicit **Try streaming** option is available for smaller compatible MoE files as well. Streaming remains experimental and is not proof of usable speed, bounded physical RAM, or support for every GGUF architecture.
+Replace the example filename with the downloaded asset. Launch KILN from the app menu or run kiln dashboard. Main-branch packages are previews; use a versioned release for the stable update channel.
 
-**Split-model activation fails closed:** the API checks that every numbered source shard is a readable regular file and uses checked arithmetic for the combined size before deciding whether to load weights in RAM or stream them. Missing/unreadable shards and size overflow produce an explicit error rather than an underestimated resident-memory budget. Existing weights are not modified.
+## Build from source
 
-**Split GGUFs** with conventional names such as `model-00001-of-00002.gguf` must have **all shards in the same directory**. KILN detects missing parts, shows which filenames are absent, and avoids attempting to activate an incomplete set. With all shards present, KILN selects shard 1 as the entrypoint and tries the supported loader with lazy routed-expert mmap for models exceeding RAM. The native external expert streaming index now also supports complete, compatible split-GGUF fused layouts through versioned per-shard source mappings. It remains opt-in experimental inference, and not all models or quantizations are supported. Streamed API sessions use bounded JSON-lines messages between the local server and its isolated native worker. Invalid or truncated frames fail closed, client disconnects do not desynchronize subsequent responses, and a worker that does not exit at model-switch shutdown is terminated after a bounded grace period. Do not delete or re-download an existing shard unless its integrity is in question.
+Requirements: Git, Rust/Cargo, CMake, a C/C++ toolchain, and the pinned llama.cpp submodule.
 
-A successful GGUF metadata scan is not evidence that its architecture or quantization is supported by the native inference fork. Incompatible layouts or failed memory allocations remain explicit load errors rather than silent fallback claims.
+    git clone --recurse-submodules https://github.com/andreipath26/KILN.git
+    cd KILN
+    cmake -S vendor/llama.cpp -B vendor/llama.cpp/build \
+      -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
+    cmake --build vendor/llama.cpp/build --config Release -j
+    cargo run -p kiln-cli -- --help
 
-## Download complete split models and resume safely
+Run the dashboard from the checkout with:
 
-For public Hugging Face models supplied as numbered GGUF shards, the web UI offers **Download complete model (N shards)** when the repository lists every part. It downloads each original GGUF file separately with size and SHA-256 validation. If a transfer is cancelled, already completed shards remain intact, and the partial in-progress file is removed. A later attempt verifies and reuses existing shards rather than overwriting or downloading them again. Incomplete remote shard groups are not advertised as complete models.
+    cargo run -p kiln-cli -- dashboard
 
-The CLI provides the same complete-file workflow:
+On Linux, this opens the local UI in the GTK/WebKit window. The Debian package installs the desktop dependencies automatically. On macOS and Windows, dashboard opening still uses the system browser.
 
-```sh
-kiln pull OWNER/REPOSITORY --file "model-00001-of-00002.gguf" --all-shards
-```
+## Models and chat
 
-Use a nested repository file path when appropriate. The command checks that all numbered parts and their trusted digests exist in the public repository before starting transfers, and it verifies each installed file. **This is download completeness, not inference compatibility**: some architectures and quantizers remain unsupported, and KILN still requires native multi-shard expert compute validation before calling large split-model streaming production-ready.
+KILN discovers local GGUF files and installed Ollama model manifests. When an installed Ollama tag resolves to one unambiguous weight file, KILN can use it without copying weights.
 
-## Real-model streamed-session recovery gate
+    cargo run -p kiln-cli -- list
+    cargo run -p kiln-cli -- list --json
+    cargo run -p kiln-cli -- run auto
+    cargo run -p kiln-cli -- run /path/to/model.gguf --max-tokens 50
+    cargo run -p kiln-cli -- run 'your-installed-ollama-tag'
 
-The Linux CI smoke test now keeps one actual native MoE model loaded while exercising two HTTP 400 paths: an over-context prompt that fits the raw IPC request bound, and a control-character prompt whose escaped JSONL frame exceeds the native worker limit. It then sends a short generation request to the same native session and verifies that the streaming mode remains active. The response and recovery evidence are archived after the full smoke sequence. Passing this gate verifies protocol/session recovery for a small test GGUF only; it is not a large-model Tier 0 speed, memory, SSD I/O, or WikiText-2 quality result.
+To find or download a public Hugging Face GGUF, choose the repository and file explicitly:
 
-## Parallel CI feedback
+    cargo run -p kiln-cli -- search "model family"
+    cargo run -p kiln-cli -- pull OWNER/REPOSITORY --file path/in/repository/model.gguf
 
-GitHub Actions runs a lightweight `fast-checks` job alongside the native real-model integration job. It validates Python evidence/feasibility utilities, shell script syntax, and local browser JavaScript syntax without compiling the pinned llama.cpp submodule or downloading GGUF weights. The long native test job retains workspace, real-model parity, release, and UI smoke gates. Both jobs must pass before CI is green; this split avoids duplicating the fast tests in the long-running job.
+Downloads are integrity-checked and stored under KILN_MODELS_DIR or the user data directory. For numbered split files, add --all-shards to pull a complete set. KILN checks that all listed parts are present and verifies each installed file. Incomplete remote shard groups are not offered as complete downloads.
 
-## Safe model-switch source preflight
+The dashboard assesses available memory and model compatibility at startup. It may attempt up to three suitable installed models and shows failures in the interface. This avoids routine command-line tuning; it does not guarantee that an architecture is supported or that a model will run at a particular speed.
 
-Before evicting the currently running model during a switch, KILN validates the replacement GGUF's source files. For a conventional split GGUF, every named shard must be a readable regular file and its size must be included in the checked aggregate. If a shard is missing or unreadable, activation rejects the new model **without unloading the old session**. The normal loader performs the same verification when it actually opens the requested model; this is an availability safeguard, not a guarantee that unsupported architecture or out-of-memory failures can always restore the prior session.
+## Measure a model
 
-## Repeatable real-model CI fixtures
+Use measure to capture repeatable model, machine, runtime, memory, thermal, cache, and log evidence for a local GGUF:
 
-The smoke workflow reuses verified GGUF files by hard link for alternate-model and Ollama-manifest checks. Restored caches may already contain these paths, so fixture setup compares inode identity and only repairs a missing or stale link; it does not copy or modify source model weights. This avoids failing an otherwise successful native integration run because a cache-restored test link already exists.
+    cargo run -p kiln-cli -- measure /path/to/model.gguf \
+      --out ./measurements/model-run --tokens 128 --runs 5 --threads 4
 
-## Phase 5 CI evidence preservation
+Each run writes a new output directory with a summary, command records, JSON reports, model hash and per-stage stdout/stderr. Failed stages keep their logs and do not erase earlier evidence. Linux runs sample process RSS, host and cgroup memory, CPU frequency, thermal zones, and available block-device counters. Add a reference GGUF and corpus to compare candidate and reference loss on the same text.
 
-The GitHub Actions real-model evidence archive runs **after** the complete model, split-GGUF, native-worker, portable-release, and browser smoke sequence (including API shutdown). The archive step uses `always()` so failed tests still preserve whatever evidence was produced. A failed artifact upload remains a visible CI failure and must be investigated; an uploaded artifact is not proof that every test or Tier 0 performance target passed.
+Some measurements are estimates or diagnostics. Linux page cache is shared and uncontrolled; block-device counters can include other processes; O_DIRECT replay is best-effort. Cache-policy replay is a simulation, not live inference. These measurements do not by themselves prove physical SSD traffic, total memory bounds, sustained throughput, or quality parity.
 
-## GGUF tensor safety and oversized metadata
+### One-command Tier 0 qualification
 
-GGUF tensor-size inspection uses checked, row-oriented encoded-byte arithmetic. Known quantization formats with malformed row dimensions, arithmetic overflow, or out-of-file tensor ranges are rejected instead of being treated as valid but unreadable weights. Unknown quantization types remain visible to discovery and diagnostics, but even unknown tensor offsets must belong to the source file. Parsing rejects out-of-range metadata offsets and data-section alignment overflow. This protects model inspection and expert-source mapping; it does **not** make an unsupported model architecture runnable.
+Copy [the example configuration](docs/tier0-qualification.example.json), set the required local model paths, and run all configured Phase 3.5, Phase 5, and Phase 6 captures:
 
+    cargo run -p kiln-cli -- qualify \
+      --config ./tier0-qualification.json \
+      --out ./measurements/tier0-run
 
-## Split GGUF Phase 5 source mapping
+The command retains model hashes, machine metadata, per-command logs, reports, and failure details. It refuses to reuse an existing output directory. Review qualification.json and commands.json. A failed or incomplete capture returns a nonzero exit code.
 
-`kiln plan /path/to/model-00001-of-00002.gguf --json` validates **every** part of a split GGUF and reports the **combined** model size, per-shard tensor counts, and verified source byte ranges for recognized routed-expert tensors. It does not combine the original files or read all the model weights into RAM. Supported tensor types are checked for row alignment, byte-range overflow and source-file bounds, while unknown quantizers remain explicitly unsupported. Missing shards, inconsistent split metadata and duplicate tensor names fail closed.
+The report deliberately leaves overall status inconclusive and deployment_ready false. A command cannot prove that it ran on the target laptop, replace manual review of quality results, or establish sustained thermal and isolated physical-storage limits.
 
-The `kiln-io` multi-source expert reader can independently open and pin the original source files, read selected exact tensor ranges into caller-owned buffers, and fork independent positional readers for parallel access. It also resolves verified third-axis **fused expert slabs** across all model shards, allowing a specific (layer, expert, projection) range to be read without loading the whole tensor.
+## Experimental inference paths
 
-Benchmark the real source-file I/O with:
+### CPU MoE expert streaming
 
-```sh
-cargo run --release -p kiln-bench -- expert-io-split \
-  --source-gguf /path/to/model-00001-of-00002.gguf \
-  --requests 64 --max-read-mib 256 --json
-```
+On Linux, KILN has an opt-in native streaming path for compatible fused-expert MoE GGUFs:
 
-This reports explicit read bytes, per-shard request counts, wall-clock throughput and maximum caller buffer. Linux page cache is uncontrolled; the figures **do not** represent physical SSD traffic, inference throughput or accuracy.
- **Experimental native multi-shard compute:** the pinned KILN llama.cpp CPU backend now consumes a versioned `KILN-MOE-STREAM-2` index, resolves every graph-selected expert slab to its original GGUF shard, and issues bounded positional reads from that source. `kiln stream` creates the temporary verified index automatically for complete, supported fused three-projection MoE layouts, while leaving model files unchanged. The UI may select this mode for eligible split models exceeding current memory headroom. Unknown quantizers, incomplete projections and unsupported architectures still fail closed. Support for a verified source layout is **not** a Tier 0 performance, quality or physical SSD-traffic acceptance result.
+    cargo run -p kiln-cli -- plan /path/to/model.gguf --json
+    cargo run -p kiln-cli -- stream /path/to/model.gguf --max-tokens 50
+    cargo run -p kiln-cli -- stream /path/to/model.gguf --cache-mib 0
 
-## Bound native model startup
+For supported layouts, selected expert slabs are read from the original GGUF rather than copying the model into a second file. The loader checks the expert layout and rejects unsupported or incomplete files. The dashboard can select this path for eligible oversized models. This is experimental inference, not proof of useful speed, bounded total RAM, or physical SSD throughput.
 
-For compatible oversized MoE models, the local UI launches an isolated native streaming worker. The initial model-loading handshake now has a bounded deadline rather than allowing an indefinite loading spinner. The default is **300 seconds**; operators may set `KILN_STREAM_STARTUP_TIMEOUT_SECS` (clamped to 30–900 seconds) when slow storage or large model metadata requires longer. On timeout, KILN terminates the dedicated native launcher process group, including nested workers, and reports an explicit activation error. Existing model files remain untouched, and failed model switches still attempt to restore the previous session. This does not guarantee that a model architecture is supported or that inference meets the Tier 0 throughput target.
+### LLaDA diffusion
 
+Phase 6 includes a separate experimental diffusion command for supported LLaDA models:
 
-## Memory-budgeted native MoE caching
+    cargo run --release -p kiln-cli -- diffuse /path/to/llada.gguf \
+      --prompt "Answer briefly." --max-tokens 32 --json
 
-When activating a compatible MoE model through the local UI, KILN now derives its native expert cache capacity from the **currently available resident-memory budget**, including Linux cgroup headroom. The experimental default is approximately 1 MiB of cache for each 64 MiB of estimated resident budget, capped at **256 MiB**, and it may be zero when memory is exhausted. If memory information is unavailable, KILN uses the previous 64 MiB fallback. The Advanced tab reports the chosen per-session native expert cache size.
+See the [Phase 6 guide](docs/phase6-diffusion.md) for the paired confidence-versus-CLAD evaluation and evidence capture.
 
-This policy controls one *native expert hot cache*, not the process RSS, OS page cache, KV memory, working set of shared weights or SSD physical I/O. Cache sizing is a conservative heuristic, not evidence of sustained Tier 0 throughput or a guarantee of a model fitting in RAM. Expert cache sizes for explicit `kiln stream --cache-mib N` are still user-controlled.
+## Local API and settings
 
-## Experimental streamed MoE inference (Linux only)
+The API listens on 127.0.0.1:11435 and provides an Ollama-compatible local endpoint. It remains available for terminal use, scripts, and compatible clients.
 
-For a **compatible fused-expert MoE GGUF**, use the explicit opt-in command:
+    kiln serve
+    kiln dashboard --no-open
 
-```sh
-cargo run -p kiln-cli -- plan /path/to/model.gguf --json
-cargo run -p kiln-cli -- stream /path/to/model.gguf --max-tokens 50
-# Or use an unambiguous installed Ollama tag:
-cargo run -p kiln-cli -- stream 'your-installed-ollama-tag' --cache-mib 64 --parallel-reads
-# For experimental zero-cache comparison:
-cargo run -p kiln-cli -- stream /path/to/model.gguf --cache-mib 0
-```
+The first command starts the API without a desktop window. The second starts the API without opening the app. The UI and API bind to loopback; remote access is not included.
 
-`stream` accepts a GGUF path, a resolvable installed model identifier, or `auto`. Options include `--cache-mib 0..512` (64 by default), `--parallel-reads`, `--max-tokens`, `--keep-context`, and `--lazy-moe-experts`. It verifies the recognized expert layout, uses a temporary index and audit file, then cleans them up. It is opt-in and fails on unsupported layouts rather than silently claiming successful streaming. `--lazy-moe-experts` alone is a separate mmap-loader experiment, **not** equivalent to native streamed compute.
+### Update a user-installed binary
 
-The native streamed worker now preserves token output bytes without using lossy UTF-8 replacement on an incomplete final codepoint. Its incremental decoder emits any complete prefix immediately while retaining at most the unfinished multi-byte suffix, including token fragments that combine ordinary text with a partial Unicode character. Invalid UTF-8 fails explicitly, while valid multi-byte characters split across token pieces are assembled intact. Worker JSONL token limits reject invalid types instead of defaulting silently, and out-of-order response frames poison the session rather than being treated as recoverable prompt errors.
+Stable self-updates are limited to versioned GitHub releases:
 
-The API also verifies the **serialized** JSONL request size before sending it to the native worker. Quotes, backslashes, and control characters may expand during JSON escaping; oversized encoded frames are rejected locally with HTTP 400, preserving the loaded model instead of causing a worker protocol failure.
+    kiln update --check
+    kiln update
 
-For the local API, an overlong streamed-model prompt returns HTTP 400 with a corrective context-length message without poisoning the active native session. Broken/truncated worker IPC remains HTTP 502 and requires a fresh worker. This distinction has framed JSONL regression coverage.
-
-For long chats, the streamed worker caps generated tokens to the remaining model context instead of attempting a decode beyond `n_ctx`. A prompt whose tokenization itself exceeds the context is rejected with an actionable message; the loaded model remains available for the next shorter request.
-
-The native audit distinguishes operand bytes delivered, explicit `pread` bytes and cache hits. Those counters are **not** proof of physical SSD reads, cold-storage throughput or lower end-to-end memory usage. Use pinned models, repeatable quality baselines and target-hardware measurements before comparing speed, RAM and accuracy. See the [Phase 5 streaming guide](docs/phase5-streaming.md) and [master roadmap](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md) for test methodologies and acceptance criteria.
-
-## Experimental LLaDA diffusion (Phase 6)
-
-The dedicated `diffuse` command runs LLaDA masked diffusion with CLAD's attention-guided cluster commits. It is separate from autoregressive `run`; unsupported diffusion models fail closed. To run one prompt:
-
-```sh
-cargo run --release -p kiln-cli -- diffuse /path/to/llada-8b-instruct.gguf \
-  --prompt "Answer with only the capital city of France." --max-tokens 32 --json
-```
-
-For the fixed 12-prompt factual suite, KILN loads the model once and emits one JSON result per prompt:
-
-```sh
-cargo run --release -p kiln-cli -- diffuse /path/to/llada-8b-instruct.gguf \
-  --prompt-file benchmarks/phase6/factual.jsonl --max-tokens 32 --block-length 32 --json
-
-python3 scripts/run_phase6_clad_suite.py \
-  --kiln target/release/kiln --model /path/to/llada-8b-instruct.gguf \
-  --decoder confidence --answers-jsonl artifacts/phase6-confidence.jsonl \
-  --output artifacts/phase6-confidence.json --repeats 3 --threads 4
-
-# Replace these placeholders with model.sha256 and implementation_revision from the confidence report.
-python3 scripts/run_phase6_clad_suite.py \
-  --kiln target/release/kiln --model /path/to/llada-8b-instruct.gguf \
-  --decoder clad --reference-jsonl artifacts/phase6-confidence.jsonl \
-  --reference-model-sha256 "MODEL_SHA256_FROM_FIRST_CAPTURE" \
-  --reference-runtime "KILN confidence decoder @ KILN_REVISION" \
-  --output artifacts/phase6-clad.json --repeats 3 --threads 4
-```
-
-The `confidence` decoder is the paired same-model greedy baseline: it applies the blockwise top-confidence transfer schedule without CLAD attention filtering, isolating CLAD's commit-selection effect. Generate its `id`/`answer` JSONL with `--answers-jsonl`, then pass it to the CLAD run with `--reference-jsonl`, the matching model hash, and pinned `--reference-runtime` provenance. The capture includes model/suite hashes, machine details, per-prompt output and decode rate, rate spread, peak RSS, and exact accepted-answer scoring. Exact match needs manual review; neither the script nor a host CI result certifies Tier 0 acceptance. The Phase 6 target remains ≥6 tok/s on the Dell Latitude 7490 with no more than a one percentage-point factual exact-answer accuracy drop against the pinned same-model confidence baseline. See the [Phase 6 guide](docs/phase6-diffusion.md).
-
-## Update an installed KILN (Linux)
-
-For a user-scoped KILN binary installed at `~/.local/bin/kiln`:
-
-```sh
-kiln update --check   # Query the latest published stable GitHub release (no changes)
-kiln update           # Download, verify and install a newer published stable release
-```
-
-The updater queries official [KILN GitHub Releases](https://github.com/andreipath26/KILN/releases). Stable self-updates remain limited to tagged releases. The release must include a matching `kiln-linux-ARCH-COMMIT.bin` executable and `kiln-linux-ARCH-COMMIT.json` manifest generated by the Linux release build. KILN checks architecture, pinned source commit, asset size and the manifest's SHA-256 digest, then launches the staged executable with `--help` before replacing the installed binary. The prior executable is preserved as a uniquely named `~/.local/bin/kiln.previous.*` backup for manual recovery; subsequent updates keep their own backups. An unsuccessful verification leaves the installed binary unchanged.
-
-Self-update is intentionally restricted to `~/.local/bin/kiln`; use your package manager or installer for system-wide, development or symlink installations. It never runs a remote shell script, overwrites model files or fetches unreviewed GitHub main-branch builds. The update channel is *published stable releases*, not every repository commit. Main builds are published separately as persistent prereleases and are not selected by `kiln update`. Published GitHub metadata and same-release SHA-256 verification do not independently prove publisher authenticity; signed release provenance is future release-hardening work.
-
-## Portable Linux release candidate
-
-The release workflow publishes a persistent Linux preview on each successful `main` build and a stable release for version tags. Each Linux release includes a standalone executable, a tar archive, and a Debian package.
-
-On Kali or another Debian-based distribution, download the `.deb` from [KILN GitHub Releases](https://github.com/andreipath26/KILN/releases) and install it without compiling KILN:
-
-```sh
-sudo apt install ./kiln-linux-ARCH-COMMIT.deb
-```
-
-Replace the filename with the downloaded asset. Then launch **KILN** from the desktop app menu or run `kiln dashboard`. It opens as an application window instead of using your general-purpose browser. Main-branch packages are marked as previews while Tier 0 hardware acceptance remains open.
-
-Developers can still build and install the portable tar archive from a clean, submodule-initialized checkout:
-
-```sh
-# From a clean, submodule-initialized checkout with Rust, CMake and build tools:
-bash scripts/build_linux_release.sh
-
-# Use the exact archive emitted in dist/ (with its adjacent .json and .sha256):
-bash scripts/install_linux_release.sh dist/kiln-linux-ARCH-COMMIT.tar.gz
-
-# Ensure ~/.local/bin is on PATH, then launch KILN from the desktop app menu,
-# or run:
-kiln dashboard
-```
-
-Replace `ARCH-COMMIT` with the actual artifact name. The installer verifies checksums, architecture and executable startup, refuses to overwrite an existing binary or KILN desktop launcher, and installs a desktop-menu shortcut. The tar-based installer does not install the GTK/WebKit desktop runtime; Kali/Debian users who want the app window should use the `.deb`. The binary contains **no model weights** and still depends on compatible target-system libraries; portability and inference quality need real-machine validation.
+KILN verifies the platform, manifest, asset size, and SHA-256 before replacing a binary in ~/.local/bin/kiln. The previous binary is retained for recovery. The updater does not install preview builds or overwrite system package-manager installations.
 
 ## Performance and deployment status
 
-KILN's research acceptance target includes a 70B-class sparse MoE workload (~4B active parameters per token) at **at least 4 tokens/s**, with quality within 1% of the specified FP16 WikiText-2 reference, on the Dell Latitude 7490 Tier 0 machine (i7-8650U, 16 GB RAM, NVMe, no discrete GPU). That machine is a *minimum test floor*, not a product hardware requirement or a model-size restriction. LLMs and SLMs of other sizes remain in scope.
+The research acceptance target is a 70B-class sparse MoE model with about 4B active parameters per token, at least 4 tokens per second, and quality within 1% of the pinned FP16 WikiText-2 reference on a Dell Latitude 7490 with an i7-8650U, 16 GB RAM, NVMe storage, and no discrete GPU.
 
-**These targets have not been demonstrated or accepted.** In particular, an experimental streaming integration passing CI smoke tests does not prove sustained Tier 0 throughput, bounded total RAM/page cache, physical SSD traffic, thermal reliability, quality parity or broad model compatibility. Past benchmark figures are historical observations, not current performance promises; the [master roadmap](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md) retains their context.
+**This target has not been demonstrated.** KILN’s experimental paths and CI smoke models do not establish the target throughput, quality, memory, storage, thermal reliability, or broad model compatibility. Treat published benchmark figures as historical measurements unless their model, hardware, command, and evidence are provided.
 
 ## Documentation
 
@@ -280,7 +143,7 @@ KILN's research acceptance target includes a 70B-class sparse MoE workload (~4B 
 - [Predictor training and evaluation](docs/training-pipeline-design.md)
 - [UMF and expert sidecar status](docs/umf-design.md)
 - [Runtime loading and release design](docs/runtime-loading-design.md)
-- [UI architecture and continuation guide](docs/ui-architecture.md)
+- [UI architecture](docs/ui-architecture.md)
 - [Master roadmap and engineering record](KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 
