@@ -814,7 +814,7 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 ### 2026-11-14 — Measurement suite hosted integration and release verification
 
 - Hosted CI run #867 passed at commit `5a8c5d729a43d7194047e5b8d98ed33b7df18d97`. It included Rust workspace/native checks, browser/accessibility/responsive checks, the one-command suite on the tiny real-MoE fixture, portable Linux single-binary build plus install/recovery, and real-model API/UI smoke.
-- The `phase5-real-moe-evidence` artifact contains the fixture measurement outputs; `kiln-linux-one-binary-experimental` contains the CI-built release candidate. Both are CI artifacts, not a production release or Tier 0 acceptance certificate.
+- The `phase5-real-moe-evidence` artifact contains the fixture measurement outputs; `kiln-linux-portable-ci-smoke` contains the CI-built release candidate. Both are CI artifacts, not a production release or Tier 0 acceptance certificate.
 - The fixture run asserted exact token parity across live cache policies, retained raw stage memory samples and logs, deferred model hashing, and explicit shared-page-cache/device-counter limitations. It verifies measurement workflow behavior, not representative-model performance.
 - Tier 0 remains open: measure Qwen3-30B-A3B on the Dell Latitude 7490 with pinned-corpus quality comparison, sustained throughput and total RAM, and physical storage bounds before making deployment claims.
 
@@ -837,3 +837,9 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Added `kiln qualify --config <json> --out <new-directory>` to run the existing Phase 3.5 dense suite, Phase 5 model/streaming suite, and paired Phase 6 confidence/CLAD capture in one retained evidence bundle. Configuration points to pinned local models; optional reference-model/corpus inputs enable the Phase 5 quality comparison.
 - Every command retains stdout/stderr, duration and exit status. Missing model inputs block only that phase and are recorded; the aggregate remains explicitly inconclusive and never certifies deployment readiness automatically.
 - This reduces the target run to one command after model/config preparation. The real Dell run, quality review, sustained thermals and physical storage gates are still required; hosted CI for this feature is pending.
+
+### 2026-11-20 — Persistent Linux releases for Kali and Debian
+
+- The Linux release workflow now publishes a persistent GitHub prerelease for each successful `main` build, tagged to its exact commit; version tags continue to publish stable releases. A preview is not a Tier 0 deployment certificate.
+- Release packaging now emits an `amd64` or `arm64` `.deb` alongside the standalone binary and tar archive. The package installs `/usr/bin/kiln` and a desktop-menu launcher; CI extracts it and smoke-checks the package metadata, launcher and executable.
+- Kali users can install the downloaded package with `sudo apt install ./kiln-linux-ARCH-COMMIT.deb` and launch the prebuilt runtime directly, without compiling KILN. Workflow CI and the first persistent preview publication are pending.
