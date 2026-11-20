@@ -30,6 +30,7 @@ mod stream_stdio;
 mod self_update;
 mod quality_eval;
 mod measure;
+mod qualification;
 
 async fn dashboard_api_is_ready(port: u16) -> bool {
     let response = async {
@@ -535,6 +536,15 @@ enum Commands {
         /// Maximum process peak RSS used for the configurable memory check (GiB).
         #[arg(long, default_value_t = 15.0)]
         max_rss_gib: f64,
+    },
+    /// Capture the Phase 3.5, 5 and 6 Tier 0 evidence bundle in one run.
+    Qualify {
+        /// JSON file with the pinned local model paths and measurement settings.
+        #[arg(long)]
+        config: std::path::PathBuf,
+        /// New directory for captured reports, command logs and failures.
+        #[arg(long)]
+        out: std::path::PathBuf,
     },
     /// Print the hardware profile.
     Info,
@@ -1556,6 +1566,12 @@ async fn main() {
             if let Err(error) = measure::run(model, out, tokens, runs, threads, reference,
                 corpus, cache_mib, min_tps, max_rss_gib) {
                 eprintln!("measure: {error}");
+                std::process::exit(2);
+            }
+        },
+        Commands::Qualify { config, out } => {
+            if let Err(error) = qualification::run(config, out) {
+                eprintln!("qualify: {error}");
                 std::process::exit(2);
             }
         },

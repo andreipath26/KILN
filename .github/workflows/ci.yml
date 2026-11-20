@@ -61,6 +61,11 @@ jobs:
           python3 -m unittest scripts.test_kiln_measure -v
           python3 -m unittest scripts.test_capture_direct_gguf_expert_io -v
 
+      - name: Test cross-phase Tier 0 qualification capture
+        run: |
+          python3 -m py_compile scripts/run_tier0_qualification.py
+          python3 -m unittest scripts.test_run_tier0_qualification -v
+
 
   test:
     runs-on: ubuntu-latest

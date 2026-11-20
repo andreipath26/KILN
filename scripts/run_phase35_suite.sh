@@ -55,7 +55,11 @@ retained_optimization_and_repeatable_gain=NOT_RECORDED
 known_output_or_quality_differences=NOT_RECORDED
 EOF
 
-cargo build --release -p kiln-cli > "$OUT/build.log" 2>&1
+if [[ "${KILN_SKIP_BUILD:-0}" == "1" ]]; then
+  test -x "$BIN" || { echo "KILN_SKIP_BUILD=1 but release binary is missing: $BIN" >&2; exit 2; }
+else
+  cargo build --release -p kiln-cli > "$OUT/build.log" 2>&1
+fi
 KILN_SKIP_BUILD=1 KILN_BENCH_TOKENS="$TOKENS" KILN_BENCH_RUNS="$RUNS" \
   KILN_BENCH_WARMUP="$WARMUP" \
   bash scripts/run_tier0_dense_matrix.sh "$MODEL" "$OUT/dense"
