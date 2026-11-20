@@ -186,7 +186,7 @@ async function main() {
     assert.equal(headers["x-content-type-options"], "nosniff");
 
     await page.getByRole("heading", { name: "What can we work on?" }).waitFor();
-    await page.getByText("test-model.gguf", { exact: true }).waitFor();
+    await page.waitForFunction(() => document.querySelector("#active-model-name")?.textContent === "test-model");
     // The UI must not advertise native streaming for every dense/unknown
     // model, while retaining the explicit option for eligible MoE layouts.
     assert.equal(await page.getByRole("button", {name:"Try streaming"}).count(),1);
