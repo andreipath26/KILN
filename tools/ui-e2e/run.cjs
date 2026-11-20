@@ -187,9 +187,6 @@ async function main() {
 
     await page.getByRole("heading", { name: "What can we work on?" }).waitFor();
     await page.waitForFunction(() => document.querySelector("#active-model-name")?.textContent === "test-model");
-    // The UI must not advertise native streaming for every dense/unknown
-    // model, while retaining the explicit option for eligible MoE layouts.
-    assert.equal(await page.getByRole("button", {name:"Try streaming"}).count(),1);
     await checkAccessibility(page, "Simple view");
 
     await page.locator("#prompt").fill("Say hello");
@@ -198,6 +195,8 @@ async function main() {
     assert.equal(await page.locator(".message.user").count(), 1);
 
     await page.getByRole("tab", { name: "Models" }).click();
+    // Only the verified eligible MoE fixture offers the experimental action.
+    assert.equal(await page.getByRole("button", {name:"Try streaming"}).count(),1);
     await page.locator("#model-search-query").fill("tiny model");
     await page.getByRole("button", { name: "Search", exact: true }).click();
     await page.getByText("kiln-test/tiny-model", { exact: true }).waitFor();
