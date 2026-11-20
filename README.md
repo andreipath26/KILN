@@ -8,6 +8,7 @@ KILN is an open-source local inference runtime in active development, intended f
 
 - Rust workspace, runtime dispatcher, GGUF inspection/loading, TQ1_0 experiments, CLI, and a loopback-only Ollama-compatible API with a local web UI.
 - Discovery of existing GGUF files and installed Ollama manifests, including human-readable Ollama tags. Where a local tag resolves unambiguously, `kiln run <ollama-tag>` uses the existing weight blob without copying it.
+- The local dashboard probes system resources and inventories local GGUFs when opened. If no model is active, it automatically tries up to three safe candidates: first the largest model estimated to fit the current resident budget, then verified experimental CPU-streamable MoE candidates. The runtime rechecks resources and layout during activation; unsupported candidates are skipped with their errors shown. This avoids CLI tuning for the common local-model path, but does not silently download weights or guarantee a model-specific speed/quality result.
 - Public Hugging Face GGUF search and explicit model-file downloads, with integrity checks.
 - `kiln plan MODEL [--json]`: read-only GGUF/system memory and CPU feasibility preflight. It is a diagnostic, **not** a guarantee that a model will load or run at a particular speed.
 - **Experimental Linux CPU MoE streaming:** `kiln stream MODEL` resolves a compatible fused-expert GGUF, creates a temporary verified source index, and starts an isolated inference child using selected expert slabs read directly from the **original GGUF**. This is real opt-in graph compute, not just synthetic I/O simulation. It supports bounded native expert caching, optional parallel reads, and fail-closed stream audit checks; it does not require duplicating model weights.
@@ -45,6 +46,17 @@ cargo run -p kiln-cli -- search "model family"
 cargo run -p kiln-cli -- pull OWNER/REPOSITORY --file path/in/repository/model.gguf
 ```
 
+Run the consolidated measurement suite against a local GGUF:
+
+```sh
+cargo run -p kiln-cli -- measure /path/to/model.gguf --out ./measurements/model-run \
+  --tokens 128 --runs 5 --threads 4
+```
+
+The command builds the release tools, captures host/model/revision provenance, runs a resident baseline, attempts verified expert indexing and live no-cache/LRU/LFU MoE measurements, captures a chronological top-2 router holdout when token boundaries are available, and then runs source-I/O and cache replay diagnostics. Buffered source reads and the full-checkpoint SHA-256 scan are deliberately deferred until after timed inference so they do not prewarm its OS page cache. The final hash and its duration/status are saved in `model-hash.json`; a failed hash or changed checkpoint makes the run fail. The resident baseline runs before the streaming policies, and all policies share the host kernel page cache; the report marks page-cache conditioning as uncontrolled. On Linux, each stage samples child-process RSS, host available/cache bytes, cgroup usage, CPU frequencies, and thermal zones about every 250 ms; raw samples are retained in `stage-memory.jsonl`. Host/cgroup readings include unrelated work and can miss short peaks; the benchmark's process peak RSS remains the configured limit check. On Linux filesystems that support it, source-I/O evidence also includes a best-effort `O_DIRECT` replay of traced expert ranges to bypass the OS page cache. Stage records include read-sector deltas for the model's backing block device when exposed by sysfs; those counters cover the whole device and may include unrelated processes. Neither diagnostic is isolated device telemetry or a substitute for target-host inference measurements. Add `--reference /path/to/fp16.gguf --corpus /path/to/eval.txt` to compare candidate/reference NLL on the same corpus. It never downloads weights. Each run gets a new output directory containing `summary.json`, command records, JSON reports, and per-stage stdout/stderr logs; failed stages retain their logs and do not erase earlier evidence. Speed and RSS limits can be changed with `--min-tps` and `--max-rss-gib`.
+
+The summary deliberately leaves overall acceptance inconclusive unless every required target-hardware and quality gate is evidenced. It does not infer isolated physical SSD throughput from Linux process I/O counters, and a cache replay is a simulation rather than a runtime cache measurement.
+
 `run auto` selects a model only when discovery returns a single usable, unambiguous candidate; otherwise choose an explicit path or tag. Discovery does not guarantee that the backend supports a model's architecture. `pull` requires an explicit GGUF file in the selected repository; KILN does **not** automatically download model weights during installation. Downloads use `KILN_MODELS_DIR` or the user's data directory and validate the retrieved file.
 
 Start the local server and UI:
@@ -55,7 +67,7 @@ cargo run -p kiln-cli -- serve
 KILN_MODEL_PATH=/path/to/model.gguf cargo run -p kiln-cli -- serve
 ```
 
-Open **http://127.0.0.1:11435/**. The UI supports local model inventory, public GGUF search/download, model activation and chat. The API is loopback-only; authenticated remote access and automatic heterogeneous hardware placement are not shipped.
+Open **http://127.0.0.1:11435/**. On opening, the dashboard assesses the machine and automatically starts a suitable installed model when one is available; it also supports local model inventory, public GGUF search/download, model switching and chat. Remote search/download remains explicit. The API is loopback-only; authenticated remote access and automatic heterogeneous hardware placement are not shipped.
 
 ## Reusing an active model
 

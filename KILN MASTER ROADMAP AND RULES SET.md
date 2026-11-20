@@ -1,7 +1,7 @@
 # KILN MASTER ROADMAP AND RULES SET
 
-**Version:** 9.6 — Phase 6 software implementation complete; Tier 0 acceptance pending  
-**Last updated:** 2026-11-12  
+**Version:** 10.0 — dashboard assesses the host and auto-starts a suitable local model; Tier 0 acceptance pending
+**Last updated:** 2026-11-20
 **Status:** Active master roadmap  
 **Repository:** https://github.com/andreipath26/KILN  
 **Runtime fork:** https://github.com/andreipath26/kiln-llama
@@ -789,3 +789,38 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Added the native `kiln diffuse` path for LLaDA masked diffusion with model chat-template formatting, full non-causal sequence evaluation, confidence proposals, and CLAD attention-cluster conflict filtering. The llama.cpp fork exports final-four-layer/head-averaged LLaDA attention only when the KILN path enables it.
 - Added JSONL prompt-suite execution that loads the model once, returns per-case JSON, and reports the process peak RSS where Linux exposes it. Added a 12-item fixed factual suite and a capture utility that records artifact hashes, configuration, machine identity, repeated decode rates and paired confidence-decoder exact-answer comparison on the same GGUF.
 - The software implementation is complete: native LLaDA masked diffusion, non-causal attention, metadata-based logit alignment, opt-in CLAD attention export, paired confidence decoding, one-load suite execution, and reproducible speed/RSS/quality capture are integrated. Fork PR #9 was merged at `0a851f9234c8f79266b2246b05e7c2c3f7f53046`; its Linux/Windows/ARM64, WebGPU, wasm/style and server checks passed. KILN CI run #835 passed on the complete implementation; the tested submodule tree and merged fork pin were verified identical. Dell Latitude 7490 LLaDA-8B throughput (≥6 tok/s), RSS, quality gates, and Phase 5 acceptance remain open.
+
+### 2026-11-14 — Phase 5 token-aware router trace capture
+
+- Borrowed the useful lesson from `kimi-k3-in-c`: same-token expert reuse must be separated from reuse across generated tokens. The pinned llama.cpp fork now writes opt-in `@decode` markers with monotonically increasing decode-call IDs and batch sizes to `KILN_MOE_ROUTER_TRACE`; trace-enabled decode calls are serialized so concurrent contexts cannot interleave marker/event groups. Ordinary inference is unaffected when tracing is disabled.
+- Updated router-trace parsers to accept both marked and legacy four-column traces. Direct-source I/O replay preserves operator events; the byte-cache simulator collapses repeated tensor projections per decode call, batch row, layer and expert and labels legacy replay as operator-event granularity.
+- Added expert-byte-weighted cache hit rate beside request hit rate so differently sized experts do not get equal weight in the cache summary.
+- This improves trace interpretation only. The simulator remains separate from the live graph cache and does not establish cache effectiveness, physical SSD traffic, Tier 0 throughput/RSS, model quality or Phase 5 acceptance.
+
+### 2026-11-14 — Measurement cache-bias and checkpoint-integrity hardening
+
+- Moved buffered source replay and the full-checkpoint SHA-256 scan until after all timed inference. The measurement output records hash status and duration, and fails if hashing fails or the model file identity changes.
+- Added an explicit `os_page_cache_conditioning: uncontrolled` result. The resident baseline runs before the streaming policies, so later policies may use warmed shared kernel pages; this suite does not claim a cold-cache result. The real MoE CI run asserts the ordering, hash consistency, and limitation field.
+- Added 250 ms best-effort per-command samples for child-process RSS, host available/cache memory and cgroup usage/limits. Reports preserve their different scopes and label shared host readings as non-attributable; short peaks may be missed. Run #863 asserted the memory sample data in the real-MoE measurement output.
+- Full hosted CI run #863 passed at commit `842d550de11cff95c513953c39f645f7048258e5`, including the one-command suite on the real tiny-MoE fixture with two measured runs, generated-token parity, stage memory samples, portable Linux single-binary install/recovery checks, and real-model API/UI smoke. The captured fixture remains integration evidence only.
+- Tier 0 remains unaccepted. Qwen3-30B-A3B throughput (≥3 tok/s), total peak RAM (<15 GB), pinned-corpus quality parity, sustained behavior and physical storage bounds still require measurements on the Dell Latitude 7490; this CI run does not satisfy those gates.
+
+### 2026-11-14 — Measurement telemetry retention
+
+- Added raw per-stage samples to `stage-memory.jsonl`, including child-process RSS, host available/cache memory, cgroup usage/limit, CPU scaling frequencies and thermal-zone temperatures when exposed by Linux.
+- `summary.json` reports sampled ranges while keeping host/cgroup and process scopes distinct. The raw log remains available for diagnosing changes across a long inference run; sampling can miss brief peaks and does not attribute shared host usage to KILN.
+- Local verification passes all 72 Python script tests. The suite remains a source-checkout measurement tool; target-hardware Phase 5 acceptance is still open.
+
+### 2026-11-14 — Measurement suite hosted integration and release verification
+
+- Hosted CI run #867 passed at commit `5a8c5d729a43d7194047e5b8d98ed33b7df18d97`. It included Rust workspace/native checks, browser/accessibility/responsive checks, the one-command suite on the tiny real-MoE fixture, portable Linux single-binary build plus install/recovery, and real-model API/UI smoke.
+- The `phase5-real-moe-evidence` artifact contains the fixture measurement outputs; `kiln-linux-one-binary-experimental` contains the CI-built release candidate. Both are CI artifacts, not a production release or Tier 0 acceptance certificate.
+- The fixture run asserted exact token parity across live cache policies, retained raw stage memory samples and logs, deferred model hashing, and explicit shared-page-cache/device-counter limitations. It verifies measurement workflow behavior, not representative-model performance.
+- Tier 0 remains open: measure Qwen3-30B-A3B on the Dell Latitude 7490 with pinned-corpus quality comparison, sustained throughput and total RAM, and physical storage bounds before making deployment claims.
+
+### 2026-11-20 — System-aware dashboard startup
+
+- The local dashboard now consumes an API-side startup recommendation derived from live resident-memory headroom and the verified MoE layout flags already collected during local model discovery.
+- With no active session, it attempts up to three candidates: largest estimated resident-fit GGUFs first, then verified Linux CPU-streamable MoE candidates. Model activation remains the authoritative recheck and uses the runtime's automatic execution mode; failures are retained in the setup status and the dashboard does not silently alter or download model files.
+- The dashboard reports active/recommended model status, runs the profile/model check on open, and retries after an explicit library refresh or a completed download. Unsupported architectures and resource/performance outcomes remain unverified until actual load/target measurements.
+- This removes CLI configuration from the common installed-model startup flow. Remote model download, selecting among models when changing an active session, accelerator discovery/placement, and Tier 0 speed/quality acceptance remain separate work.

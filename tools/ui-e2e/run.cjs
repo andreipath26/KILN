@@ -34,8 +34,9 @@ function localModels(activePath = "/tmp/test-model.gguf") {
   ];
 }
 
-async function installApiMocks(page, { modelLoaded = true } = {}) {
+async function installApiMocks(page, { modelLoaded = true, autoStartStreamFallback = false } = {}) {
   let activePath = modelLoaded ? "/tmp/test-model.gguf" : null;
+  const activationAttempts = [];
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -70,7 +71,15 @@ async function installApiMocks(page, { modelLoaded = true } = {}) {
       });
     }
     if (url.pathname === "/api/ui/models" && request.method() === "GET") {
-      return json(route, { models: activePath ? localModels(activePath) : [] });
+      const startupCandidates = autoStartStreamFallback && !activePath ? [
+        { model_path: "/tmp/test-model.gguf", model_name: "resident model", mode: "standard" },
+        { model_path: "/tmp/other-model.gguf", model_name: "streamable MoE", mode: "experimental_cpu_moe_stream" },
+      ] : [];
+      return json(route, {
+        models: activePath || autoStartStreamFallback ? localModels(activePath) : [],
+        recommendation: startupCandidates[0] || null,
+        startup_candidates: startupCandidates,
+      });
     }
     if (url.pathname === "/api/ui/models/search") {
       const query = url.searchParams.get("q");
@@ -115,7 +124,12 @@ async function installApiMocks(page, { modelLoaded = true } = {}) {
     }
     if (url.pathname === "/api/ui/models/activate") {
       const body = request.postDataJSON();
-      if (body.path === "/tmp/other-model.gguf") {
+      activationAttempts.push({ path: body.path, mode: body.mode });
+      if (autoStartStreamFallback && body.path === "/tmp/test-model.gguf") {
+        return json(route, { error: "mock resident model backend unsupported" }, 422);
+      }
+      if (body.path === "/tmp/other-model.gguf"
+          && !(autoStartStreamFallback && body.mode === "stream")) {
         return json(route, { error: "mock model load failed; previous model restored" }, 422);
       }
       activePath = body.path;
@@ -135,6 +149,7 @@ async function installApiMocks(page, { modelLoaded = true } = {}) {
     }
     return json(route, { error: `unhandled API request: ${url.pathname}` }, 404);
   });
+  return activationAttempts;
 }
 
 async function checkAccessibility(page, label, { advanced = false } = {}) {
@@ -208,7 +223,8 @@ async function main() {
     assert.equal(await complete.getByRole("button",{name:/Download flash-00002/}).count(),0);
 
     await page.getByRole("button", { name: "Use model" }).click();
-    await page.getByText("mock model load failed; previous model restored", { exact: true }).waitFor();
+    await page.locator("#auto-setup-status")
+      .getByText("mock model load failed; previous model restored", { exact: false }).waitFor();
     await page.getByText("test-model.gguf", { exact: true }).waitFor();
 
     const simpleTab = page.getByRole("tab", { name: "Simple" });
@@ -241,15 +257,22 @@ async function main() {
 
     const emptyContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const emptyPage = await emptyContext.newPage();
-    await installApiMocks(emptyPage, { modelLoaded: false });
+    const activationAttempts = await installApiMocks(emptyPage, {
+      modelLoaded: false,
+      autoStartStreamFallback: true,
+    });
     await emptyPage.goto(baseUrl, { waitUntil: "networkidle" });
-    await emptyPage.getByText("No model is loaded in the API server.", { exact: false }).waitFor();
-    assert.equal(await emptyPage.locator("#send-button").isDisabled(), true);
-    await checkAccessibility(emptyPage, "no-model state");
+    await emptyPage.getByText("Ready. KILN assessed this machine and started test-model with experimental CPU expert streaming.", { exact: true }).waitFor();
+    assert.deepEqual(activationAttempts, [
+      { path: "/tmp/test-model.gguf", mode: "auto" },
+      { path: "/tmp/other-model.gguf", mode: "stream" },
+    ], "dashboard startup falls back from a rejected resident model to the recommended streaming mode");
+    assert.equal(await emptyPage.locator("#send-button").isDisabled(), false);
+    await checkAccessibility(emptyPage, "automatically configured model");
     await emptyContext.close();
 
     assert.deepEqual(failures, [], "the UI has no uncaught JavaScript errors");
-    console.log("KILN UI browser checks passed: chat, model search/download, activation recovery, keyboard modes, accessibility, mobile layout, and no-model startup.");
+    console.log("KILN UI browser checks passed: chat, model search/download, activation recovery, automatic resident-to-streaming startup, keyboard modes, accessibility, and mobile layout.");
   } finally {
     await browser.close();
   }
