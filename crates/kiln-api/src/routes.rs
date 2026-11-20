@@ -446,7 +446,7 @@ pub async fn ui_models(State(state): State<ApiState>) -> Result<Json<Value>, Err
                 .is_some_and(|(path, _, _)| Some(path.as_str()) == model_path);
             model["auto_recommended"] = json!(is_recommended);
             if is_recommended {
-                model["recommended_mode"] = json!(recommendation.as_ref().map(|row| row.2));
+                model["recommended_mode"] = json!(recommendation.as_ref().map(|row| row.2.as_str()));
             }
         }
         (models, recommendation, startup_candidates)
