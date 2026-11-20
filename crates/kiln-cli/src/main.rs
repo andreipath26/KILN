@@ -1569,6 +1569,12 @@ async fn main() {
                 std::process::exit(2);
             }
         },
+        Commands::Qualify { config, out } => {
+            if let Err(error) = qualification::run(config, out) {
+                eprintln!("qualify: {error}");
+                std::process::exit(2);
+            }
+        },
     }
 }
 
@@ -1649,12 +1655,6 @@ fn decode_utf8_piece(pending: &mut Vec<u8>, bytes: &[u8]) -> String {
                 let remainder = pending.split_off(valid);
                 *pending = remainder;
                 decoded
-            }
-        }
-        Commands::Qualify { config, out } => {
-            if let Err(error) = qualification::run(config, out) {
-                eprintln!("qualify: {error}");
-                std::process::exit(2);
             }
         }
     }
