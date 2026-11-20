@@ -79,6 +79,14 @@ On Kali/Debian, `kiln dashboard` starts the loopback API and opens KILN in its o
 
 The GTK window uses `python3-gi` and `gir1.2-webkit2-4.1`, which the Kali/Debian package installs through APT dependencies. The GTK window is Linux-only in this release; macOS and Windows dashboard launches still open the local URL with the platform's default browser.
 
+### Desktop UI previews
+
+These approved design previews show the Chat workspace and system-readiness dashboard. The model and hardware values shown are illustrative, not captured from a live KILN run.
+
+![KILN chat workspace design preview](docs/screenshots/kiln-chat-preview.png)
+
+![KILN dashboard design preview](docs/screenshots/kiln-dashboard-preview.png)
+
 ## Reusing an active model
 
 Selecting a GGUF that is **already active** through the local UI does not tear down and reload its native inference session. KILN compares canonical source paths and preserves the existing model, native expert hot cache and execution mode, avoiding unnecessary storage reads and startup delays. Explicitly requesting streaming for a model currently running in standard mode still performs a deliberate mode switch. This optimization does not introduce an automatic background model download or alter local weight files.
