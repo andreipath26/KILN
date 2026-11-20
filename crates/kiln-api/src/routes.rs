@@ -373,7 +373,7 @@ pub async fn ui_models(State(state): State<ApiState>) -> Result<Json<Value>, Err
     let scan_roots = active_path.iter().cloned().collect::<Vec<_>>();
     // Both discovery and per-model GGUF metadata inspection use filesystem
     // I/O. Keep the complete pass off the async reactor.
-    let models: Vec<Value> = tokio::task::spawn_blocking(move || {
+    let (models, recommendation, startup_candidates) = tokio::task::spawn_blocking(move || {
         let mut models: Vec<Value> = kiln_models::library::discover_models(&scan_roots)
             .into_iter().map(|model| {
                 let path = PathBuf::from(&model.path);
@@ -453,7 +453,6 @@ pub async fn ui_models(State(state): State<ApiState>) -> Result<Json<Value>, Err
     }).await.map_err(|e| error_response((
         StatusCode::INTERNAL_SERVER_ERROR, format!("model scan failed: {e}")
     )))?;
-    let (models, recommendation, startup_candidates) = models;
     let recommendation = recommendation.map(|(path, name, mode)| json!({
         "model_path": path,
         "model_name": name,
@@ -724,3 +723,4 @@ mod tests {
         assert!(response.models.is_empty());
     }
 }
+05395d53be1a390d92f5b2e1a22d8616e06e18d3
