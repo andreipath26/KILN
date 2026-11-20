@@ -62,6 +62,9 @@ jobs:
           dpkg-deb --extract "${package[0]}" "$RUNNER_TEMP/kiln-deb-root"
           test -x "$RUNNER_TEMP/kiln-deb-root/usr/bin/kiln"
           test -s "$RUNNER_TEMP/kiln-deb-root/usr/share/applications/kiln.desktop"
+          test -s "$RUNNER_TEMP/kiln-deb-root/usr/share/icons/hicolor/scalable/apps/kiln.svg"
+          dpkg-deb -f "${package[0]}" Depends | grep -q 'python3-gi'
+          dpkg-deb -f "${package[0]}" Depends | grep -q 'gir1.2-webkit2-4.1'
           "$RUNNER_TEMP/kiln-deb-root/usr/bin/kiln" --help >/dev/null
           "$RUNNER_TEMP/kiln-deb-root/usr/bin/kiln" dashboard --help >/dev/null
 

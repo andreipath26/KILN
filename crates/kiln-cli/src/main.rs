@@ -48,32 +48,45 @@ async fn dashboard_api_is_ready(port: u16) -> bool {
             && response.contains("\"version\""))
 }
 
-fn open_dashboard_in_browser(url: &str) -> std::io::Result<()> {
-    #[cfg(target_os = "linux")]
-    let mut command = Command::new("xdg-open");
-    #[cfg(target_os = "macos")]
-    let mut command = Command::new("open");
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut command = Command::new("rundll32.exe");
-        command.arg("url.dll,FileProtocolHandler");
-        command
-    };
+const DESKTOP_WINDOW: &str = include_str!("desktop_window.py");
 
-    command.arg(url)
+#[cfg(target_os = "linux")]
+fn open_dashboard_window(url: &str) -> std::io::Result<std::process::ExitStatus> {
+    // The GTK/WebKit shell is embedded as a small PyGObject program so the
+    // runtime stays a single Rust executable and the packaged UI opens in a
+    // normal desktop window rather than a user's general-purpose browser.
+    Command::new("/usr/bin/python3")
+        .arg("-c")
+        .arg(DESKTOP_WINDOW)
+        .arg(url)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map(|_| ())
+        .status()
+}
+
+#[cfg(target_os = "macos")]
+fn open_dashboard_window(url: &str) -> std::io::Result<std::process::ExitStatus> {
+    Command::new("open").arg(url).status()
+}
+
+#[cfg(target_os = "windows")]
+fn open_dashboard_window(url: &str) -> std::io::Result<std::process::ExitStatus> {
+    Command::new("rundll32.exe")
+        .args(["url.dll,FileProtocolHandler", url])
+        .status()
 }
 
 async fn run_dashboard(port: u16, no_open: bool) -> Result<(), String> {
     let url = format!("http://127.0.0.1:{port}/");
     if dashboard_api_is_ready(port).await {
-        println!("KILN is already running. Dashboard: {url}");
+        println!("KILN is already running. Opening its desktop window.");
         if !no_open {
-            open_dashboard_in_browser(&url).map_err(|e| format!("could not open browser: {e}"))?;
+            let status = open_dashboard_window(&url)
+                .map_err(|e| format!("could not start the KILN desktop window: {e}"))?;
+            if !status.success() {
+                return Err(format!(
+                    "KILN desktop window exited with {status}. Install the desktop runtime dependencies: python3-gi and gir1.2-webkit2-4.1."
+                ));
+            }
         }
         return Ok(());
     }
@@ -101,11 +114,25 @@ async fn run_dashboard(port: u16, no_open: bool) -> Result<(), String> {
         return Err(format!("KILN API did not become ready on {url}"));
     }
 
-    println!("KILN dashboard is ready at {url}");
+    println!("KILN is ready. Opening its desktop window.");
     if !no_open {
-        if let Err(error) = open_dashboard_in_browser(&url) {
-            eprintln!("Could not open a browser automatically ({error}); open {url}");
+        let status = match open_dashboard_window(&url) {
+            Ok(status) => status,
+            Err(error) => {
+                server.abort();
+                return Err(format!("could not start the KILN desktop window: {error}"));
+            }
+        };
+        if !status.success() {
+            server.abort();
+            return Err(format!(
+                "KILN desktop window exited with {status}. Install the desktop runtime dependencies: python3-gi and gir1.2-webkit2-4.1."
+            ));
         }
+        // Closing the desktop window stops the API instance started by this
+        // command. An API that was already running remains under its owner.
+        server.abort();
+        return Ok(());
     }
 
     match server.await {
@@ -265,12 +292,12 @@ enum Commands {
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
     },
-    /// Start KILN locally and open the system-aware model dashboard.
+    /// Start KILN locally and open its system-aware dashboard window.
     Dashboard {
         /// Dashboard/API port. Default 11435.
         #[arg(long, default_value_t = 11435)]
         port: u16,
-        /// Keep the dashboard in this process without opening a browser.
+        /// Run the local API without opening the desktop window.
         #[arg(long)]
         no_open: bool,
     },

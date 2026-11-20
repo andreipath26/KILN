@@ -7,12 +7,7 @@
 
 The KILN UI is the local-first control surface for the whole KILN runtime. It must cover the roadmap's model lifecycle, heterogeneous execution, unified memory, performance and quality controls, and future workload types without becoming a CPU-only laptop dashboard or a chat-only product.
 
-The UI has two top-level modes:
-
-1. **Simple** — find or obtain a suitable model, choose a supported task, and run it with sensible automatic settings.
-2. **Advanced** — inspect and control every setting the active runtime/backend actually supports.
-
-These modes are two views of the same model, run, configuration and API state. They must not create separate inference paths or separate setting stores. Simple mode is progressive disclosure over Advanced mode, not a second product.
+The workspace has four top-level destinations: **Chat**, **Models**, **Activity** and **System details**. Chat is the default simple experience; System details exposes the settings and capabilities the active runtime actually supports. All destinations use the same model, run, configuration and API state. They must not create separate inference paths or separate setting stores. System details adds progressive disclosure for supported controls rather than a second product.
 
 ## 2. Product constraints from the roadmap
 
@@ -27,14 +22,14 @@ These modes are two views of the same model, run, configuration and API state. T
 
 ## 3. Information architecture
 
-### Simple mode
+### Chat mode
 
 - **Setup and model library:** assess the machine and discover local GGUFs on dashboard open. If no model is active, automatically try up to three candidates, preferring the largest structurally valid model estimated to fit the resident budget, then verified experimental CPU-streamable MoE candidates. Recheck every decision during activation and show failures; never present model size or GGUF structure as backend/performance certification. Remote search/download stays explicit and requires user selection.
 - **Task launch:** present workload-oriented choices rather than low-level backend names. The first delivered path is text generation/chat; additional workload panels appear as their runtime APIs land.
 - **Inference workspace:** streamed output, stop, retry/regenerate, selected model, generation progress, and locally stored conversation history with clear retention/clear controls.
 - **Automatic operation:** choose sensible model and runtime defaults without requiring CLI knowledge. Show the selected model/runtime policy, what KILN actually activated, and any fallback. Allow a user to open Advanced mode at the same task/model/run.
 
-### Advanced mode
+### System details
 
 Panels are registered by capability and grouped by task. Roadmap areas that must fit this shell include:
 
@@ -46,7 +41,7 @@ Panels are registered by capability and grouped by task. Roadmap areas that must
 - **Quality and diagnostics:** doctor, canary/watchdog, exact/approximate mode, output-quality checks, backend errors, logs and reproducible run reports.
 - **Future workloads:** diffusion and other roadmap tasks plug into the same shell and capability contract; do not force their controls into a text-chat-specific state model.
 
-Advanced mode should use progressive disclosure within each panel. “Everything configurable” means every supported setting is discoverable, validated and operable; it does not mean every knob is shown simultaneously or that unsupported settings are fabricated.
+System details should use progressive disclosure within each panel. “Everything configurable” means every supported setting is discoverable, validated and operable; it does not mean every knob is shown simultaneously or that unsupported settings are fabricated.
 
 ## 4. Capability-driven extension model
 
@@ -96,7 +91,7 @@ Preserve the existing Ollama-compatible endpoints. UI-specific APIs must not bre
 
 ## 7. Packaging and frontend organization
 
-The UI is a local web client served by the KILN API, with a replaceable client boundary so Phase 8 can package it as a desktop application without rewriting runtime contracts. Static assets should be versioned and shipped with the application; avoid requiring a separately running frontend server for ordinary use. The exact frontend toolchain may evolve, but retain:
+The UI is a local web client served by the KILN API inside a native GTK desktop window on Linux. The window uses the system WebKitGTK engine and loads only KILN's loopback origin; users do not need a general-purpose browser to manage KILN. The `.deb` declares the Python GObject and WebKitGTK runtime packages so Kali/Debian installs bring in the window dependencies. The API remains independently usable by Ollama-compatible clients and `kiln serve`. Keep the client boundary replaceable so Phase 8 can change the desktop shell without rewriting runtime contracts. Static assets are bundled with the API; ordinary use does not require a separately running frontend server. The exact frontend toolchain may evolve, but retain:
 
 - a small application shell and two-mode navigation;
 - feature modules by domain (models, chat/tasks, devices, memory, execution, diagnostics);
@@ -120,7 +115,7 @@ The first direct reuse is Ollama's JSONL streaming parser from `app/ui/app/src/u
 3. Add a versioned capability/bootstrap endpoint and render capability/support states from it.
 4. Implement model library inventory/search/pull/activation through shared server services; keep CLI and UI on the same model-management logic.
 5. Implement a functional streaming chat path over the existing API, with local conversation state and explicit active model/status.
-6. Add an Advanced overview showing only live capabilities/settings; do not imply that MoE graph streaming, per-layer backend placement, diffusion or unimplemented controls work.
+6. Add a System details overview showing only live capabilities/settings; do not imply that MoE graph streaming, per-layer backend placement, diffusion or unimplemented controls work.
 
 ### Expand by roadmap capability
 
@@ -133,7 +128,7 @@ The first direct reuse is Ollama's JSONL streaming parser from `app/ui/app/src/u
 
 ### Acceptance
 
-- Both modes operate the same session and settings; switching mode loses no work and changes no runtime behavior.
+- Chat and System details operate on the same session and settings; navigation loses no work and changes no runtime behavior.
 - UI is usable offline for local models and inference; no external assets or service are required.
 - UI/API/CLI agree on model inventory and model-management behavior.
 - Capability state and accepted/active settings match the server; unsupported operations fail clearly and safely.
@@ -145,9 +140,9 @@ The first direct reuse is Ollama's JSONL streaming parser from `app/ui/app/src/u
 
 ## 9. Current implementation status and handoff
 
-The UI serves bundled assets from the existing Axum process. Simple mode supports local GGUF inventory, explicit Hugging Face search and verified downloads, activation, streamed chat, stop, response regeneration, and per-model browser-local conversation history. The Advanced view reports CPU/RAM defaults, active model, API-reported capability states, and current inference behavior. The chat output limit (1–4096 tokens) is editable in Advanced and shared with Simple chat; sampling remains greedy. The adapted JSONL parser is reused by chat and downloads, with strict malformed-event errors. The API binds only to loopback and adds a restrictive content security policy, no-sniff/frame protections, a no-referrer policy, and no-store responses.
+The UI serves bundled assets from the existing Axum process. Linux `kiln dashboard` opens those assets inside a GTK/WebKit app window, restricts top-level navigation to the local KILN origin, and stops the API instance it started when the window closes. The `.deb` installs the GTK/WebKit Python bindings and app icon. The redesigned workspace has Chat, Models, Activity and System details navigation; live memory/headroom figures and model-fit state come from the existing API, and the Activity page stores action metadata locally without prompts or generated text. Chat supports local GGUF inventory, explicit Hugging Face search and verified downloads, activation, streamed chat, stop, response regeneration and per-model conversation history. System details reports CPU/RAM defaults, active model, API-reported capability states and current inference behavior. The chat output limit (1–4096 tokens) is editable in System details and shared with chat; sampling remains greedy. The adapted JSONL parser is reused by chat and downloads, with strict malformed-event errors. The API binds only to loopback and adds a restrictive content security policy, no-sniff/frame protections, a no-referrer policy and no-store responses. The new visual layout and native window still need hosted CI and real Kali desktop verification.
 
-**Automated release checks:** CI builds and starts the actual loopback API with no configured model, then drives the bundled UI in headless Chromium. Fixture-backed browser scenarios cover model search/download progress and state recovery; a separate scenario downloads a small public GGUF through KILN's own verified model library, loads it, switches between real GGUF paths, checks failed-load restoration, chats with the live model, and cancels another model transfer while checking that its partial file is removed. The suite also checks actual served-page security headers, no-model startup, Simple/Advanced keyboard navigation, axe-core serious/critical findings, accessible-name snapshots, narrow-window overflow, forced-colors keyboard focus, and uncaught JavaScript errors. Rust API tests cover the actual server's no-model responses and loopback/security behavior.
+**Automated release checks:** CI builds and starts the actual loopback API with no configured model, then drives the bundled UI in headless Chromium. Fixture-backed scenarios cover model search/download progress and state recovery; a separate scenario downloads a small public GGUF through KILN's own verified model library, loads it, switches between real GGUF paths, checks failed-load restoration, chats with the live model, and cancels another model transfer while checking that its partial file is removed. The suite also checks served-page security headers, no-model startup, Chat/Models/Activity/System details keyboard navigation, axe-core serious/critical findings, accessible-name snapshots, narrow-window overflow, forced-colors keyboard focus and uncaught JavaScript errors. Rust API tests cover the actual server's no-model responses and loopback/security behavior. CI exercises the local page in Chromium; the packaged GTK/WebKit window still needs validation on a Kali desktop.
 
 **Remaining deployment work:** the CI smoke model and fixture-backed browser scenarios qualify functionality, not performance or quality on each supported hardware tier. Before making tier-specific performance claims, run the KILN roadmap's acceptance workload on that tier and record the measured result. Runtime performance/quality telemetry, general profile management, execution planning, device discovery, and future workload panels depend on their runtime/API capabilities and are not prerequisites for this current local chat/model-library UI release. Keep the model manager API and client modular; do not copy transport/hash/file-walking logic into JavaScript or API handlers.
 
