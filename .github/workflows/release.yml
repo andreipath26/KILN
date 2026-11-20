@@ -2,6 +2,7 @@ name: Linux release
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 
@@ -12,17 +13,21 @@ jobs:
   release-linux-x86_64:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout tagged source and pinned native submodule
+      - name: Checkout source and pinned native submodule
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Require a tagged main commit
+      - name: Validate release source
         run: |
           git fetch origin main
           git merge-base --is-ancestor HEAD origin/main
-          case "$GITHUB_REF" in refs/tags/v*) ;; *) echo 'Publish from version tags only' >&2; exit 1;; esac
+          case "$GITHUB_REF" in
+            refs/tags/v*) echo "Publishing versioned release from $GITHUB_REF_NAME" ;;
+            refs/heads/main) echo "Publishing main preview from $GITHUB_SHA" ;;
+            *) echo 'Publish only from main or a version tag' >&2; exit 1 ;;
+          esac
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -37,14 +42,54 @@ jobs:
           cmake --build vendor/llama.cpp/build --config Release --parallel 2
           cargo test --locked --workspace --all-targets
 
+      - name: Set Debian package version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "KILN_DEB_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "KILN_DEB_VERSION=0.0.1~preview+${GITHUB_SHA:0:12}" >> "$GITHUB_ENV"
+          fi
+
       - name: Build portable Linux release assets
         run: bash scripts/build_linux_release.sh
 
-      - name: Publish versioned release and matching updater assets
+      - name: Verify Debian package contents and executable
+        run: |
+          package=(dist/kiln-linux-*.deb)
+          test -s "${package[0]}"
+          dpkg-deb --info "${package[0]}"
+          dpkg-deb --contents "${package[0]}"
+          dpkg-deb --extract "${package[0]}" "$RUNNER_TEMP/kiln-deb-root"
+          test -x "$RUNNER_TEMP/kiln-deb-root/usr/bin/kiln"
+          test -s "$RUNNER_TEMP/kiln-deb-root/usr/share/applications/kiln.desktop"
+          "$RUNNER_TEMP/kiln-deb-root/usr/bin/kiln" --help >/dev/null
+          "$RUNNER_TEMP/kiln-deb-root/usr/bin/kiln" dashboard --help >/dev/null
+
+      - name: Publish persistent GitHub Release assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            dist/kiln-linux-*.tar.gz dist/kiln-linux-*.json \
-            dist/kiln-linux-*.sha256 dist/kiln-linux-*.bin \
-            --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+          assets=(dist/kiln-linux-*.tar.gz dist/kiln-linux-*.deb dist/kiln-linux-*.json \
+            dist/kiln-linux-*.sha256 dist/kiln-linux-*.bin)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            release_tag="$GITHUB_REF_NAME"
+            release_title="$GITHUB_REF_NAME"
+            gh release create "$release_tag" "${assets[@]}" \
+              --verify-tag --generate-notes --title "$release_title"
+          else
+            short_sha="${GITHUB_SHA:0:12}"
+            release_tag="preview-$short_sha"
+            release_title="KILN Linux Preview ($short_sha)"
+            notes_file="$RUNNER_TEMP/kiln-release-notes.md"
+            cat > "$notes_file" <<EOF
+          This is a persistent, downloadable KILN Linux build from main commit \`$GITHUB_SHA\`.
+
+          It is marked as a preview because Dell Latitude 7490 throughput, memory, quality, thermal and physical-storage acceptance remains open. It has not passed production deployment acceptance.
+          EOF
+            if gh release view "$release_tag" >/dev/null 2>&1; then
+              gh release upload "$release_tag" "${assets[@]}" --clobber
+            else
+              gh release create "$release_tag" "${assets[@]}" --target "$GITHUB_SHA" \
+                --prerelease --title "$release_title" --notes-file "$notes_file"
+            fi
+          fi
