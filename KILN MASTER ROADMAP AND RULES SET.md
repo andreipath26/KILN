@@ -824,3 +824,10 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - With no active session, it attempts up to three candidates: largest estimated resident-fit GGUFs first, then verified Linux CPU-streamable MoE candidates. Model activation remains the authoritative recheck and uses the runtime's automatic execution mode; failures are retained in the setup status and the dashboard does not silently alter or download model files.
 - The dashboard reports active/recommended model status, runs the profile/model check on open, and retries after an explicit library refresh or a completed download. Unsupported architectures and resource/performance outcomes remain unverified until actual load/target measurements.
 - This removes CLI configuration from the common installed-model startup flow. Remote model download, selecting among models when changing an active session, accelerator discovery/placement, and Tier 0 speed/quality acceptance remain separate work.
+
+### 2026-11-20 — One-command dashboard launch
+
+- Added `kiln dashboard`: it starts the loopback API, waits for `/api/version` to become healthy, then opens the local UI in the system browser; it reuses an already-running KILN API and supports `--no-open` for services and CI.
+- The Linux release installer now creates a per-user desktop-menu launcher that invokes the installed binary's dashboard command. It refuses to overwrite an existing launcher and rolls back the newly linked binary if launcher creation fails.
+- Portable Linux CI now checks the launcher target and starts the installed dashboard command through its health/API smoke path. This is pending hosted CI on the feature branch; local cargo/rustfmt are not installed in this environment.
+- This improves first launch but does not establish full deployment readiness. Tier 0 Qwen3-30B-A3B throughput, total RAM, quality parity, sustained behavior, and physical storage bounds still require measurements on the Dell Latitude 7490.

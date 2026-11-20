@@ -3,6 +3,10 @@
 //! Command-line interface for local KILN inference and model management.
 
 use clap::{Parser, Subcommand};
+use std::process::{Command, Stdio};
+use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 use kiln_core::{LinuxMonitor, PerformanceMonitor};
 use kiln_core::pipeline::{run_once as pipeline_run_once, Loader};
@@ -26,6 +30,89 @@ mod stream_stdio;
 mod self_update;
 mod quality_eval;
 mod measure;
+
+async fn dashboard_api_is_ready(port: u16) -> bool {
+    let response = async {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).await.ok()?;
+        stream.write_all(format!(
+            "GET /api/version HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+        ).as_bytes()).await.ok()?;
+        let mut bytes = Vec::with_capacity(256);
+        stream.read_to_end(&mut bytes).await.ok()?;
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    };
+    tokio::time::timeout(Duration::from_secs(2), response).await
+        .ok().flatten()
+        .is_some_and(|response| response.starts_with("HTTP/1.1 200")
+            && response.contains("\"version\""))
+}
+
+fn open_dashboard_in_browser(url: &str) -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    let mut command = Command::new("xdg-open");
+    #[cfg(target_os = "macos")]
+    let mut command = Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("rundll32.exe");
+        command.arg("url.dll,FileProtocolHandler");
+        command
+    };
+
+    command.arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+}
+
+async fn run_dashboard(port: u16, no_open: bool) -> Result<(), String> {
+    let url = format!("http://127.0.0.1:{port}/");
+    if dashboard_api_is_ready(port).await {
+        println!("KILN is already running. Dashboard: {url}");
+        if !no_open {
+            open_dashboard_in_browser(&url).map_err(|e| format!("could not open browser: {e}"))?;
+        }
+        return Ok(());
+    }
+
+    println!("Starting KILN local runtime…");
+    let mut server = tokio::spawn(async move { serve("127.0.0.1", port).await });
+    let mut ready = false;
+    let startup_deadline = tokio::time::Instant::now() + Duration::from_secs(180);
+    while tokio::time::Instant::now() < startup_deadline {
+        if dashboard_api_is_ready(port).await {
+            ready = true;
+            break;
+        }
+        if server.is_finished() {
+            return match server.await {
+                Ok(Err(error)) => Err(format!("could not start KILN API: {error}")),
+                Ok(Ok(())) => Err("KILN API stopped before becoming ready".into()),
+                Err(error) => Err(format!("KILN API task failed: {error}")),
+            };
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    if !ready {
+        server.abort();
+        return Err(format!("KILN API did not become ready on {url}"));
+    }
+
+    println!("KILN dashboard is ready at {url}");
+    if !no_open {
+        if let Err(error) = open_dashboard_in_browser(&url) {
+            eprintln!("Could not open a browser automatically ({error}); open {url}");
+        }
+    }
+
+    match server.await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(format!("KILN API stopped: {error}")),
+        Err(error) => Err(format!("KILN API task failed: {error}")),
+    }
+}
 
 /// Linux process RSS snapshot in KiB. VmHWM is the process high-water mark
 /// since launch, so it includes the entire model load/benchmark lifetime.
@@ -176,6 +263,15 @@ enum Commands {
         /// Loopback IP to bind to. Only 127.0.0.1 or ::1 is accepted; remote access is unsupported.
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
+    },
+    /// Start KILN locally and open the system-aware model dashboard.
+    Dashboard {
+        /// Dashboard/API port. Default 11435.
+        #[arg(long, default_value_t = 11435)]
+        port: u16,
+        /// Keep the dashboard in this process without opening a browser.
+        #[arg(long)]
+        no_open: bool,
     },
     /// Run Phase 6 LLaDA diffusion with CLAD attention-guided parallel decoding.
     Diffuse {
@@ -554,6 +650,12 @@ async fn main() {
         Commands::Serve { port, host } => {
             if let Err(e) = serve(&host, port).await {
                 eprintln!("server error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Dashboard { port, no_open } => {
+            if let Err(error) = run_dashboard(port, no_open).await {
+                eprintln!("dashboard error: {error}");
                 std::process::exit(1);
             }
         }
