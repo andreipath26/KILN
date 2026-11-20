@@ -551,7 +551,7 @@ async function downloadArtifact(repository, file, requestedFiles = [file]) {
     state.autoStartAttempted = false;
     await refresh();
     setModelActionState(false, files.length === 1
-      ? `Verified and installed ${file}; KILN reassessed the model library.`
+      ? `Verified and installed ${file}. KILN reassessed the model library.`
       : `Verified ${installedCount}/${files.length} files for ${modelLabel}; KILN reassessed the model library.`);
   } catch (error) {
     const message = error.name === "AbortError"
