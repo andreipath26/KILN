@@ -829,5 +829,11 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 
 - Added `kiln dashboard`: it starts the loopback API, waits for `/api/version` to become healthy, then opens the local UI in the system browser; it reuses an already-running KILN API and supports `--no-open` for services and CI.
 - The Linux release installer now creates a per-user desktop-menu launcher that invokes the installed binary's dashboard command. It refuses to overwrite an existing launcher and rolls back the newly linked binary if launcher creation fails.
-- Portable Linux CI now checks the launcher target and starts the installed dashboard command through its health/API smoke path. This is pending hosted CI on the feature branch; local cargo/rustfmt are not installed in this environment.
+- Portable Linux CI run #881 passed at PR head `dd1604f0e2ae230d44f5c300ea0d552b13b7f4cf`, checking the launcher target and starting the installed dashboard command through its health/API smoke path. Rust workspace tests, browser/accessibility/responsive checks, the tiny real-MoE measurement fixture and portable release/install checks also passed. This validates CI integration and packaging, not target-machine acceptance.
 - This improves first launch but does not establish full deployment readiness. Tier 0 Qwen3-30B-A3B throughput, total RAM, quality parity, sustained behavior, and physical storage bounds still require measurements on the Dell Latitude 7490.
+
+### 2026-11-20 — Cross-phase Tier 0 qualification command
+
+- Added `kiln qualify --config <json> --out <new-directory>` to run the existing Phase 3.5 dense suite, Phase 5 model/streaming suite, and paired Phase 6 confidence/CLAD capture in one retained evidence bundle. Configuration points to pinned local models; optional reference-model/corpus inputs enable the Phase 5 quality comparison.
+- Every command retains stdout/stderr, duration and exit status. Missing model inputs block only that phase and are recorded; the aggregate remains explicitly inconclusive and never certifies deployment readiness automatically.
+- This reduces the target run to one command after model/config preparation. The real Dell run, quality review, sustained thermals and physical storage gates are still required; hosted CI for this feature is pending.
