@@ -57,6 +57,16 @@ The command builds the release tools, captures host/model/revision provenance, r
 
 The summary deliberately leaves overall acceptance inconclusive unless every required target-hardware and quality gate is evidenced. It does not infer isolated physical SSD throughput from Linux process I/O counters, and a cache replay is a simulation rather than a runtime cache measurement.
 
+### One-command Tier 0 qualification capture
+
+To collect the dense-path, streamed-MoE and LLaDA/CLAD evidence in one run, copy [the example qualification config](docs/tier0-qualification.example.json), set its three pinned local GGUF paths (and optional FP16 reference/corpus), then run:
+
+```sh
+cargo run -p kiln-cli -- qualify --config ./tier0-qualification.json --out ./measurements/tier0-run
+```
+
+Relative model paths resolve from the config file. The command builds KILN, runs the existing Phase 3.5, Phase 5 and paired Phase 6 suites, and retains per-command stdout/stderr, reports, model hashes, host metadata and failures under the new output directory. Reusing an output directory is rejected. A nonzero exit means a capture was blocked or failed; review `qualification.json` and `commands.json` to locate it. `overall_status` deliberately stays `inconclusive` and `deployment_ready` stays `false`: a run cannot verify that it was performed on the Dell Latitude 7490, replace manual review of quality misses, or establish sustained thermals and isolated physical storage bounds.
+
 `run auto` selects a model only when discovery returns a single usable, unambiguous candidate; otherwise choose an explicit path or tag. Discovery does not guarantee that the backend supports a model's architecture. `pull` requires an explicit GGUF file in the selected repository; KILN does **not** automatically download model weights during installation. Downloads use `KILN_MODELS_DIR` or the user's data directory and validate the retrieved file.
 
 Start the local dashboard with one command:
