@@ -4,7 +4,7 @@ set -euo pipefail
 [[ "$(uname -s)" == Linux ]] || { echo "Linux only" >&2; exit 2; }
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-for cmd in cmake cargo git tar sha256sum strings realpath install python3; do
+for cmd in cmake cargo git tar sha256sum strings realpath install python3 dpkg-deb; do
   command -v "$cmd" >/dev/null || { echo "Missing: $cmd" >&2; exit 2; }
 done
 [[ -f vendor/llama.cpp/CMakeLists.txt ]] || {
@@ -32,7 +32,9 @@ manifest="$DEST/$name.json"
 digest="$DEST/$name.sha256"
 standalone="$DEST/$name.bin"
 standalone_digest="$DEST/$name.bin.sha256"
-for file in "$archive" "$manifest" "$digest" "$standalone" "$standalone_digest"; do
+deb="$DEST/$name.deb"
+deb_digest="$DEST/$name.deb.sha256"
+for file in "$archive" "$manifest" "$digest" "$standalone" "$standalone_digest" "$deb" "$deb_digest"; do
   [[ ! -e "$file" ]] || { echo "Artifact exists: $file" >&2; exit 2; }
 done
 # Do not bake -march=native of the builder into the KILN binary.
@@ -88,6 +90,42 @@ tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$epoch" \
 sha256sum "$archive" > "$digest"
 install -m 0755 "$binary" "$standalone"
 sha256sum "$standalone" > "$standalone_digest"
+package_root="$stage/deb-root"
+install -D -m 0755 "$binary" "$package_root/usr/bin/kiln"
+install -D -m 0644 LICENSE "$package_root/usr/share/doc/kiln/copyright"
+install -D -m 0644 THIRD_PARTY_NOTICES.md "$package_root/usr/share/doc/kiln/THIRD_PARTY_NOTICES.md"
+install -D -m 0644 /dev/stdin "$package_root/usr/share/applications/kiln.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=KILN
+Comment=Start KILN and open the local model dashboard
+Exec=/usr/bin/kiln dashboard
+TryExec=/usr/bin/kiln
+Terminal=false
+StartupNotify=true
+Categories=Development;Utility;
+EOF
+case "$arch" in
+  x86_64) deb_arch=amd64 ;;
+  aarch64) deb_arch=arm64 ;;
+esac
+deb_version="${KILN_DEB_VERSION:-0.0.1~preview+${commit:0:12}}"
+[[ "$deb_version" =~ ^[0-9][0-9A-Za-z.+:~\-]*$ ]] || { echo "Invalid Debian package version: $deb_version" >&2; exit 2; }
+install -D -m 0644 /dev/stdin "$package_root/DEBIAN/control" <<EOF
+Package: kiln
+Version: $deb_version
+Section: utils
+Priority: optional
+Architecture: $deb_arch
+Maintainer: KILN maintainers
+Depends: libc6, libgcc-s1, libstdc++6
+Description: Local-first language model runtime with a one-click dashboard
+ KILN selects an execution mode for installed models and serves a local dashboard.
+ This build's Tier 0 throughput and quality acceptance remains pending.
+EOF
+dpkg-deb --root-owner-group --build "$package_root" "$deb"
+sha256sum "$deb" > "$deb_digest"
 printf 'Archive: %s\nManifest: %s\nSHA256: %s\n' "$archive" "$manifest" "$digest"
-printf "Standalone binary: %s\\nStandalone checksum: %s\\n" "$standalone" "$standalone_digest"
+printf 'Standalone binary: %s\nStandalone checksum: %s\n' "$standalone" "$standalone_digest"
+printf 'Debian package: %s\nDebian package checksum: %s\n' "$deb" "$deb_digest"
 echo "This artifact is not a Tier 0 performance or quality acceptance result."
