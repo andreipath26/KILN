@@ -1,7 +1,7 @@
 # KILN MASTER ROADMAP AND RULES SET
 
-**Version:** 9.9 — measurement suite retains host and thermal samples; Tier 0 acceptance pending
-**Last updated:** 2026-11-14
+**Version:** 10.0 — dashboard assesses the host and auto-starts a suitable local model; Tier 0 acceptance pending
+**Last updated:** 2026-11-20
 **Status:** Active master roadmap  
 **Repository:** https://github.com/andreipath26/KILN  
 **Runtime fork:** https://github.com/andreipath26/kiln-llama
@@ -817,3 +817,10 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - The `phase5-real-moe-evidence` artifact contains the fixture measurement outputs; `kiln-linux-one-binary-experimental` contains the CI-built release candidate. Both are CI artifacts, not a production release or Tier 0 acceptance certificate.
 - The fixture run asserted exact token parity across live cache policies, retained raw stage memory samples and logs, deferred model hashing, and explicit shared-page-cache/device-counter limitations. It verifies measurement workflow behavior, not representative-model performance.
 - Tier 0 remains open: measure Qwen3-30B-A3B on the Dell Latitude 7490 with pinned-corpus quality comparison, sustained throughput and total RAM, and physical storage bounds before making deployment claims.
+
+### 2026-11-20 — System-aware dashboard startup
+
+- The local dashboard now consumes an API-side startup recommendation derived from live resident-memory headroom and the verified MoE layout flags already collected during local model discovery.
+- With no active session, it attempts up to three candidates: largest estimated resident-fit GGUFs first, then verified Linux CPU-streamable MoE candidates. Model activation remains the authoritative recheck and uses the runtime's automatic execution mode; failures are retained in the setup status and the dashboard does not silently alter or download model files.
+- The dashboard reports active/recommended model status, runs the profile/model check on open, and retries after an explicit library refresh or a completed download. Unsupported architectures and resource/performance outcomes remain unverified until actual load/target measurements.
+- This removes CLI configuration from the common installed-model startup flow. Remote model download, selecting among models when changing an active session, accelerator discovery/placement, and Tier 0 speed/quality acceptance remain separate work.

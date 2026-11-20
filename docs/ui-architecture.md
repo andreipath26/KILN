@@ -29,10 +29,10 @@ These modes are two views of the same model, run, configuration and API state. T
 
 ### Simple mode
 
-- **Setup and model library:** discover local GGUFs, search a remote catalog, inspect model size/source/license/format, download with explicit consent, verify the artifact, and choose a model. Explain the difference between structural validation, backend load support, and hardware-tested support.
+- **Setup and model library:** assess the machine and discover local GGUFs on dashboard open. If no model is active, automatically try up to three candidates, preferring the largest structurally valid model estimated to fit the resident budget, then verified experimental CPU-streamable MoE candidates. Recheck every decision during activation and show failures; never present model size or GGUF structure as backend/performance certification. Remote search/download stays explicit and requires user selection.
 - **Task launch:** present workload-oriented choices rather than low-level backend names. The first delivered path is text generation/chat; additional workload panels appear as their runtime APIs land.
 - **Inference workspace:** streamed output, stop, retry/regenerate, selected model, generation progress, and locally stored conversation history with clear retention/clear controls.
-- **Automatic operation:** show the selected runtime policy, what KILN actually activated, and any fallback. Allow a user to open Advanced mode at the same task/model/run.
+- **Automatic operation:** choose sensible model and runtime defaults without requiring CLI knowledge. Show the selected model/runtime policy, what KILN actually activated, and any fallback. Allow a user to open Advanced mode at the same task/model/run.
 
 ### Advanced mode
 
@@ -67,6 +67,8 @@ Settings have **desired**, **accepted**, and **active** values. The UI shows the
 ## 5. UI/API boundary
 
 The existing API has `/api/chat`, `/api/generate`, `/api/tags` and `/api/version`. The UI also has local model inventory, public Hugging Face GGUF search/download with progress and disconnect cancellation, and model activation endpoints backed by shared `kiln-models::library` operations. It still does not expose a complete device capability inventory, execution plans, a general settings schema, or runtime telemetry. The CLI `list`, `search` and `pull` behavior is shared through the model library service, rather than scraped from CLI output.
+
+The current dashboard bootstrap also reports a local startup recommendation based on live resident-memory headroom and verified model layout. When no session is active, the browser tries a bounded set of candidates through the existing activation API; activation performs the authoritative compatibility and resource checks. This is a CPU/RAM heuristic only. It does not automatically fetch weights, discover accelerators, or guarantee model quality/performance.
 
 Build a versioned UI-facing API surface rather than making the browser scrape CLI output or duplicate its behavior. Initial contract areas:
 

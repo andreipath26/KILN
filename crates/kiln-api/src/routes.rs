@@ -368,11 +368,13 @@ pub async fn ui_models(State(state): State<ApiState>) -> Result<Json<Value>, Err
     let active_path = state.runtime.lock().ok().and_then(|runtime| runtime.as_ref().and_then(|session| {
         std::fs::canonicalize(&session.model_path).ok()
     }));
+    let resident_budget = crate::runtime::memory_headroom_bytes().map(|(_, budget)| budget);
+    let supports_native_streaming = cfg!(target_os = "linux");
     let scan_roots = active_path.iter().cloned().collect::<Vec<_>>();
     // Both discovery and per-model GGUF metadata inspection use filesystem
     // I/O. Keep the complete pass off the async reactor.
     let models: Vec<Value> = tokio::task::spawn_blocking(move || {
-        kiln_models::library::discover_models(&scan_roots)
+        let mut models: Vec<Value> = kiln_models::library::discover_models(&scan_roots)
             .into_iter().map(|model| {
                 let path = PathBuf::from(&model.path);
                 let active = active_path.as_ref().is_some_and(|current|
@@ -393,11 +395,83 @@ pub async fn ui_models(State(state): State<ApiState>) -> Result<Json<Value>, Err
                     "valid_gguf": model.valid_gguf,
                     "active": active
                 })
-            }).collect()
+            }).collect();
+
+        // Prefer the largest structurally valid local GGUF within the current
+        // resident budget. If none fit, permit a verified native CPU-streamable
+        // MoE candidate as an explicitly experimental fallback. The loader
+        // rechecks memory and source compatibility before opening a session.
+        let active_model = models.iter().find(|model|
+            model.get("active").and_then(Value::as_bool) == Some(true)
+                && model.get("load_error").is_some_and(Value::is_null)
+        ).and_then(|model| Some((
+            model.get("path")?.as_str()?.to_owned(),
+            model.get("name")?.as_str()?.to_owned(),
+            String::from("active"),
+        )));
+        let mut candidates: Vec<(bool, u64, String, String, &'static str)> = models.iter().filter_map(|model| {
+            if !model.get("load_error")?.is_null() { return None; }
+            let size = model.get("size_bytes")?.as_u64()?;
+            let path = model.get("path")?.as_str()?;
+            let name = model.get("name")?.as_str()?;
+            if resident_budget.is_some_and(|budget| size <= budget) {
+                return Some((true, size, path.to_owned(), name.to_owned(), "standard"));
+            }
+            if supports_native_streaming && model.get("native_stream_candidate")?.as_bool()? {
+                return Some((false, size, path.to_owned(), name.to_owned(), "experimental_cpu_moe_stream"));
+            }
+            None
+        }).collect();
+        candidates.sort_by(|left, right|
+            right.0.cmp(&left.0).then_with(|| right.1.cmp(&left.1))
+        );
+        let startup_candidates: Vec<Value> = if active_model.is_some() {
+            Vec::new()
+        } else {
+            candidates.iter().map(|(_, _, path, name, mode)| json!({
+                "model_path": path,
+                "model_name": name,
+                "mode": mode,
+            })).collect()
+        };
+        let recommendation = active_model.or_else(|| startup_candidates.first().and_then(|model| Some((
+            model.get("model_path")?.as_str()?.to_owned(),
+            model.get("model_name")?.as_str()?.to_owned(),
+            model.get("mode")?.as_str()?.to_owned(),
+        ))));
+
+        for model in &mut models {
+            let model_path = model.get("path").and_then(Value::as_str);
+            let is_recommended = recommendation.as_ref()
+                .is_some_and(|(path, _, _)| Some(path.as_str()) == model_path);
+            model["auto_recommended"] = json!(is_recommended);
+            if is_recommended {
+                model["recommended_mode"] = json!(recommendation.as_ref().map(|row| row.2));
+            }
+        }
+        (models, recommendation, startup_candidates)
     }).await.map_err(|e| error_response((
         StatusCode::INTERNAL_SERVER_ERROR, format!("model scan failed: {e}")
     )))?;
-    Ok(Json(json!({ "models": models })))
+    let (models, recommendation, startup_candidates) = models;
+    let recommendation = recommendation.map(|(path, name, mode)| json!({
+        "model_path": path,
+        "model_name": name,
+        "mode": mode,
+        "resident_budget_bytes": resident_budget,
+        "reason": if mode == "active" {
+            "KILN keeps the model already active in this session."
+        } else if mode == "standard" {
+            "Largest structurally valid local GGUF within the current estimated resident budget."
+        } else {
+            "No resident candidate fits; this is the largest locally verified MoE layout eligible for experimental CPU expert streaming."
+        }
+    }));
+    Ok(Json(json!({
+        "models": models,
+        "recommendation": recommendation,
+        "startup_candidates": startup_candidates,
+    })))
 }
 
 /// GET /api/ui/models/search?q=...&limit=...
@@ -483,10 +557,17 @@ pub async fn ui_model_activate(
         Some("stream") => true,
         _ => return Err(error_response((StatusCode::BAD_REQUEST, "model mode must be auto or stream".into()))),
     };
-    let activated = tokio::task::spawn_blocking(move || state.activate(entrypoint, force_stream))
+    let model_path_for_log = entrypoint.display().to_string();
+    let result = tokio::task::spawn_blocking(move || state.activate(entrypoint, force_stream))
         .await
-        .map_err(|e| error_response((StatusCode::INTERNAL_SERVER_ERROR, format!("model activation task failed: {e}"))))?
-        .map_err(|e| error_response((StatusCode::UNPROCESSABLE_ENTITY, e)))?;
+        .map_err(|e| error_response((StatusCode::INTERNAL_SERVER_ERROR, format!("model activation task failed: {e}"))))?;
+    let activated = match result {
+        Ok(model) => model,
+        Err(error) => {
+            tracing::warn!(model_path = %model_path_for_log, error = %error, "model activation failed");
+            return Err(error_response((StatusCode::UNPROCESSABLE_ENTITY, error)));
+        }
+    };
     Ok(Json(json!({ "model": activated, "active": true })))
 }
 

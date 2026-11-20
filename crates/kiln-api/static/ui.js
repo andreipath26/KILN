@@ -12,6 +12,8 @@ const state = {
   modelActionBusy: false,
   downloadController: null,
   maxTokens: 128,
+  autoStartAttempted: false,
+  recommendation: null,
 };
 
 const tabs = [
@@ -248,6 +250,16 @@ function renderLocalModels(models) {
     meta.className = "model-entry-meta";
     meta.textContent = `${(model.size_bytes / 1_073_741_824).toFixed(2)} GiB · ${model.source}${model.active ? " · Active" : ""}`;
     main.append(title, meta);
+    if (model.auto_recommended) {
+      const recommendation = document.createElement("div");
+      recommendation.className = "model-entry-meta";
+      recommendation.textContent = model.recommended_mode === "experimental_cpu_moe_stream"
+        ? "KILN recommendation · experimental CPU expert streaming"
+        : model.recommended_mode === "active"
+          ? "KILN is keeping this active model"
+          : "KILN recommendation · automatically configured for this machine";
+      main.append(recommendation);
+    }
     const aliases = Array.isArray(model.aliases)
       ? model.aliases.filter((name) => typeof name === "string" && name !== model.name)
       : [];
@@ -430,9 +442,44 @@ async function activateLocalModel(path, mode = "auto") {
     if (!response.ok) throw new Error(payload.error || "Model activation failed.");
     await refresh();
     setModelActionState(false, `Active model: ${payload.model}`);
+    $("#auto-setup-status").textContent = `Ready. KILN selected ${payload.model} and chose the runtime path from current system resources.`;
   } catch (error) {
     await refresh();
     setModelActionState(false, error.message || "Model activation failed.");
+    $("#auto-setup-status").textContent = `KILN could not load the selected model: ${error.message || "unknown error"}. Choose another local model or inspect Advanced status.`;
+  }
+}
+
+async function autoStartRecommended(candidates) {
+  const attempts = candidates.slice(0, 3);
+  const failures = [];
+  state.modelActionBusy = true;
+  try {
+    for (const candidate of attempts) {
+      const name = candidate.model_name || "recommended local model";
+      $("#auto-setup-status").textContent = `KILN is configuring ${name} from the detected system profile…`;
+      setModelActionState(true, `Starting ${name} automatically…`);
+      try {
+        const response = await fetch("/api/ui/models/activate", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ path: candidate.model_path, mode: "auto" }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || `Model activation failed (${response.status}).`);
+        await refresh();
+        setModelActionState(false, `Ready with ${payload.model}.`);
+        $("#auto-setup-status").textContent = `Ready. KILN assessed this machine, selected ${payload.model}, and chose the supported runtime path automatically.`;
+        return;
+      } catch (error) {
+        failures.push(`${name}: ${error.message || "activation failed"}`);
+      }
+    }
+    await refresh();
+    const detail = failures.length ? failures.join(" · ") : "No automatically startable local model was found.";
+    setModelActionState(false, "Automatic setup could not load a local model.");
+    $("#auto-setup-status").textContent = `Automatic setup could not start a model. KILN tried up to ${attempts.length} safe candidates. ${detail}`;
+  } finally {
+    state.modelActionBusy = false;
   }
 }
 
@@ -497,10 +544,11 @@ async function downloadArtifact(repository, file, requestedFiles = [file]) {
       }
       installedCount += 1;
     }
-    await loadLocalModels();
+    state.autoStartAttempted = false;
+    await refresh();
     setModelActionState(false, files.length === 1
-      ? `Verified and installed ${file}. Select it from local models to load it.`
-      : `Verified ${installedCount}/${files.length} files for ${modelLabel}. Select the complete model from local models.`);
+      ? `Verified and installed ${file}; KILN reassessed the model library.`
+      : `Verified ${installedCount}/${files.length} files for ${modelLabel}; KILN reassessed the model library.`);
   } catch (error) {
     const message = error.name === "AbortError"
       ? (files.length === 1 ? "Download canceled; the partial file was removed."
@@ -573,6 +621,7 @@ async function refresh() {
       versionResponse.json(), tagsResponse.json(), capabilitiesResponse.json(), modelsResponse.json(),
     ]);
     const localModels = models.models || [];
+    state.recommendation = models.recommendation || null;
     const activeModelPath = localModels.find((model) => model.active)?.path;
     state.model = tags.models?.[0] ? { ...tags.models[0], path: activeModelPath } : null;
     setServerState(true, "Local runtime connected");
@@ -585,6 +634,19 @@ async function refresh() {
     readSettings();
     state.messages = readHistory();
     renderMessages();
+    if (state.model) {
+      $("#auto-setup-status").textContent = `Ready. KILN detected this machine and is using ${state.model.name}.`;
+    } else if (!state.autoStartAttempted && state.recommendation?.model_path) {
+      state.autoStartAttempted = true;
+      const candidates = Array.isArray(models.startup_candidates) && models.startup_candidates.length
+        ? models.startup_candidates : [state.recommendation];
+      await autoStartRecommended(candidates);
+      return;
+    } else if (!state.recommendation) {
+      $("#auto-setup-status").textContent = state.models.length
+        ? "KILN assessed available memory, but found no local model it can safely auto-start. Search, download, or select a model to continue."
+        : "KILN assessed this machine. No local model is installed yet; search for a GGUF model to install it, then KILN will choose its run path automatically.";
+    }
   } catch (error) {
     state.model = null;
     state.messages = [];
@@ -592,6 +654,7 @@ async function refresh() {
     setServerState(false, "Local runtime unavailable");
     renderSession(null, null);
     renderLocalModels([]);
+    $("#auto-setup-status").textContent = "KILN could not complete its system and model check. Reconnect to the local runtime and refresh.";
     $("#profile-state").textContent = "Unavailable";
     $("#profile-state").className = "badge warn";
     $("#session-details").lastElementChild.lastElementChild.textContent = "Could not reach API";
@@ -724,9 +787,10 @@ $("#clear-chat").addEventListener("click", () => {
 });
 
 $("#refresh-advanced").addEventListener("click", () => void refresh());
-$("#refresh-models").addEventListener("click", () => void loadLocalModels()
-  .then(() => setModelActionState(false, "Local model scan complete."))
-  .catch((error) => setModelActionState(false, error.message || "Local scan failed.")));
+$("#refresh-models").addEventListener("click", () => {
+  state.autoStartAttempted = false;
+  void refresh();
+});
 $("#model-search-form").addEventListener("submit", (event) => {
   event.preventDefault();
   void searchModels($("#model-search-query").value);

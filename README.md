@@ -8,6 +8,7 @@ KILN is an open-source local inference runtime in active development, intended f
 
 - Rust workspace, runtime dispatcher, GGUF inspection/loading, TQ1_0 experiments, CLI, and a loopback-only Ollama-compatible API with a local web UI.
 - Discovery of existing GGUF files and installed Ollama manifests, including human-readable Ollama tags. Where a local tag resolves unambiguously, `kiln run <ollama-tag>` uses the existing weight blob without copying it.
+- The local dashboard probes system resources and inventories local GGUFs when opened. If no model is active, it automatically tries up to three safe candidates: first the largest model estimated to fit the current resident budget, then verified experimental CPU-streamable MoE candidates. The runtime rechecks resources and layout during activation; unsupported candidates are skipped with their errors shown. This avoids CLI tuning for the common local-model path, but does not silently download weights or guarantee a model-specific speed/quality result.
 - Public Hugging Face GGUF search and explicit model-file downloads, with integrity checks.
 - `kiln plan MODEL [--json]`: read-only GGUF/system memory and CPU feasibility preflight. It is a diagnostic, **not** a guarantee that a model will load or run at a particular speed.
 - **Experimental Linux CPU MoE streaming:** `kiln stream MODEL` resolves a compatible fused-expert GGUF, creates a temporary verified source index, and starts an isolated inference child using selected expert slabs read directly from the **original GGUF**. This is real opt-in graph compute, not just synthetic I/O simulation. It supports bounded native expert caching, optional parallel reads, and fail-closed stream audit checks; it does not require duplicating model weights.
@@ -66,7 +67,7 @@ cargo run -p kiln-cli -- serve
 KILN_MODEL_PATH=/path/to/model.gguf cargo run -p kiln-cli -- serve
 ```
 
-Open **http://127.0.0.1:11435/**. The UI supports local model inventory, public GGUF search/download, model activation and chat. The API is loopback-only; authenticated remote access and automatic heterogeneous hardware placement are not shipped.
+Open **http://127.0.0.1:11435/**. On opening, the dashboard assesses the machine and automatically starts a suitable installed model when one is available; it also supports local model inventory, public GGUF search/download, model switching and chat. Remote search/download remains explicit. The API is loopback-only; authenticated remote access and automatic heterogeneous hardware placement are not shipped.
 
 ## Reusing an active model
 
