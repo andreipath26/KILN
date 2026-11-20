@@ -916,6 +916,15 @@ jobs:
           assert names == {"kiln","LICENSE","THIRD_PARTY_NOTICES.md"}
           print("Portable release artifact contains one executable, license and provenance")
           PY
+          PACKAGE="$(find "$RUNNER_TEMP/kiln-portable-release" -maxdepth 1 -name '*.deb' -print -quit)"
+          test -s "$PACKAGE"
+          test "$(dpkg-deb -f "$PACKAGE" Package)" = kiln
+          test "$(dpkg-deb -f "$PACKAGE" Architecture)" = amd64
+          dpkg-deb --extract "$PACKAGE" "$RUNNER_TEMP/kiln-deb-smoke"
+          test -x "$RUNNER_TEMP/kiln-deb-smoke/usr/bin/kiln"
+          test -s "$RUNNER_TEMP/kiln-deb-smoke/usr/share/applications/kiln.desktop"
+          "$RUNNER_TEMP/kiln-deb-smoke/usr/bin/kiln" --help >/dev/null
+          echo "Debian package metadata, desktop launcher and executable smoke checks passed"
           MODEL="$KILN_MODELS_DIR/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
           target/release/kiln bench "$MODEL" --native-greedy --tokens 8 \
             --warmup 0 --runs 1 --threads 2 --batch 128 --ubatch 64 \
@@ -999,11 +1008,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kiln-linux-one-binary-experimental
+          name: kiln-linux-portable-ci-smoke
           if-no-files-found: warn
           retention-days: 14
           path: |
             ${{ runner.temp }}/kiln-portable-release/*.tar.gz
+            ${{ runner.temp }}/kiln-portable-release/*.deb
             ${{ runner.temp }}/kiln-portable-release/*.json
             ${{ runner.temp }}/kiln-portable-release/*.sha256
             ${{ runner.temp }}/real-moe-release-inference.json
@@ -1252,6 +1262,7 @@ jobs:
             ${{ runner.temp }}/kiln-installed-quality-verdict.json
             ${{ runner.temp }}/kiln-portable-release/*.json
             ${{ runner.temp }}/kiln-portable-release/*.sha256
+            ${{ runner.temp }}/kiln-portable-release/*.deb
             ${{ runner.temp }}/real-moe-page-advice.json
             ${{ runner.temp }}/real-moe-lazy-ab.json
             ${{ runner.temp }}/moe-fused-candidates.json
