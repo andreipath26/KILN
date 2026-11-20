@@ -843,3 +843,9 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - The Linux release workflow now publishes a persistent GitHub prerelease for each successful `main` build, tagged to its exact commit; version tags continue to publish stable releases. A preview is not a Tier 0 deployment certificate.
 - Release packaging now emits an `amd64` or `arm64` `.deb` alongside the standalone binary and tar archive. The package installs `/usr/bin/kiln` and a desktop-menu launcher; CI extracts it and smoke-checks the package metadata, launcher and executable.
 - Kali users can install the downloaded package with `sudo apt install ./kiln-linux-ARCH-COMMIT.deb` and launch the prebuilt runtime directly, without compiling KILN. Workflow CI and the first persistent preview publication are pending.
+
+### 2026-11-20 — KILN desktop workspace
+
+- Reworked the bundled dashboard around a Chat, Models, Activity and System details workspace with an adaptive machine-readiness panel, live API-backed memory/model-fit states, local activity metadata, and separate per-model conversations in the Recent sidebar.
+- On Kali/Debian, `kiln dashboard` now opens the local interface in a GTK window with WebKitGTK and restricts top-level navigation to the KILN loopback origin. Closing the app window stops only the API instance that command started. The `.deb` installs the Python GObject/WebKitGTK runtime and the KILN icon; the tar installer remains a developer path and does not bring those desktop dependencies.
+- The mockup direction was approved before the implementation. Hosted CI and an actual Kali desktop install still need to validate the redesigned UI and app-window behavior. No Tier 0 performance or quality claim is implied.

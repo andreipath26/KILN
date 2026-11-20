@@ -20,6 +20,7 @@ fn build_router_with_state(state: ApiState) -> Router {
     Router::new()
         .route("/", get(ui_index))
         .route("/ui.css", get(ui_css))
+        .route("/kiln.svg", get(ui_icon))
         .route("/ui.js", get(ui_js))
         .route("/stream.js", get(ui_stream_js))
         .route("/api/generate", post(routes::generate))
@@ -54,6 +55,10 @@ async fn ui_index() -> Html<&'static str> {
 
 async fn ui_css() -> impl axum::response::IntoResponse {
     ([(header::CONTENT_TYPE, "text/css; charset=utf-8")], include_str!("../static/ui.css"))
+}
+
+async fn ui_icon() -> impl axum::response::IntoResponse {
+    ([(header::CONTENT_TYPE, "image/svg+xml")], include_str!("../static/kiln.svg"))
 }
 
 async fn ui_js() -> impl axum::response::IntoResponse {

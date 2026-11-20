@@ -16,8 +16,8 @@ for name in CFLAGS CXXFLAGS RUSTFLAGS; do
     echo "Refusing host-specific compilation: $name" >&2; exit 2
   fi
 done
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  echo "Tracked source tree is dirty; refusing release" >&2; exit 2
+if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+  echo "Source tree is dirty or contains untracked files; refusing release" >&2; exit 2
 fi
 commit="$(git rev-parse HEAD)"
 native_commit="$(git -C vendor/llama.cpp rev-parse HEAD)"
@@ -94,13 +94,15 @@ package_root="$stage/deb-root"
 install -D -m 0755 "$binary" "$package_root/usr/bin/kiln"
 install -D -m 0644 LICENSE "$package_root/usr/share/doc/kiln/copyright"
 install -D -m 0644 THIRD_PARTY_NOTICES.md "$package_root/usr/share/doc/kiln/THIRD_PARTY_NOTICES.md"
+install -D -m 0644 crates/kiln-api/static/kiln.svg "$package_root/usr/share/icons/hicolor/scalable/apps/kiln.svg"
 install -D -m 0644 /dev/stdin "$package_root/usr/share/applications/kiln.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=KILN
-Comment=Start KILN and open the local model dashboard
+Comment=Run local language models in the KILN desktop app
 Exec=/usr/bin/kiln dashboard
 TryExec=/usr/bin/kiln
+Icon=kiln
 Terminal=false
 StartupNotify=true
 Categories=Development;Utility;
@@ -118,9 +120,9 @@ Section: utils
 Priority: optional
 Architecture: $deb_arch
 Maintainer: KILN maintainers
-Depends: libc6, libgcc-s1, libstdc++6
+Depends: libc6, libgcc-s1, libstdc++6, python3, python3-gi, gir1.2-webkit2-4.1
 Description: Local-first language model runtime with a one-click dashboard
- KILN selects an execution mode for installed models and serves a local dashboard.
+ KILN selects an execution mode for installed models and opens its dashboard in a desktop window.
  This build's Tier 0 throughput and quality acceptance remains pending.
 EOF
 dpkg-deb --root-owner-group --build "$package_root" "$deb"
