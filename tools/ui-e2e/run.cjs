@@ -223,7 +223,8 @@ async function main() {
     assert.equal(await complete.getByRole("button",{name:/Download flash-00002/}).count(),0);
 
     await page.getByRole("button", { name: "Use model" }).click();
-    await page.getByText("mock model load failed; previous model restored", { exact: true }).waitFor();
+    await page.locator("#auto-setup-status")
+      .getByText("mock model load failed; previous model restored", { exact: false }).waitFor();
     await page.getByText("test-model.gguf", { exact: true }).waitFor();
 
     const simpleTab = page.getByRole("tab", { name: "Simple" });
