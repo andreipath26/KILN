@@ -3,110 +3,136 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="dark light" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#101110" />
     <title>KILN</title>
+    <link rel="icon" href="/kiln.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/ui.css" />
   </head>
   <body>
     <div class="app-shell">
-      <header class="topbar">
-        <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">K</span><span>KILN</span></a>
-        <div class="server-state"><span id="server-dot" class="status-dot"></span><span id="server-label">Connecting to local runtime</span></div>
-      </header>
+      <aside class="sidebar" aria-label="KILN workspace">
+        <a class="brand" href="/" aria-label="KILN home">
+          <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M7 25V11l5-6h8l5 6v14h-6v-7h-6v7z"/><path class="brand-flame" d="M15 24c-2.1-2.8 1.1-4.1 1.6-6.1 2.8 2.6 3.7 4.6 1.2 6.1z"/></svg></span>
+          <span>KILN</span>
+        </a>
 
-      <nav class="mode-tabs" aria-label="KILN modes" role="tablist">
-        <button class="mode-tab is-active" id="tab-simple" role="tab" aria-selected="true" aria-controls="panel-simple">Simple</button>
-        <button class="mode-tab" id="tab-advanced" role="tab" aria-selected="false" aria-controls="panel-advanced">Advanced</button>
-      </nav>
+        <button id="clear-chat" class="new-chat-button" type="button" disabled><span aria-hidden="true">＋</span> New chat</button>
 
-      <main>
-        <section id="panel-simple" class="mode-panel" role="tabpanel" aria-labelledby="tab-simple">
-          <div class="page-heading">
-            <div>
-              <p class="eyebrow">LOCAL INFERENCE</p>
-              <h1>Talk to your model</h1>
-              <p class="muted">KILN checks this machine and chooses a run path for your local model.</p>
+        <nav class="mode-tabs" aria-label="KILN navigation" role="tablist" aria-orientation="vertical">
+          <button class="mode-tab is-active" id="tab-simple" role="tab" aria-selected="true" aria-controls="panel-simple"><span class="nav-icon" aria-hidden="true">◌</span>Chat</button>
+          <button class="mode-tab" id="tab-models" role="tab" aria-selected="false" aria-controls="panel-models"><span class="nav-icon" aria-hidden="true">▱</span>Models</button>
+          <button class="mode-tab" id="tab-activity" role="tab" aria-selected="false" aria-controls="panel-activity"><span class="nav-icon" aria-hidden="true">▤</span>Activity</button>
+          <button class="mode-tab" id="tab-advanced" role="tab" aria-selected="false" aria-controls="panel-advanced"><span class="nav-icon" aria-hidden="true">⚙</span>Settings</button>
+        </nav>
+
+        <section class="recent-section" aria-labelledby="recent-heading">
+          <h2 id="recent-heading">Recent</h2>
+          <div id="recent-chats" class="recent-chats"><p class="recent-empty">Your conversations appear here.</p></div>
+        </section>
+
+        <div class="sidebar-spacer"></div>
+        <div class="sidebar-runtime"><span id="server-dot" class="status-dot"></span><span id="server-label">Connecting to local runtime</span></div>
+        <div class="local-badge"><span aria-hidden="true">◉</span> Local only</div>
+      </aside>
+
+      <div class="app-main">
+        <header class="topbar">
+          <button id="active-model-chip" class="model-chip" type="button" aria-label="Choose a model">
+            <span class="model-chip-icon" aria-hidden="true">◇</span>
+            <span id="active-model-name">Choose a model</span>
+            <span class="chevron" aria-hidden="true">⌄</span>
+          </button>
+          <div class="server-state"><span class="status-dot"></span><span id="topbar-server-label">Local runtime</span></div>
+          <div class="topbar-spacer"></div>
+          <span class="privacy-label"><span aria-hidden="true">●</span> Runs on this machine</span>
+        </header>
+
+        <main>
+          <section id="panel-simple" class="mode-panel" role="tabpanel" aria-labelledby="tab-simple">
+            <div class="chat-layout">
+              <div class="chat-primary">
+                <div id="no-model-notice" class="notice" hidden>
+                  <span class="notice-icon" aria-hidden="true">i</span>
+                  <div><strong>No model is active yet.</strong><p>KILN checked this machine. Choose an installed model or search for one to download.</p></div>
+                  <button id="notice-choose-model" class="button button-quiet" type="button">Choose model</button>
+                </div>
+
+                <section class="chat-card" aria-label="Chat">
+                  <div id="messages" class="messages" aria-live="off">
+                    <div class="empty-state" id="empty-chat">
+                      <div class="empty-glyph" aria-hidden="true">K</div>
+                      <p class="eyebrow">YOUR LOCAL AI WORKSPACE</p>
+                      <h1>What can we work on?</h1>
+                      <p class="welcome-copy">Chat with a model running on this machine. KILN chooses a supported run path for you.</p>
+                      <div class="prompt-suggestions" aria-label="Suggested prompts">
+                        <button class="suggestion" type="button" data-prompt="Summarize this for me: "><span aria-hidden="true">▤</span>Summarize a file</button>
+                        <button class="suggestion" type="button" data-prompt="Explain this code: "><span aria-hidden="true">&lt;/&gt;</span>Explain code</button>
+                        <button class="suggestion" type="button" data-prompt="Help me brainstorm ideas for "><span aria-hidden="true">✳</span>Brainstorm</button>
+                      </div>
+                    </div>
+                  </div>
+                  <p id="chat-announcer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
+                  <form id="chat-form" class="composer">
+                    <label class="visually-hidden" for="prompt">Message your model</label>
+                    <textarea id="prompt" rows="1" placeholder="Message KILN…" disabled></textarea>
+                    <div class="composer-footer"><span id="chat-error" class="inline-error" role="status"></span><span class="composer-hint">Enter to send · Shift + Enter for a new line</span><button id="send-button" class="button button-primary" type="submit" disabled aria-label="Send message"><span aria-hidden="true">↑</span></button></div>
+                  </form>
+                  <div class="chat-meta"><span id="chat-subtitle" class="muted small">Waiting for a loaded model</span><span>Conversation stays on this device</span></div>
+                </section>
+              </div>
+
+              <aside class="machine-panel" aria-labelledby="machine-heading">
+                <div class="machine-heading"><div><p class="eyebrow">SYSTEM CHECK</p><h2 id="machine-heading">This machine</h2></div><span id="machine-ready-badge" class="badge">Checking</span></div>
+                <p id="machine-readiness" class="machine-ready"><span class="ready-check" aria-hidden="true">✓</span><span>Assessing available resources…</span></p>
+                <div class="memory-summary"><div class="memory-label"><span>Available memory</span><strong id="machine-memory-label">—</strong></div><div class="memory-track" aria-hidden="true"><span id="machine-memory-bar"></span></div><p id="machine-memory-detail" class="muted small">Checking live system profile</p></div>
+                <dl class="machine-details">
+                  <div><dt><span class="detail-icon" aria-hidden="true">▦</span>CPU</dt><dd id="machine-cpu">—</dd></div>
+                  <div><dt><span class="detail-icon" aria-hidden="true">◇</span>Model fit</dt><dd id="machine-fit">Checking…</dd></div>
+                  <div><dt><span class="detail-icon" aria-hidden="true">▷</span>Run mode</dt><dd id="machine-mode">Automatic</dd></div>
+                </dl>
+                <button id="open-settings" class="diagnostics-link" type="button">View system details <span aria-hidden="true">↗</span></button>
+              </aside>
             </div>
-            <div class="model-chip" id="active-model-chip"><span class="chip-dot"></span><span id="active-model-name">No model loaded</span></div>
-          </div>
+            <p class="footnote">Model fit and available memory are estimates. KILN rechecks compatibility when starting a model.</p>
+          </section>
 
-          <section class="model-library-card" aria-labelledby="models-heading">
-            <div class="section-title">
-              <div><p class="eyebrow">MODEL LIBRARY</p><h2 id="models-heading">Your models</h2></div>
-              <button id="refresh-models" class="button button-quiet" type="button">Refresh local models</button>
-            </div>
-            <p class="muted small">When no model is active, KILN automatically starts the largest local model estimated to fit available memory. If none fit, it can try a verified experimental MoE streaming path. You can still choose another model. Searching contacts Hugging Face; downloads are verified before installation.</p>
+          <section id="panel-models" class="mode-panel" role="tabpanel" aria-labelledby="tab-models" hidden>
+            <div class="page-heading"><div><p class="eyebrow">MODEL LIBRARY</p><h1>Your models</h1><p class="muted">Manage local models or choose a public GGUF to download.</p></div><button id="refresh-models" class="button button-secondary" type="button">Refresh library</button></div>
             <p id="auto-setup-status" class="inline-status" role="status" aria-live="polite">KILN is checking this machine and its local models…</p>
             <div id="local-models" class="model-list" aria-live="polite"><p class="muted">Scanning local model locations…</p></div>
-            <form id="model-search-form" class="model-search">
-              <label class="visually-hidden" for="model-search-query">Search Hugging Face for GGUF models</label>
-              <input id="model-search-query" type="search" placeholder="Search public GGUF models…" autocomplete="off" />
-              <button id="model-search-button" class="button button-secondary" type="submit">Search</button>
-            </form>
-            <p id="model-library-status" class="inline-status" role="status" aria-live="polite">Remote search runs only when you submit a query.</p>
-            <button id="cancel-download" class="button button-quiet" type="button" hidden>Cancel download</button>
-            <div id="remote-models" class="model-list"></div>
+            <section class="model-search-card" aria-labelledby="search-models-heading">
+              <div class="section-title"><div><p class="eyebrow">OPTIONAL NETWORK SEARCH</p><h2 id="search-models-heading">Find a model</h2></div><span class="local-badge">You choose what to download</span></div>
+              <p class="muted small">Search connects to Hugging Face only when you submit a query. Downloads are verified before installation.</p>
+              <form id="model-search-form" class="model-search">
+                <label class="visually-hidden" for="model-search-query">Search Hugging Face for GGUF models</label>
+                <input id="model-search-query" type="search" placeholder="Search public GGUF models…" autocomplete="off" />
+                <button id="model-search-button" class="button button-primary" type="submit">Search</button>
+              </form>
+              <p id="model-library-status" class="inline-status" role="status" aria-live="polite">Remote search runs only when you submit a query.</p>
+              <button id="cancel-download" class="button button-quiet" type="button" hidden>Cancel download</button>
+              <div id="remote-models" class="model-list"></div>
+            </section>
           </section>
 
-          <div id="no-model-notice" class="notice" hidden>
-            <div class="notice-icon" aria-hidden="true">i</div>
-            <div><strong>No model is loaded in the API server.</strong><p>KILN has checked local models and memory headroom. If it found a suitable model, it is starting it automatically. Otherwise search for a GGUF model; after download, KILN will assess it and configure a supported run path. Inference pauses briefly while a model is replaced.</p></div>
-          </div>
+          <section id="panel-activity" class="mode-panel" role="tabpanel" aria-labelledby="tab-activity" hidden>
+            <div class="page-heading"><div><p class="eyebrow">LOCAL EVENT LOG</p><h1>Activity</h1><p class="muted">Recent KILN actions on this device. Prompts and generated text are never recorded here.</p></div><button id="clear-activity" class="button button-quiet" type="button">Clear activity</button></div>
+            <section class="activity-card" aria-label="Recent activity"><div id="activity-list" class="activity-list"><p class="muted">KILN activity will appear here as you use the app.</p></div></section>
+          </section>
 
-          <section class="chat-card" aria-label="Chat">
-            <div class="chat-toolbar">
-              <div><h2>Chat</h2><span id="chat-subtitle" class="muted small">Waiting for a loaded model</span></div>
-              <button id="clear-chat" class="button button-quiet" type="button" disabled>New chat</button>
+          <section id="panel-advanced" class="mode-panel" role="tabpanel" aria-labelledby="tab-advanced" hidden>
+            <div class="page-heading"><div><p class="eyebrow">RUNTIME CONTROL</p><h1>System details</h1><p class="muted">Inspect the hardware profile and runtime capabilities this KILN build reports.</p></div><button id="refresh-advanced" class="button button-secondary" type="button">Refresh status</button></div>
+            <div class="advanced-grid">
+              <section class="info-card"><div class="section-title"><div><p class="eyebrow">SYSTEM PROFILE</p><h2>This machine</h2></div><span id="profile-state" class="badge">Checking</span></div><dl id="system-profile" class="detail-list"><div><dt>Profile</dt><dd>Loading…</dd></div></dl><p id="profile-note" class="muted small"></p></section>
+              <section class="info-card"><div class="section-title"><div><p class="eyebrow">ACTIVE SESSION</p><h2>Loaded model</h2></div><span id="session-state" class="badge">Checking</span></div><dl id="session-details" class="detail-list"><div><dt>Model</dt><dd>Loading…</dd></div></dl></section>
+              <section class="info-card"><div class="section-title"><div><p class="eyebrow">INFERENCE</p><h2>Current behavior</h2></div><span class="badge">API defaults</span></div><dl id="inference-details" class="detail-list"><div><dt>Sampling</dt><dd>Greedy</dd></div><div><dt id="max-tokens-label">Chat output limit</dt><dd><input id="max-tokens" class="number-control" type="number" min="1" max="4096" step="1" value="128" aria-labelledby="max-tokens-label" aria-describedby="sampling-limit-note" /></dd></div><div><dt>Prompt format</dt><dd>Role-prefixed text</dd></div></dl><p id="sampling-limit-note" class="muted small">The token limit is configurable from 1 to 4096 and shared with chat. Sampling remains greedy; model-specific chat templates are not exposed yet.</p></section>
             </div>
-            <div id="messages" class="messages" aria-live="off">
-              <div class="empty-state" id="empty-chat"><div class="empty-glyph" aria-hidden="true">✳</div><strong>Your local chat starts here</strong><p>Choose a model in your KILN setup, then send a message.</p></div>
-            </div>
-            <p id="chat-announcer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
-            <form id="chat-form" class="composer">
-              <label class="visually-hidden" for="prompt">Message your model</label>
-              <textarea id="prompt" rows="1" placeholder="Message your model…" disabled></textarea>
-              <div class="composer-footer"><span id="chat-error" class="inline-error" role="status"></span><button id="send-button" class="button button-primary" type="submit" disabled>Send <span aria-hidden="true">↗</span></button></div>
-            </form>
+            <section class="info-card capabilities-card"><div class="section-title"><div><p class="eyebrow">CAPABILITY REGISTRY</p><h2>Available in this build</h2></div><span id="capability-version" class="badge">Schema —</span></div><p class="muted">KILN shows a feature as available only when the local API reports it as supported.</p><div class="table-wrap"><table><thead><tr><th>Capability</th><th>Status</th><th>Details</th></tr></thead><tbody id="capability-rows"><tr><td colspan="3" class="muted">Loading capabilities…</td></tr></tbody></table></div></section>
+            <p class="footnote">Per-layer placement, device selection, memory tiers, KV policy, MoE streaming controls and diffusion panels appear when the runtime reports and accepts them.</p>
           </section>
-          <p class="footnote">KILN is in active development. The model shown here is the one currently loaded by the local API.</p>
-        </section>
-
-        <section id="panel-advanced" class="mode-panel" role="tabpanel" aria-labelledby="tab-advanced" hidden>
-          <div class="page-heading">
-            <div><p class="eyebrow">RUNTIME CONTROL</p><h1>Advanced</h1><p class="muted">Inspect what this KILN build can currently see and control.</p></div>
-            <button id="refresh-advanced" class="button button-secondary" type="button">Refresh status</button>
-          </div>
-
-          <div class="advanced-grid">
-            <section class="info-card">
-              <div class="section-title"><div><p class="eyebrow">SYSTEM PROFILE</p><h2>This machine</h2></div><span id="profile-state" class="badge">Checking</span></div>
-              <dl id="system-profile" class="detail-list"><div><dt>Profile</dt><dd>Loading…</dd></div></dl>
-              <p id="profile-note" class="muted small"></p>
-            </section>
-            <section class="info-card">
-              <div class="section-title"><div><p class="eyebrow">ACTIVE SESSION</p><h2>Loaded model</h2></div><span id="session-state" class="badge">Checking</span></div>
-              <dl id="session-details" class="detail-list"><div><dt>Model</dt><dd>Loading…</dd></div></dl>
-            </section>
-            <section class="info-card">
-              <div class="section-title"><div><p class="eyebrow">INFERENCE</p><h2>Current behavior</h2></div><span class="badge">API defaults</span></div>
-              <dl id="inference-details" class="detail-list">
-                <div><dt>Sampling</dt><dd>Greedy</dd></div>
-                <div><dt id="max-tokens-label">Chat output limit</dt><dd><input id="max-tokens" class="number-control" type="number" min="1" max="4096" step="1" value="128" aria-labelledby="max-tokens-label" aria-describedby="sampling-limit-note" /></dd></div>
-                <div><dt>Prompt format</dt><dd>Role-prefixed text</dd></div>
-              </dl>
-              <p id="sampling-limit-note" class="muted small">The token limit is configurable from 1 to 4096 and shared with Simple chat. Sampling remains greedy; model-specific chat templates are not exposed yet.</p>
-            </section>
-          </div>
-
-          <section class="info-card capabilities-card">
-            <div class="section-title"><div><p class="eyebrow">CAPABILITY REGISTRY</p><h2>Available in this build</h2></div><span id="capability-version" class="badge">Schema —</span></div>
-            <p class="muted">KILN will expose controls from runtime and backend capabilities. A registered or researched feature is not shown as active unless the API reports it as available.</p>
-            <div class="table-wrap"><table><thead><tr><th>Capability</th><th>Status</th><th>Details</th></tr></thead><tbody id="capability-rows"><tr><td colspan="3" class="muted">Loading capabilities…</td></tr></tbody></table></div>
-          </section>
-          <p class="footnote">Settings for per-layer placement, device selection, memory tiers, KV policy, MoE streaming, and diffusion are not exposed until the runtime reports and accepts them.</p>
-        </section>
-      </main>
-      <footer class="app-footer"><span>KILN <span id="app-version">development build</span></span><span>Local by default</span></footer>
+        </main>
+        <footer class="app-footer"><span>KILN <span id="app-version">development build</span></span><span>Local by default</span></footer>
+      </div>
     </div>
     <script type="module" src="/ui.js"></script>
   </body>

@@ -1,0 +1,26 @@
+{
+  "phase35": {
+    "model": "/absolute/path/to/pinned-qwen2.5-1.5b-q4_k.gguf",
+    "tokens": 256,
+    "runs": 5,
+    "warmup": 1,
+    "ollama_model": null
+  },
+  "phase5": {
+    "model": "/absolute/path/to/pinned-qwen3-30b-a3b.gguf",
+    "tokens": 128,
+    "runs": 5,
+    "threads": 4,
+    "min_tps": 3.0,
+    "max_rss_gib": 15.0,
+    "reference_model": null,
+    "corpus": null
+  },
+  "phase6": {
+    "model": "/absolute/path/to/pinned-llada-8b-instruct.gguf",
+    "repeats": 3,
+    "max_tokens": 32,
+    "block_length": 32,
+    "threads": 4
+  }
+}

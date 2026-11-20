@@ -55,6 +55,11 @@ if hasher.hexdigest() != sum_field[0]:
 target = destination / "kiln"
 if target.exists() or target.is_symlink():
     raise SystemExit("kiln already exists; refusing to replace the installed binary")
+data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
+applications = data_home / "applications"
+desktop_entry = applications / "kiln.desktop"
+if desktop_entry.exists() or desktop_entry.is_symlink():
+    raise SystemExit(f"KILN desktop launcher already exists; refusing to replace it: {desktop_entry}")
 with tarfile.open(archive, "r:gz") as package:
     members = package.getmembers()
     if len(members) != 3 or {m.name for m in members} != {"kiln", "LICENSE", "THIRD_PARTY_NOTICES.md"}:
@@ -89,11 +94,43 @@ with tarfile.open(archive, "r:gz") as package:
             if result.returncode != 0:
                 raise SystemExit("KILN binary failed pre-install runtime smoke: " +
                                  result.stderr.decode("utf-8", errors="replace")[:1000])
-        # No accidental overwrite: hardlink creation is atomic and fails if
-        # another install has already created the target pathname.
-        os.link(tmp, target)
+        # Stage a standard desktop launcher beside the installed binary. The
+        # absolute executable path makes it work even when ~/.local/bin is
+        # absent from the desktop session's PATH.
+        applications.mkdir(parents=True, exist_ok=True)
+        escaped_exec = str(target).replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
+        desktop_text = (
+            "[Desktop Entry]\n"
+            "Type=Application\n"
+            "Name=KILN\n"
+            "Comment=Start KILN and open the local model dashboard\n"
+            f'Exec="{escaped_exec}" dashboard\n'
+            f'TryExec="{escaped_exec}"\n'
+            "Terminal=false\n"
+            "StartupNotify=true\n"
+            "Categories=Development;Utility;\n"
+        )
+        launcher_fd, launcher_name = tempfile.mkstemp(prefix=".kiln-launcher-", dir=applications)
+        launcher_tmp = Path(launcher_name)
+        try:
+            with os.fdopen(launcher_fd, "w", encoding="utf-8") as launcher:
+                launcher.write(desktop_text)
+                launcher.flush()
+                os.fsync(launcher.fileno())
+            os.chmod(launcher_tmp, 0o644)
+            # No accidental overwrite: both links are atomic and fail if a
+            # concurrent install created either destination path.
+            os.link(tmp, target)
+            try:
+                os.link(launcher_tmp, desktop_entry)
+            except BaseException:
+                target.unlink(missing_ok=True)
+                raise
+        finally:
+            launcher_tmp.unlink(missing_ok=True)
     finally:
         tmp.unlink(missing_ok=True)
 print(f"Verified single KILN binary installed at {target}")
+print(f"Desktop launcher installed at {desktop_entry}")
 print("Experimental MoE streaming is opt-in; Tier 0 acceptance remains unverified.")
 PY

@@ -57,17 +57,27 @@ The command builds the release tools, captures host/model/revision provenance, r
 
 The summary deliberately leaves overall acceptance inconclusive unless every required target-hardware and quality gate is evidenced. It does not infer isolated physical SSD throughput from Linux process I/O counters, and a cache replay is a simulation rather than a runtime cache measurement.
 
-`run auto` selects a model only when discovery returns a single usable, unambiguous candidate; otherwise choose an explicit path or tag. Discovery does not guarantee that the backend supports a model's architecture. `pull` requires an explicit GGUF file in the selected repository; KILN does **not** automatically download model weights during installation. Downloads use `KILN_MODELS_DIR` or the user's data directory and validate the retrieved file.
+### One-command Tier 0 qualification capture
 
-Start the local server and UI:
+To collect the dense-path, streamed-MoE and LLaDA/CLAD evidence in one run, copy [the example qualification config](docs/tier0-qualification.example.json), set its three pinned local GGUF paths (and optional FP16 reference/corpus), then run:
 
 ```sh
-cargo run -p kiln-cli -- serve
-# Optional startup model:
-KILN_MODEL_PATH=/path/to/model.gguf cargo run -p kiln-cli -- serve
+cargo run -p kiln-cli -- qualify --config ./tier0-qualification.json --out ./measurements/tier0-run
 ```
 
-Open **http://127.0.0.1:11435/**. On opening, the dashboard assesses the machine and automatically starts a suitable installed model when one is available; it also supports local model inventory, public GGUF search/download, model switching and chat. Remote search/download remains explicit. The API is loopback-only; authenticated remote access and automatic heterogeneous hardware placement are not shipped.
+Relative model paths resolve from the config file. The command builds KILN, runs the existing Phase 3.5, Phase 5 and paired Phase 6 suites, and retains per-command stdout/stderr, reports, model hashes, host metadata and failures under the new output directory. Reusing an output directory is rejected. A nonzero exit means a capture was blocked or failed; review `qualification.json` and `commands.json` to locate it. `overall_status` deliberately stays `inconclusive` and `deployment_ready` stays `false`: a run cannot verify that it was performed on the Dell Latitude 7490, replace manual review of quality misses, or establish sustained thermals and isolated physical storage bounds.
+
+`run auto` selects a model only when discovery returns a single usable, unambiguous candidate; otherwise choose an explicit path or tag. Discovery does not guarantee that the backend supports a model's architecture. `pull` requires an explicit GGUF file in the selected repository; KILN does **not** automatically download model weights during installation. Downloads use `KILN_MODELS_DIR` or the user's data directory and validate the retrieved file.
+
+Start the local dashboard with one command:
+
+```sh
+cargo run -p kiln-cli -- dashboard
+```
+
+On Kali/Debian, `kiln dashboard` starts the loopback API and opens KILN in its own desktop window. It uses the system GTK/WebKit runtime; the `.deb` installs those dependencies automatically. If the API is already running, KILN opens another app window against that local instance. `kiln serve` remains available for terminal and service-manager use, and `kiln dashboard --no-open` runs the API without opening a window. On opening, KILN assesses the machine and automatically starts a suitable installed model when one is available; the app also supports local model inventory, explicit public GGUF search/download, model switching, chat, activity history and runtime details. The UI and API stay local; authenticated remote access and automatic heterogeneous hardware placement are not shipped.
+
+The GTK window uses `python3-gi` and `gir1.2-webkit2-4.1`, which the Kali/Debian package installs through APT dependencies. The GTK window is Linux-only in this release; macOS and Windows dashboard launches still open the local URL with the platform's default browser.
 
 ## Reusing an active model
 
@@ -75,7 +85,7 @@ Selecting a GGUF that is **already active** through the local UI does not tear d
 
 ## Oversized models in the local web UI
 
-When you select **Use model**, KILN estimates a conservative resident-memory budget using Linux `MemAvailable` and, where present, remaining cgroup memory headroom. It reserves room for the OS, inference context and other allocations; comparing a GGUF with **total installed RAM alone** is insufficient. On Linux, an oversized **compatible single-file fused MoE GGUF** is launched through the experimental native on-demand expert streaming engine, with the model kept in a separate worker process for chat and generation. The Advanced tab identifies the active inference mode. An explicit **Try streaming** option is available for smaller compatible MoE files as well. Streaming remains experimental and is not proof of usable speed, bounded physical RAM, or support for every GGUF architecture.
+When you select **Use model**, KILN estimates a conservative resident-memory budget using Linux `MemAvailable` and, where present, remaining cgroup memory headroom. It reserves room for the OS, inference context and other allocations; comparing a GGUF with **total installed RAM alone** is insufficient. On Linux, an oversized **compatible single-file fused MoE GGUF** is launched through the experimental native on-demand expert streaming engine, with the model kept in a separate worker process for chat and generation. System details identifies the active inference mode. An explicit **Try streaming** option is available for smaller compatible MoE files as well. Streaming remains experimental and is not proof of usable speed, bounded physical RAM, or support for every GGUF architecture.
 
 **Split-model activation fails closed:** the API checks that every numbered source shard is a readable regular file and uses checked arithmetic for the combined size before deciding whether to load weights in RAM or stream them. Missing/unreadable shards and size overflow produce an explicit error rather than an underestimated resident-memory budget. Existing weights are not modified.
 
@@ -213,13 +223,23 @@ kiln update --check   # Query the latest published stable GitHub release (no cha
 kiln update           # Download, verify and install a newer published stable release
 ```
 
-The updater queries official [KILN GitHub Releases](https://github.com/andreipath26/KILN/releases). The release must include a matching `kiln-linux-ARCH-COMMIT.bin` executable and `kiln-linux-ARCH-COMMIT.json` manifest generated by the Linux release build. KILN checks architecture, pinned source commit, asset size and the manifest's SHA-256 digest, then launches the staged executable with `--help` before replacing the installed binary. The prior executable is preserved as a uniquely named `~/.local/bin/kiln.previous.*` backup for manual recovery; subsequent updates keep their own backups. An unsuccessful verification leaves the installed binary unchanged.
+The updater queries official [KILN GitHub Releases](https://github.com/andreipath26/KILN/releases). Stable self-updates remain limited to tagged releases. The release must include a matching `kiln-linux-ARCH-COMMIT.bin` executable and `kiln-linux-ARCH-COMMIT.json` manifest generated by the Linux release build. KILN checks architecture, pinned source commit, asset size and the manifest's SHA-256 digest, then launches the staged executable with `--help` before replacing the installed binary. The prior executable is preserved as a uniquely named `~/.local/bin/kiln.previous.*` backup for manual recovery; subsequent updates keep their own backups. An unsuccessful verification leaves the installed binary unchanged.
 
-Self-update is intentionally restricted to `~/.local/bin/kiln`; use your package manager or installer for system-wide, development or symlink installations. It never runs a remote shell script, overwrites model files or fetches unreviewed GitHub main-branch builds. The update channel is *published stable releases*, not every repository commit. As of this implementation, the repository does not yet have a published GitHub release, so `kiln update` reports that none is available and makes no changes. Published GitHub metadata and same-release SHA-256 verification do not independently prove publisher authenticity; signed release provenance is future release-hardening work.
+Self-update is intentionally restricted to `~/.local/bin/kiln`; use your package manager or installer for system-wide, development or symlink installations. It never runs a remote shell script, overwrites model files or fetches unreviewed GitHub main-branch builds. The update channel is *published stable releases*, not every repository commit. Main builds are published separately as persistent prereleases and are not selected by `kiln update`. Published GitHub metadata and same-release SHA-256 verification do not independently prove publisher authenticity; signed release provenance is future release-hardening work.
 
 ## Portable Linux release candidate
 
-The repository includes scripts to **build** a portable Linux single-executable release candidate and **install** a previously built archive without overwriting an existing `kiln`. This is a developer/release-candidate workflow, not a published one-command installer.
+The release workflow publishes a persistent Linux preview on each successful `main` build and a stable release for version tags. Each Linux release includes a standalone executable, a tar archive, and a Debian package.
+
+On Kali or another Debian-based distribution, download the `.deb` from [KILN GitHub Releases](https://github.com/andreipath26/KILN/releases) and install it without compiling KILN:
+
+```sh
+sudo apt install ./kiln-linux-ARCH-COMMIT.deb
+```
+
+Replace the filename with the downloaded asset. Then launch **KILN** from the desktop app menu or run `kiln dashboard`. It opens as an application window instead of using your general-purpose browser. Main-branch packages are marked as previews while Tier 0 hardware acceptance remains open.
+
+Developers can still build and install the portable tar archive from a clean, submodule-initialized checkout:
 
 ```sh
 # From a clean, submodule-initialized checkout with Rust, CMake and build tools:
@@ -228,12 +248,12 @@ bash scripts/build_linux_release.sh
 # Use the exact archive emitted in dist/ (with its adjacent .json and .sha256):
 bash scripts/install_linux_release.sh dist/kiln-linux-ARCH-COMMIT.tar.gz
 
-# Ensure ~/.local/bin is on PATH, then:
-kiln --help
-kiln list
+# Ensure ~/.local/bin is on PATH, then launch KILN from the desktop app menu,
+# or run:
+kiln dashboard
 ```
 
-Replace `ARCH-COMMIT` with the actual artifact name. The installer verifies checksums, architecture and executable startup and refuses to overwrite an existing installation. The binary contains **no model weights** and still depends on compatible target-system libraries; portability and inference quality need real-machine validation.
+Replace `ARCH-COMMIT` with the actual artifact name. The installer verifies checksums, architecture and executable startup, refuses to overwrite an existing binary or KILN desktop launcher, and installs a desktop-menu shortcut. The tar-based installer does not install the GTK/WebKit desktop runtime; Kali/Debian users who want the app window should use the `.deb`. The binary contains **no model weights** and still depends on compatible target-system libraries; portability and inference quality need real-machine validation.
 
 ## Performance and deployment status
 

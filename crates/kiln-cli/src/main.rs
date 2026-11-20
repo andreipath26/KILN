@@ -3,6 +3,10 @@
 //! Command-line interface for local KILN inference and model management.
 
 use clap::{Parser, Subcommand};
+use std::process::{Command, Stdio};
+use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 use kiln_core::{LinuxMonitor, PerformanceMonitor};
 use kiln_core::pipeline::{run_once as pipeline_run_once, Loader};
@@ -26,6 +30,117 @@ mod stream_stdio;
 mod self_update;
 mod quality_eval;
 mod measure;
+mod qualification;
+
+async fn dashboard_api_is_ready(port: u16) -> bool {
+    let response = async {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).await.ok()?;
+        stream.write_all(format!(
+            "GET /api/version HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+        ).as_bytes()).await.ok()?;
+        let mut bytes = Vec::with_capacity(256);
+        stream.read_to_end(&mut bytes).await.ok()?;
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    };
+    tokio::time::timeout(Duration::from_secs(2), response).await
+        .ok().flatten()
+        .is_some_and(|response| response.starts_with("HTTP/1.1 200")
+            && response.contains("\"version\""))
+}
+
+const DESKTOP_WINDOW: &str = include_str!("desktop_window.py");
+
+#[cfg(target_os = "linux")]
+fn open_dashboard_window(url: &str) -> std::io::Result<std::process::ExitStatus> {
+    // The GTK/WebKit shell is embedded as a small PyGObject program so the
+    // runtime stays a single Rust executable and the packaged UI opens in a
+    // normal desktop window rather than a user's general-purpose browser.
+    Command::new("/usr/bin/python3")
+        .arg("-c")
+        .arg(DESKTOP_WINDOW)
+        .arg(url)
+        .stdin(Stdio::null())
+        .status()
+}
+
+#[cfg(target_os = "macos")]
+fn open_dashboard_window(url: &str) -> std::io::Result<std::process::ExitStatus> {
+    Command::new("open").arg(url).status()
+}
+
+#[cfg(target_os = "windows")]
+fn open_dashboard_window(url: &str) -> std::io::Result<std::process::ExitStatus> {
+    Command::new("rundll32.exe")
+        .args(["url.dll,FileProtocolHandler", url])
+        .status()
+}
+
+async fn run_dashboard(port: u16, no_open: bool) -> Result<(), String> {
+    let url = format!("http://127.0.0.1:{port}/");
+    if dashboard_api_is_ready(port).await {
+        println!("KILN is already running. Opening its desktop window.");
+        if !no_open {
+            let status = open_dashboard_window(&url)
+                .map_err(|e| format!("could not start the KILN desktop window: {e}"))?;
+            if !status.success() {
+                return Err(format!(
+                    "KILN desktop window exited with {status}. Install the desktop runtime dependencies: python3-gi and gir1.2-webkit2-4.1."
+                ));
+            }
+        }
+        return Ok(());
+    }
+
+    println!("Starting KILN local runtime…");
+    let mut server = tokio::spawn(async move { serve("127.0.0.1", port).await });
+    let mut ready = false;
+    let startup_deadline = tokio::time::Instant::now() + Duration::from_secs(180);
+    while tokio::time::Instant::now() < startup_deadline {
+        if dashboard_api_is_ready(port).await {
+            ready = true;
+            break;
+        }
+        if server.is_finished() {
+            return match server.await {
+                Ok(Err(error)) => Err(format!("could not start KILN API: {error}")),
+                Ok(Ok(())) => Err("KILN API stopped before becoming ready".into()),
+                Err(error) => Err(format!("KILN API task failed: {error}")),
+            };
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    if !ready {
+        server.abort();
+        return Err(format!("KILN API did not become ready on {url}"));
+    }
+
+    println!("KILN is ready. Opening its desktop window.");
+    if !no_open {
+        let status = match open_dashboard_window(&url) {
+            Ok(status) => status,
+            Err(error) => {
+                server.abort();
+                return Err(format!("could not start the KILN desktop window: {error}"));
+            }
+        };
+        if !status.success() {
+            server.abort();
+            return Err(format!(
+                "KILN desktop window exited with {status}. Install the desktop runtime dependencies: python3-gi and gir1.2-webkit2-4.1."
+            ));
+        }
+        // Closing the desktop window stops the API instance started by this
+        // command. An API that was already running remains under its owner.
+        server.abort();
+        return Ok(());
+    }
+
+    match server.await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(format!("KILN API stopped: {error}")),
+        Err(error) => Err(format!("KILN API task failed: {error}")),
+    }
+}
 
 /// Linux process RSS snapshot in KiB. VmHWM is the process high-water mark
 /// since launch, so it includes the entire model load/benchmark lifetime.
@@ -176,6 +291,15 @@ enum Commands {
         /// Loopback IP to bind to. Only 127.0.0.1 or ::1 is accepted; remote access is unsupported.
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
+    },
+    /// Start KILN locally and open its system-aware dashboard window.
+    Dashboard {
+        /// Dashboard/API port. Default 11435.
+        #[arg(long, default_value_t = 11435)]
+        port: u16,
+        /// Run the local API without opening the desktop window.
+        #[arg(long)]
+        no_open: bool,
     },
     /// Run Phase 6 LLaDA diffusion with CLAD attention-guided parallel decoding.
     Diffuse {
@@ -440,6 +564,15 @@ enum Commands {
         #[arg(long, default_value_t = 15.0)]
         max_rss_gib: f64,
     },
+    /// Capture the Phase 3.5, 5 and 6 Tier 0 evidence bundle in one run.
+    Qualify {
+        /// JSON file with the pinned local model paths and measurement settings.
+        #[arg(long)]
+        config: std::path::PathBuf,
+        /// New directory for captured reports, command logs and failures.
+        #[arg(long)]
+        out: std::path::PathBuf,
+    },
     /// Print the hardware profile.
     Info,
     /// Load every weight tensor from a GGUF file and report sizes.
@@ -554,6 +687,12 @@ async fn main() {
         Commands::Serve { port, host } => {
             if let Err(e) = serve(&host, port).await {
                 eprintln!("server error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Dashboard { port, no_open } => {
+            if let Err(error) = run_dashboard(port, no_open).await {
+                eprintln!("dashboard error: {error}");
                 std::process::exit(1);
             }
         }
@@ -1454,6 +1593,12 @@ async fn main() {
             if let Err(error) = measure::run(model, out, tokens, runs, threads, reference,
                 corpus, cache_mib, min_tps, max_rss_gib) {
                 eprintln!("measure: {error}");
+                std::process::exit(2);
+            }
+        },
+        Commands::Qualify { config, out } => {
+            if let Err(error) = qualification::run(config, out) {
+                eprintln!("qualify: {error}");
                 std::process::exit(2);
             }
         },

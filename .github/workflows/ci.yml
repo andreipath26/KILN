@@ -61,6 +61,11 @@ jobs:
           python3 -m unittest scripts.test_kiln_measure -v
           python3 -m unittest scripts.test_capture_direct_gguf_expert_io -v
 
+      - name: Test cross-phase Tier 0 qualification capture
+        run: |
+          python3 -m py_compile scripts/run_tier0_qualification.py
+          python3 -m unittest scripts.test_run_tier0_qualification -v
+
 
   test:
     runs-on: ubuntu-latest
@@ -911,6 +916,15 @@ jobs:
           assert names == {"kiln","LICENSE","THIRD_PARTY_NOTICES.md"}
           print("Portable release artifact contains one executable, license and provenance")
           PY
+          PACKAGE="$(find "$RUNNER_TEMP/kiln-portable-release" -maxdepth 1 -name '*.deb' -print -quit)"
+          test -s "$PACKAGE"
+          test "$(dpkg-deb -f "$PACKAGE" Package)" = kiln
+          test "$(dpkg-deb -f "$PACKAGE" Architecture)" = amd64
+          dpkg-deb --extract "$PACKAGE" "$RUNNER_TEMP/kiln-deb-smoke"
+          test -x "$RUNNER_TEMP/kiln-deb-smoke/usr/bin/kiln"
+          test -s "$RUNNER_TEMP/kiln-deb-smoke/usr/share/applications/kiln.desktop"
+          "$RUNNER_TEMP/kiln-deb-smoke/usr/bin/kiln" --help >/dev/null
+          echo "Debian package metadata, desktop launcher and executable smoke checks passed"
           MODEL="$KILN_MODELS_DIR/mradermacher--tiny-random-granite-moe-GGUF/tiny-random-granite-moe.Q4_K_M.gguf"
           target/release/kiln bench "$MODEL" --native-greedy --tokens 8 \
             --warmup 0 --runs 1 --threads 2 --batch 128 --ubatch 64 \
@@ -928,12 +942,16 @@ jobs:
         run: |
           ARCHIVE="$(find "$RUNNER_TEMP/kiln-portable-release" -maxdepth 1 -name '*.tar.gz' -print -quit)"
           test -s "$ARCHIVE"
-          bash scripts/install_linux_release.sh "$ARCHIVE" "$RUNNER_TEMP/kiln-installed" \
+          XDG_DATA_HOME="$RUNNER_TEMP/kiln-user-data" \
+            bash scripts/install_linux_release.sh "$ARCHIVE" "$RUNNER_TEMP/kiln-installed" \
             > "$RUNNER_TEMP/kiln-install-proof.txt"
+          DESKTOP_ENTRY="$RUNNER_TEMP/kiln-user-data/applications/kiln.desktop"
+          test -s "$DESKTOP_ENTRY"
+          grep -F "Exec=\"$RUNNER_TEMP/kiln-installed/kiln\" dashboard" "$DESKTOP_ENTRY"
           "$RUNNER_TEMP/kiln-installed/kiln" --help > "$RUNNER_TEMP/kiln-installed-help.txt"
           "$RUNNER_TEMP/kiln-installed/kiln" stream --help > "$RUNNER_TEMP/kiln-installed-stream-help.txt"
           KILN_MODELS_DIR="$RUNNER_TEMP/kiln-models" \
-            "$RUNNER_TEMP/kiln-installed/kiln" serve --host 127.0.0.1 --port 11436 \
+            "$RUNNER_TEMP/kiln-installed/kiln" dashboard --no-open --port 11436 \
             > "$RUNNER_TEMP/kiln-installed-api.log" 2>&1 &
           INSTALLED_PID=$!
           READY=0
@@ -984,17 +1002,18 @@ jobs:
           fi
           test -s "$RUNNER_TEMP/kiln-installed/kiln"
           test -s "$RUNNER_TEMP/kiln-install-proof.txt"
-          echo "Archive checksum, executable digest, architecture, one-binary and no-overwrite install checks passed"
+          echo "Archive checksum, executable digest, architecture, desktop launcher, dashboard startup, one-binary and no-overwrite install checks passed"
 
       - name: Archive portable one-binary KILN Linux release candidate
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kiln-linux-one-binary-experimental
+          name: kiln-linux-portable-ci-smoke
           if-no-files-found: warn
           retention-days: 14
           path: |
             ${{ runner.temp }}/kiln-portable-release/*.tar.gz
+            ${{ runner.temp }}/kiln-portable-release/*.deb
             ${{ runner.temp }}/kiln-portable-release/*.json
             ${{ runner.temp }}/kiln-portable-release/*.sha256
             ${{ runner.temp }}/real-moe-release-inference.json
@@ -1243,6 +1262,7 @@ jobs:
             ${{ runner.temp }}/kiln-installed-quality-verdict.json
             ${{ runner.temp }}/kiln-portable-release/*.json
             ${{ runner.temp }}/kiln-portable-release/*.sha256
+            ${{ runner.temp }}/kiln-portable-release/*.deb
             ${{ runner.temp }}/real-moe-page-advice.json
             ${{ runner.temp }}/real-moe-lazy-ab.json
             ${{ runner.temp }}/moe-fused-candidates.json
