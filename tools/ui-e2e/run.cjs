@@ -166,8 +166,8 @@ async function checkAccessibility(page, label, { advanced = false } = {}) {
     `${label} has serious or critical accessibility violations`,
   );
   const accessibilityTree = await page.locator("body").ariaSnapshot();
-  assert.match(accessibilityTree, /tablist "KILN modes"/);
-  assert.match(accessibilityTree, advanced ? /tab "Advanced" \[selected\]/ : /tab "Simple"/);
+  assert.match(accessibilityTree, /tablist "KILN navigation"/);
+  assert.match(accessibilityTree, advanced ? /tab "Settings" \[selected\]/ : /tab "Chat"/);
   assert.match(accessibilityTree, advanced ? /spinbutton "Chat output limit"/ : /textbox "Message your model"/);
 }
 
@@ -185,11 +185,8 @@ async function main() {
     assert.match(headers["content-security-policy"], /script-src 'self'/);
     assert.equal(headers["x-content-type-options"], "nosniff");
 
-    await page.getByRole("heading", { name: "Talk to your model" }).waitFor();
-    await page.getByText("test-model.gguf", { exact: true }).waitFor();
-    // The UI must not advertise native streaming for every dense/unknown
-    // model, while retaining the explicit option for eligible MoE layouts.
-    assert.equal(await page.getByRole("button", {name:"Try streaming"}).count(),1);
+    await page.getByRole("heading", { name: "What can we work on?" }).waitFor();
+    await page.waitForFunction(() => document.querySelector("#active-model-name")?.textContent === "test-model");
     await checkAccessibility(page, "Simple view");
 
     await page.locator("#prompt").fill("Say hello");
@@ -197,6 +194,9 @@ async function main() {
     await page.getByText("Browser test response.", { exact: true }).waitFor();
     assert.equal(await page.locator(".message.user").count(), 1);
 
+    await page.getByRole("tab", { name: "Models" }).click();
+    // Only the verified eligible MoE fixture offers the experimental action.
+    assert.equal(await page.getByRole("button", {name:"Try streaming"}).count(),1);
     await page.locator("#model-search-query").fill("tiny model");
     await page.getByRole("button", { name: "Search", exact: true }).click();
     await page.getByText("kiln-test/tiny-model", { exact: true }).waitFor();
@@ -227,10 +227,12 @@ async function main() {
       .getByText("mock model load failed; previous model restored", { exact: false }).waitFor();
     await page.getByText("test-model.gguf", { exact: true }).waitFor();
 
-    const simpleTab = page.getByRole("tab", { name: "Simple" });
+    const simpleTab = page.getByRole("tab", { name: "Chat" });
     await simpleTab.focus();
-    await page.keyboard.press("ArrowRight");
-    const advancedTab = page.getByRole("tab", { name: "Advanced" });
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    const advancedTab = page.getByRole("tab", { name: "Settings" });
     await advancedTab.waitFor({ state: "visible" });
     assert.equal(await advancedTab.getAttribute("aria-selected"), "true");
     await page.getByRole("heading", { name: "Available in this build" }).waitFor();
@@ -239,7 +241,9 @@ async function main() {
     await page.locator("#max-tokens").dispatchEvent("change");
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("kiln.ui.settings.v1:/tmp/test-model.gguf")).max_tokens), 512);
     await advancedTab.focus();
-    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("ArrowUp");
     assert.equal(await simpleTab.getAttribute("aria-selected"), "true");
 
     await page.setViewportSize({ width: 390, height: 844 });

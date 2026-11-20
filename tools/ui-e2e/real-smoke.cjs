@@ -13,7 +13,7 @@ async function main() {
     page.on("pageerror", (error) => pageErrors.push(error.message));
     const response = await page.goto(baseUrl, { waitUntil: "networkidle" });
     assert.equal(response.status(), 200);
-    await page.getByRole("heading", { name: "Talk to your model" }).waitFor();
+    await page.getByRole("heading", { name: "What can we work on?" }).waitFor();
     // Test the real module-scoped UI renderer using a synthetic repository
     // response: no network download or exposed test-only global is needed.
     const fakeSearch = "**/api/ui/models/search?*";
@@ -29,6 +29,7 @@ async function main() {
         }] }),
       });
     });
+    await page.getByRole("tab", { name: "Models" }).click();
     await page.locator("#model-search-query").fill("fixture");
     await page.getByRole("button", { name: "Search", exact: true }).click();
     await page.locator("#remote-models").getByRole("button", {
@@ -51,7 +52,7 @@ async function main() {
     await page.getByText(/restored previous model 'alternate-smoke'/).waitFor();
     assert.equal(await page.locator("#active-model-name").textContent(), "alternate-smoke");
 
-    await page.getByRole("tab", { name: "Advanced" }).click();
+    await page.getByRole("tab", { name: "Settings" }).click();
     const profileText = await page.locator("#system-profile").textContent();
     assert.ok(profileText.includes("Available RAM"), "UI exposes current memory headroom");
     assert.ok(profileText.includes("Estimated model residency budget"), "UI exposes conservative model-loading limit");
@@ -61,7 +62,7 @@ async function main() {
       /Native expert cache/, "UI provides a cache diagnostics row");
     await page.locator("#max-tokens").fill("16");
     await page.locator("#max-tokens").dispatchEvent("change");
-    await page.getByRole("tab", { name: "Simple" }).click();
+    await page.getByRole("tab", { name: "Chat" }).click();
     await page.locator("#prompt").fill("Reply with one short greeting.");
     await page.getByRole("button", { name: "Send" }).click();
     await page.waitForFunction(() => {
@@ -76,6 +77,7 @@ async function main() {
     const modelsPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     modelsPage.on("pageerror", (error) => pageErrors.push(error.message));
     await modelsPage.goto(baseUrl, { waitUntil: "networkidle" });
+    await modelsPage.getByRole("tab", { name: "Models" }).click();
     await modelsPage.locator("#model-search-query").fill("QuantFactory/SmolLM2-135M-Instruct-GGUF");
     await modelsPage.getByRole("button", { name: "Search", exact: true }).click();
     await modelsPage.waitForFunction(() => /repositories found\./.test(document.querySelector("#model-library-status").textContent), { timeout: 30_000 });

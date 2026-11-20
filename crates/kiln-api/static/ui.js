@@ -14,10 +14,17 @@ const state = {
   maxTokens: 128,
   autoStartAttempted: false,
   recommendation: null,
+  activity: [],
+  runtimeWasConnected: null,
+  lastActiveModel: null,
+  conversations: [],
+  activeConversationId: null,
 };
 
 const tabs = [
   { button: $("#tab-simple"), panel: $("#panel-simple") },
+  { button: $("#tab-models"), panel: $("#panel-models") },
+  { button: $("#tab-activity"), panel: $("#panel-activity") },
   { button: $("#tab-advanced"), panel: $("#panel-advanced") },
 ];
 
@@ -35,15 +42,93 @@ function selectTab(index) {
 tabs.forEach((tab, index) => {
   tab.button.addEventListener("click", () => selectTab(index));
   tab.button.addEventListener("keydown", (event) => {
-    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+    if (["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"].includes(event.key)) {
       event.preventDefault();
-      selectTab((index + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length);
+      const forward = event.key === "ArrowRight" || event.key === "ArrowDown";
+      selectTab((index + (forward ? 1 : tabs.length - 1)) % tabs.length);
     }
   });
 });
 
+function readActivity() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("kiln.ui.activity.v1") || "[]");
+    state.activity = Array.isArray(saved) ? saved.filter((entry) =>
+      entry && typeof entry.title === "string" && typeof entry.at === "string") : [];
+  } catch {
+    state.activity = [];
+  }
+  renderActivity();
+}
+
+function recordActivity(title, detail = "") {
+  state.activity.unshift({ title, detail, at: new Date().toISOString() });
+  state.activity = state.activity.slice(0, 100);
+  try {
+    localStorage.setItem("kiln.ui.activity.v1", JSON.stringify(state.activity));
+  } catch {
+    state.activity = state.activity.slice(0, 20);
+  }
+  renderActivity();
+}
+
+function renderActivity() {
+  const list = $("#activity-list");
+  if (!list) return;
+  list.replaceChildren();
+  if (!state.activity.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "KILN activity will appear here as you use the app.";
+    list.append(empty);
+    return;
+  }
+  for (const entry of state.activity) {
+    const row = document.createElement("article");
+    row.className = "activity-entry";
+    const marker = document.createElement("span");
+    marker.className = "activity-marker";
+    marker.setAttribute("aria-hidden", "true");
+    const copy = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = entry.title;
+    copy.append(title);
+    if (entry.detail) {
+      const detail = document.createElement("p");
+      detail.textContent = entry.detail;
+      copy.append(detail);
+    }
+    const time = document.createElement("time");
+    const date = new Date(entry.at);
+    time.dateTime = entry.at;
+    time.textContent = Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
+    row.append(marker, copy, time);
+    list.append(row);
+  }
+}
+
+readActivity();
+
+$("#clear-activity").addEventListener("click", () => {
+  state.activity = [];
+  localStorage.removeItem("kiln.ui.activity.v1");
+  renderActivity();
+});
+
+$("#active-model-chip").addEventListener("click", () => selectTab(1));
+$("#notice-choose-model").addEventListener("click", () => selectTab(1));
+$("#open-settings").addEventListener("click", () => selectTab(3));
+
 function historyKey() {
   return `kiln.ui.chat.v1:${state.model?.path || state.model?.name || "unconfigured"}`;
+}
+
+function conversationsKey() {
+  return `kiln.ui.conversations.v1:${state.model?.path || state.model?.name || "unconfigured"}`;
+}
+
+function activeConversationKey() {
+  return `kiln.ui.active-conversation.v1:${state.model?.path || state.model?.name || "unconfigured"}`;
 }
 
 function settingsKey() {
@@ -68,7 +153,7 @@ function saveSettings() {
   try {
     localStorage.setItem(settingsKey(), JSON.stringify({ max_tokens: state.maxTokens }));
   } catch {
-    $("#model-library-status").textContent = "Could not save this model's settings in browser storage.";
+    $("#model-library-status").textContent = "Could not save this model's settings on this device.";
   }
 }
 
@@ -97,12 +182,143 @@ function readHistory() {
   }
 }
 
-function saveHistory() {
+function conversationTitle(messages) {
+  const firstPrompt = messages.find((message) => message.role === "user")?.content?.trim();
+  if (!firstPrompt) return "New chat";
+  return firstPrompt.length > 38 ? `${firstPrompt.slice(0, 35).trimEnd()}…` : firstPrompt;
+}
+
+function createConversation() {
+  return {
+    id: globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+    title: "New chat",
+    updated_at: new Date().toISOString(),
+    messages: [],
+  };
+}
+
+function saveConversations() {
   try {
-    localStorage.setItem(historyKey(), JSON.stringify(state.messages.slice(-100)));
+    state.conversations.sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+    state.conversations = state.conversations.slice(0, 50);
+    localStorage.setItem(conversationsKey(), JSON.stringify(state.conversations));
+    if (state.activeConversationId) localStorage.setItem(activeConversationKey(), state.activeConversationId);
   } catch {
-    showChatError("Could not save this conversation in local browser storage.");
+    showChatError("Could not save conversations on this device.");
   }
+  renderSidebarChats();
+}
+
+function loadConversations() {
+  let saved = [];
+  try {
+    const value = JSON.parse(localStorage.getItem(conversationsKey()) || "[]");
+    if (Array.isArray(value)) {
+      saved = value.filter((item) => item && typeof item.id === "string" && Array.isArray(item.messages))
+        .map((item) => ({
+          id: item.id,
+          title: typeof item.title === "string" ? item.title : "New chat",
+          updated_at: typeof item.updated_at === "string" ? item.updated_at : new Date().toISOString(),
+          messages: item.messages.filter((message) => message
+            && ["user", "assistant"].includes(message.role) && typeof message.content === "string"),
+        }));
+    }
+  } catch {
+    saved = [];
+  }
+  if (!saved.length) {
+    const legacy = readHistory();
+    saved = legacy.length ? [{
+      ...createConversation(),
+      title: conversationTitle(legacy),
+      messages: legacy,
+    }] : [];
+  }
+  state.conversations = saved;
+  let activeId = null;
+  try { activeId = localStorage.getItem(activeConversationKey()); } catch { /* Use the newest local conversation. */ }
+  let active = state.conversations.find((item) => item.id === activeId);
+  if (!active) {
+    active = state.conversations.find((item) => item.messages.length) || createConversation();
+    if (!state.conversations.some((item) => item.id === active.id)) state.conversations.unshift(active);
+  }
+  state.activeConversationId = active.id;
+  state.messages = active.messages.map((message) => ({ ...message }));
+  saveConversations();
+}
+
+function renderSidebarChats() {
+  const list = $("#recent-chats");
+  if (!list) return;
+  list.replaceChildren();
+  const recent = state.conversations.filter((item) => item.messages.length)
+    .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at)).slice(0, 8);
+  if (!recent.length) {
+    const empty = document.createElement("p");
+    empty.className = "recent-empty";
+    empty.textContent = state.model ? "Your conversations appear here." : "Choose a model to start chatting.";
+    list.append(empty);
+    return;
+  }
+  for (const conversation of recent) {
+    const row = document.createElement("div");
+    row.className = "recent-row";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "recent-chat";
+    button.classList.toggle("is-active", conversation.id === state.activeConversationId);
+    button.setAttribute("aria-current", conversation.id === state.activeConversationId ? "page" : "false");
+    const title = document.createElement("span");
+    title.className = "recent-chat-title";
+    title.textContent = conversation.title || "New chat";
+    const time = document.createElement("span");
+    time.className = "recent-chat-time";
+    const date = new Date(conversation.updated_at);
+    time.textContent = Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    button.append(title, time);
+    button.addEventListener("click", () => {
+      if (state.busy || conversation.id === state.activeConversationId) return;
+      state.activeConversationId = conversation.id;
+      state.messages = conversation.messages.map((message) => ({ ...message }));
+      showChatError();
+      saveConversations();
+      renderMessages();
+      selectTab(0);
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "delete-recent";
+    remove.setAttribute("aria-label", `Delete conversation: ${conversation.title || "New chat"}`);
+    remove.title = "Delete conversation from this device";
+    remove.textContent = "×";
+    remove.addEventListener("click", () => {
+      if (state.busy) return;
+      state.conversations = state.conversations.filter((item) => item.id !== conversation.id);
+      if (state.activeConversationId === conversation.id) {
+        const replacement = state.conversations.find((item) => item.messages.length) || createConversation();
+        if (!state.conversations.some((item) => item.id === replacement.id)) state.conversations.unshift(replacement);
+        state.activeConversationId = replacement.id;
+        state.messages = replacement.messages.map((message) => ({ ...message }));
+        renderMessages();
+      }
+      saveConversations();
+    });
+    row.append(button, remove);
+    list.append(row);
+  }
+}
+
+function saveHistory() {
+  let active = state.conversations.find((item) => item.id === state.activeConversationId);
+  if (!active) {
+    active = createConversation();
+    state.activeConversationId = active.id;
+    state.conversations.unshift(active);
+  }
+  active.messages = state.messages.slice(-100).map((message) => ({ ...message }));
+  active.title = conversationTitle(active.messages);
+  active.updated_at = new Date().toISOString();
+  saveConversations();
 }
 
 function renderMessages() {
@@ -112,7 +328,7 @@ function renderMessages() {
   if (!state.messages.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.innerHTML = '<div class="empty-glyph" aria-hidden="true">✳</div><strong>Your local chat starts here</strong><p>Send a message to begin. Your conversation is saved in this browser on this device.</p>';
+    empty.innerHTML = '<div class="empty-glyph" aria-hidden="true">K</div><p class="eyebrow">YOUR LOCAL AI WORKSPACE</p><h1>What can we work on?</h1><p class="welcome-copy">Chat with a model running on this machine. KILN chooses a supported run path for you. Conversations stay on this device.</p><div class="prompt-suggestions" aria-label="Suggested prompts"><button class="suggestion" type="button" data-prompt="Summarize this for me: "><span aria-hidden="true">▤</span>Summarize a file</button><button class="suggestion" type="button" data-prompt="Explain this code: "><span aria-hidden="true">&lt;/&gt;</span>Explain code</button><button class="suggestion" type="button" data-prompt="Help me brainstorm ideas for "><span aria-hidden="true">✳</span>Brainstorm</button></div>';
     container.append(empty);
   } else {
     for (const [index, message] of state.messages.entries()) {
@@ -144,9 +360,24 @@ function renderMessages() {
   const enabled = Boolean(state.model);
   $("#prompt").disabled = !enabled || state.busy;
   $("#send-button").disabled = !enabled || state.busy;
-  $("#clear-chat").disabled = !enabled || !state.messages.length || state.busy;
+  $("#send-button").setAttribute("aria-label", state.busy ? "Stop generation" : "Send");
+  $("#clear-chat").disabled = !enabled || state.busy;
   $("#chat-subtitle").textContent = state.model ? "Streaming from the local KILN API" : "Waiting for a loaded model";
 }
+
+$("#messages").addEventListener("click", (event) => {
+  const suggestion = event.target.closest(".suggestion");
+  if (!suggestion) return;
+  if (!state.model) {
+    selectTab(1);
+    return;
+  }
+  const prompt = $("#prompt");
+  prompt.value = suggestion.dataset.prompt || "";
+  prompt.focus();
+  prompt.style.height = "auto";
+  prompt.style.height = `${Math.min(prompt.scrollHeight, 160)}px`;
+});
 
 function showChatError(message = "") {
   $("#chat-error").textContent = message;
@@ -160,6 +391,54 @@ function setServerState(online, label) {
   $("#server-dot").classList.toggle("is-online", online);
   $("#server-dot").classList.toggle("is-offline", !online);
   $("#server-label").textContent = label;
+  $("#topbar-server-label").textContent = online ? "Connected" : "Disconnected";
+  const topbarDot = document.querySelector(".server-state .status-dot");
+  topbarDot?.classList.toggle("is-online", online);
+  topbarDot?.classList.toggle("is-offline", !online);
+  if (state.runtimeWasConnected !== online) {
+    recordActivity(online ? "Local runtime connected" : "Local runtime unavailable",
+      online ? "Connected to the KILN API on this device." : "KILN could not reach the local API.");
+    state.runtimeWasConnected = online;
+  }
+}
+
+function renderMachinePanel(profile, activeModel, recommendation) {
+  const readyBadge = $("#machine-ready-badge");
+  const readiness = $("#machine-readiness");
+  const total = Number(profile?.ram_gb);
+  const available = Number(profile?.available_ram_bytes);
+  if (Number.isFinite(total) && total > 0 && Number.isFinite(available)) {
+    const availableGiB = available / 1_073_741_824;
+    $("#machine-memory-label").textContent = `${availableGiB.toFixed(1)} / ${total.toFixed(0)} GB`;
+    $("#machine-memory-detail").textContent = `${availableGiB.toFixed(1)} GiB available · estimated`;
+    $("#machine-memory-bar").style.width = `${Math.max(0, Math.min(100, availableGiB / total * 100))}%`;
+  } else {
+    $("#machine-memory-label").textContent = "Unavailable";
+    $("#machine-memory-detail").textContent = "The runtime did not report memory headroom.";
+    $("#machine-memory-bar").style.width = "0%";
+  }
+  $("#machine-cpu").textContent = profile?.cpu_cores ? `${profile.cpu_cores} logical cores` : "Not reported";
+  if (state.model) {
+    $("#machine-fit").textContent = "Model active";
+    $("#machine-fit").className = "value-good";
+  } else if (recommendation) {
+    $("#machine-fit").textContent = "Suitable model found";
+    $("#machine-fit").className = "value-good";
+  } else if (state.models.length) {
+    $("#machine-fit").textContent = "No safe fit found";
+    $("#machine-fit").className = "value-warn";
+  } else {
+    $("#machine-fit").textContent = "No model installed";
+    $("#machine-fit").className = "";
+  }
+  $("#machine-mode").textContent = activeModel?.mode === "experimental_cpu_moe_stream"
+    ? "CPU · experimental streaming" : activeModel?.mode === "standard" ? "CPU · standard" : "Automatic";
+  const canRun = Boolean(state.model || recommendation);
+  readyBadge.textContent = canRun ? "Ready" : "Setup needed";
+  readyBadge.className = `badge ${canRun ? "good" : "warn"}`;
+  readiness.classList.toggle("is-ready", canRun);
+  readiness.lastElementChild.textContent = state.model ? "Model ready on this machine"
+    : recommendation ? "Suitable model found on this machine" : "Choose or install a model to begin";
 }
 
 function renderSystemProfile(profile) {
@@ -221,7 +500,9 @@ function renderSession(model, bootstrap) {
   const status = $("#session-state");
   status.textContent = model ? "Active" : "No model";
   status.className = `badge ${model ? "good" : "warn"}`;
-  $("#active-model-name").textContent = model?.name || "No model loaded";
+  $("#active-model-name").textContent = model?.name || "Choose a model";
+  $("#active-model-chip").setAttribute("aria-label", model
+    ? `Active model: ${model.name}. Choose a different model` : "Choose a model");
   $("#active-model-chip").title = model?.name || "Configure KILN_MODEL_PATH before starting the API";
   $("#no-model-notice").hidden = Boolean(model);
   $("#app-version").textContent = bootstrap?.api_version ? `API ${bootstrap.api_version}` : "development build";
@@ -443,10 +724,12 @@ async function activateLocalModel(path, mode = "auto") {
     await refresh();
     setModelActionState(false, `Active model: ${payload.model}`);
     $("#auto-setup-status").textContent = `Ready. KILN selected ${payload.model} and chose the runtime path from current system resources.`;
+    recordActivity("Model activated", `${payload.model} is active in the local KILN runtime.`);
   } catch (error) {
     await refresh();
     setModelActionState(false, "Model activation failed; see setup status above.");
-    $("#auto-setup-status").textContent = `KILN could not load the selected model: ${error.message || "unknown error"}. Choose another local model or inspect Advanced status.`;
+    $("#auto-setup-status").textContent = `KILN could not load the selected model: ${error.message || "unknown error"}. Choose another local model or inspect system details.`;
+    recordActivity("Model activation failed", "KILN could not load the selected model. Review the model library status.");
   }
 }
 
@@ -473,6 +756,7 @@ async function autoStartRecommended(candidates) {
         $("#auto-setup-status").textContent = mode === "stream"
           ? `Ready. KILN assessed this machine and started ${payload.model} with experimental CPU expert streaming.`
           : `Ready. KILN assessed this machine, selected ${payload.model}, and chose the supported runtime path automatically.`;
+        recordActivity("Automatic setup complete", `${payload.model} was selected using the current machine profile.`);
         return;
       } catch (error) {
         failures.push(`${name}: ${error.message || "activation failed"}`);
@@ -482,6 +766,7 @@ async function autoStartRecommended(candidates) {
     const detail = failures.length ? failures.join(" · ") : "No automatically startable local model was found.";
     setModelActionState(false, "Automatic setup could not load a local model.");
     $("#auto-setup-status").textContent = `Automatic setup could not start a model. KILN tried up to ${attempts.length} safe candidates. ${detail}`;
+    recordActivity("Automatic setup needs attention", "No suitable installed model could be started. Review the model library.");
   } finally {
     state.modelActionBusy = false;
   }
@@ -499,6 +784,7 @@ async function searchModels(query) {
     if (!response.ok) throw new Error(payload.error || "Model search failed.");
     renderRemoteModels(payload.models || []);
     setModelActionState(false, `${payload.models?.length || 0} repositories found.`);
+    recordActivity("Model catalog searched", `${payload.models?.length || 0} public GGUF repositories returned.`);
   } catch (error) {
     setModelActionState(false, error.message || "Model search failed.");
   } finally {
@@ -553,6 +839,8 @@ async function downloadArtifact(repository, file, requestedFiles = [file]) {
     setModelActionState(false, files.length === 1
       ? `Verified and installed ${file}. KILN reassessed the model library.`
       : `Verified ${installedCount}/${files.length} files for ${modelLabel}; KILN reassessed the model library.`);
+    recordActivity("Model download verified", files.length === 1
+      ? `${file} was verified and installed.` : `${installedCount} files for the selected model were verified and installed.`);
   } catch (error) {
     const message = error.name === "AbortError"
       ? (files.length === 1 ? "Download canceled; the partial file was removed."
@@ -560,6 +848,8 @@ async function downloadArtifact(repository, file, requestedFiles = [file]) {
       : `Download stopped after ${installedCount}/${files.length} verified files: ${error.message || "unknown error"}. Completed shards were preserved.`;
     await loadLocalModels().catch(() => {});
     setModelActionState(false, message);
+    recordActivity(error.name === "AbortError" ? "Model download canceled" : "Model download failed",
+      error.name === "AbortError" ? "The incomplete file was removed; verified files were kept." : "Review the model library status for details.");
   } finally {
     state.downloadController = null;
   }
@@ -635,12 +925,18 @@ async function refresh() {
     });
     renderCapabilities(capabilities);
     renderLocalModels(localModels);
+    renderMachinePanel(capabilities.system_profile, capabilities.active_model, state.recommendation);
     readSettings();
-    state.messages = readHistory();
+    loadConversations();
     renderMessages();
     if (state.model) {
       $("#auto-setup-status").textContent = `Ready. KILN detected this machine and is using ${state.model.name}.`;
+      if (state.lastActiveModel !== state.model.name) {
+        recordActivity("Model ready", `${state.model.name} is loaded in the local runtime.`);
+        state.lastActiveModel = state.model.name;
+      }
     } else if (!state.autoStartAttempted && state.recommendation?.model_path) {
+      state.lastActiveModel = null;
       state.autoStartAttempted = true;
       const candidates = Array.isArray(models.startup_candidates) && models.startup_candidates.length
         ? models.startup_candidates : [state.recommendation];
@@ -654,10 +950,14 @@ async function refresh() {
   } catch (error) {
     state.model = null;
     state.messages = [];
+    state.conversations = [];
+    state.activeConversationId = null;
+    renderSidebarChats();
     readSettings();
     setServerState(false, "Local runtime unavailable");
     renderSession(null, null);
     renderLocalModels([]);
+    renderMachinePanel(null, null, null);
     $("#auto-setup-status").textContent = "KILN could not complete its system and model check. Reconnect to the local runtime and refresh.";
     $("#profile-state").textContent = "Unavailable";
     $("#profile-state").className = "badge warn";
@@ -670,12 +970,13 @@ async function refresh() {
 
 function setBusy(busy) {
   state.busy = busy;
-  $("#send-button").textContent = busy ? "Stop" : "Send ↗";
+  $("#send-button").textContent = busy ? "Stop" : "↑";
+  $("#send-button").setAttribute("aria-label", busy ? "Stop generation" : "Send");
   $("#send-button").classList.toggle("button-primary", !busy);
   $("#send-button").classList.toggle("button-secondary", busy);
   $("#prompt").disabled = busy || !state.model;
   $("#send-button").disabled = !busy && !state.model;
-  $("#clear-chat").disabled = busy || !state.messages.length;
+  $("#clear-chat").disabled = busy || !state.model;
 }
 
 async function sendMessage(text) {
@@ -685,6 +986,7 @@ async function sendMessage(text) {
   const requestMessages = state.messages.map(({ role, content }) => ({ role, content }));
   const answer = { role: "assistant", content: "" };
   state.messages.push(answer);
+  saveHistory();
   renderMessages();
   await runAssistant(requestMessages, answer);
 }
@@ -702,6 +1004,7 @@ async function regenerateResponse() {
 
 async function runAssistant(requestMessages, answer) {
   setBusy(true);
+  recordActivity("Generation started", "A local model is generating a response.");
   announceChat("Generating response.");
   state.controller = new AbortController();
   try {
@@ -723,6 +1026,9 @@ async function runAssistant(requestMessages, answer) {
       throw new Error("The model returned an empty response.");
     }
     saveHistory();
+    if (!state.controller.signal.aborted) {
+      recordActivity("Generation complete", "The local model finished responding.");
+    }
     announceChat("Response complete.");
   } catch (error) {
     if (error.name === "AbortError") {
@@ -733,6 +1039,7 @@ async function runAssistant(requestMessages, answer) {
       state.messages.pop();
       saveHistory();
       showChatError(error.message || "Inference failed.");
+      recordActivity("Generation failed", "The local API reported an inference error.");
     }
   } finally {
     state.controller = null;
@@ -775,19 +1082,17 @@ $("#prompt").addEventListener("keydown", (event) => {
 
 $("#clear-chat").addEventListener("click", () => {
   if (state.busy) return;
+  const conversation = createConversation();
+  state.conversations.unshift(conversation);
+  state.activeConversationId = conversation.id;
   state.messages = [];
   showChatError();
-  try {
-    localStorage.removeItem(historyKey());
-    if (state.model?.path && state.model?.name
-        && !state.models.some((model) => model.name === state.model.name && model.path !== state.model.path)) {
-      localStorage.removeItem(`kiln.ui.chat.v1:${state.model.name}`);
-    }
-  } catch {
-    showChatError("The conversation was cleared from view, but browser storage could not be updated.");
-  }
-  announceChat("Conversation cleared.");
+  saveConversations();
+  recordActivity("New chat started", "A separate local conversation was created.");
+  announceChat("New conversation started.");
   renderMessages();
+  selectTab(0);
+  $("#prompt").focus();
 });
 
 $("#refresh-advanced").addEventListener("click", () => void refresh());
