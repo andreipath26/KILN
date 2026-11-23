@@ -319,18 +319,25 @@ async function main() {
     };
     const importInput = backupPage.locator("#import-conversations-file");
     const importStatus = backupPage.locator("#conversation-data-status");
+    const modelHistoryKey = "kiln.ui.conversations.v1:/tmp/test-model.gguf";
+    const initialModelHistory = await backupPage.evaluate((key) =>
+      JSON.parse(localStorage.getItem(key)), modelHistoryKey);
     await importInput.setInputFiles(legacyFile);
     await importStatus.getByText("Imported and merged 1 conversations.", { exact: false }).waitFor();
     const importedLegacy = await backupPage.evaluate(() =>
       JSON.parse(localStorage.getItem("kiln.ui.conversations.v1:/tmp/test-model.gguf")));
-    assert.equal(importedLegacy.length, 1);
-    assert.match(importedLegacy[0].id, /^legacy-[0-9a-f]{16}$/);
+    assert.equal(importedLegacy.length, initialModelHistory.length + 1);
+    const legacyId = importedLegacy.find((item) => item.id.startsWith("legacy-"))?.id;
+    assert.match(legacyId, /^legacy-[0-9a-f]{16}$/);
+    await importStatus.evaluate((element) => { element.textContent = ""; });
     await importInput.setInputFiles(legacyFile);
     await importStatus.getByText("Imported and merged 1 conversations.", { exact: false }).waitFor();
     const reimportedLegacy = await backupPage.evaluate(() =>
       JSON.parse(localStorage.getItem("kiln.ui.conversations.v1:/tmp/test-model.gguf")));
-    assert.equal(reimportedLegacy.length, 1, "reimporting the same legacy backup does not duplicate its conversation");
-    assert.equal(reimportedLegacy[0].id, importedLegacy[0].id);
+    assert.equal(reimportedLegacy.length, initialModelHistory.length + 1,
+      "reimporting the same legacy backup does not duplicate its conversation");
+    assert.equal(reimportedLegacy.filter((item) => item.id.startsWith("legacy-")).length, 1);
+    assert.equal(reimportedLegacy.find((item) => item.id.startsWith("legacy-"))?.id, legacyId);
 
     const otherModelKey = "kiln.ui.conversations.v1:/tmp/other-model.gguf";
     const fullHistory = Array.from({ length: 50 }, (_, index) => conversation(`existing-${index}`));
@@ -338,7 +345,7 @@ async function main() {
       key: otherModelKey,
       items: fullHistory,
     });
-    const goodModelKey = "kiln.ui.conversations.v1:/tmp/test-model.gguf";
+    const goodModelKey = modelHistoryKey;
     const beforeGoodModel = await backupPage.evaluate((key) => localStorage.getItem(key), goodModelKey);
     const overflowingBackup = conversationBackup([
       { model_key: "/tmp/test-model.gguf", conversations: [conversation("valid-new-import")] },
