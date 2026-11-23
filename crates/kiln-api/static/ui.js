@@ -141,6 +141,80 @@ $("#clear-activity").addEventListener("click", () => {
   renderActivity();
 });
 
+function collectConversationStorage() {
+  const conversationsPrefix = "kiln.ui.conversations.v1:";
+  const legacyPrefix = "kiln.ui.chat.v1:";
+  const conversations = [];
+  const legacyChats = [];
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (!key || (!key.startsWith(conversationsPrefix) && !key.startsWith(legacyPrefix))) continue;
+    let value;
+    try { value = JSON.parse(localStorage.getItem(key) || "null"); } catch { continue; }
+    const modelKey = key.startsWith(conversationsPrefix)
+      ? key.slice(conversationsPrefix.length) : key.slice(legacyPrefix.length);
+    const model = modelKey.split(/[\\/]/).pop() || "Unknown model";
+    if (key.startsWith(conversationsPrefix) && Array.isArray(value)) {
+      const saved = value.filter((conversation) => conversation
+        && Array.isArray(conversation.messages) && conversation.messages.length > 0);
+      if (saved.length) conversations.push({ model, conversations: saved });
+    } else if (key.startsWith(legacyPrefix) && Array.isArray(value)) {
+      if (value.length) legacyChats.push({ model, messages: value });
+    }
+  }
+  return { conversations, legacyChats };
+}
+
+$("#export-conversations").addEventListener("click", () => {
+  const status = $("#conversation-data-status");
+  try {
+    const data = collectConversationStorage();
+    if (!data.conversations.length && !data.legacyChats.length) {
+      status.textContent = "There are no saved conversations to export.";
+      return;
+    }
+    const backup = {
+      format: "kiln-conversations-v1",
+      exported_at: new Date().toISOString(),
+      conversations: data.conversations,
+      legacy_chats: data.legacyChats,
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `kiln-conversations-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    status.textContent = "Conversation backup downloaded. Keep the file somewhere private; it contains your prompts and responses.";
+  } catch {
+    status.textContent = "Could not read or export conversation data from this browser.";
+  }
+});
+
+$("#delete-conversations").addEventListener("click", () => {
+  const status = $("#conversation-data-status");
+  if (!window.confirm("Delete every KILN conversation saved in this browser? This cannot be undone.")) return;
+  try {
+    const prefixes = ["kiln.ui.conversations.v1:", "kiln.ui.active-conversation.v1:", "kiln.ui.chat.v1:"];
+    const keys = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key && prefixes.some((prefix) => key.startsWith(prefix))) keys.push(key);
+    }
+    keys.forEach((key) => localStorage.removeItem(key));
+    state.conversations = [];
+    state.activeConversationId = null;
+    state.messages = [];
+    renderSidebarChats();
+    renderMessages();
+    status.textContent = `Deleted ${keys.filter((key) => key.startsWith("kiln.ui.conversations.v1:") || key.startsWith("kiln.ui.chat.v1:")).length} conversation histories from this browser.`;
+    recordActivity("Conversation data deleted", "Saved conversations were removed from this browser.");
+    announceChat("Saved conversations deleted.");
+  } catch {
+    status.textContent = "Could not delete conversation data from this browser.";
+  }
+});
+
 $("#active-model-chip").addEventListener("click", () => selectTab(1));
 $("#notice-choose-model").addEventListener("click", () => selectTab(1));
 $("#open-settings").addEventListener("click", () => selectTab(3));
@@ -1009,6 +1083,8 @@ function setBusy(busy) {
   $("#prompt").disabled = busy || !state.model;
   $("#send-button").disabled = !busy && !state.model;
   $("#clear-chat").disabled = busy || !state.model;
+  $("#export-conversations").disabled = busy;
+  $("#delete-conversations").disabled = busy;
 }
 
 async function sendMessage(text) {

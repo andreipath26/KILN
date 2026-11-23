@@ -120,6 +120,12 @@
 
           <section id="panel-activity" class="mode-panel" role="tabpanel" aria-labelledby="tab-activity" hidden>
             <div class="page-heading"><div><p class="eyebrow">LOCAL EVENT LOG</p><h1>Activity</h1><p class="muted">Recent KILN actions on this device. Prompts and generated text are never recorded here.</p></div><button id="clear-activity" class="button button-quiet" type="button">Clear activity</button></div>
+            <section class="info-card conversation-data-card" aria-labelledby="conversation-data-heading">
+              <div class="section-title"><div><p class="eyebrow">ON THIS DEVICE</p><h2 id="conversation-data-heading">Conversation data</h2></div></div>
+              <p class="muted small">Conversations are stored in this browser, grouped by model. Export a local JSON backup or delete every saved KILN conversation from this browser.</p>
+              <div class="conversation-data-actions"><button id="export-conversations" class="button button-secondary" type="button">Export conversations</button><button id="delete-conversations" class="button button-quiet" type="button">Delete all conversations</button></div>
+              <p id="conversation-data-status" class="inline-status" role="status" aria-live="polite"></p>
+            </section>
             <section class="activity-card" aria-label="Recent activity"><div id="activity-list" class="activity-list"><p class="muted">KILN activity will appear here as you use the app.</p></div></section>
           </section>
 
