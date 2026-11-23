@@ -166,6 +166,20 @@ function collectConversationStorage() {
   return { conversations, legacyChats };
 }
 
+function legacyConversationId(modelKey, messages) {
+  const source = JSON.stringify([modelKey, messages]);
+  let first = 0x811c9dc5;
+  let second = 0x9747b28c;
+  for (let index = 0; index < source.length; index += 1) {
+    const code = source.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193);
+    second = Math.imul(second ^ code, 0x85ebca6b);
+  }
+  const a = (first >>> 0).toString(16).padStart(8, "0");
+  const b = (second >>> 0).toString(16).padStart(8, "0");
+  return `legacy-${a}${b}`;
+}
+
 $("#export-conversations").addEventListener("click", () => {
   const status = $("#conversation-data-status");
   try {
@@ -257,7 +271,10 @@ $("#import-conversations-file").addEventListener("change", async (event) => {
     }
     for (const legacy of backup.legacy_chats) {
       const key = resolveModelKey(typeof legacy?.model_key === "string" ? legacy.model_key : legacy?.model);
-      add(key, { messages: legacy?.messages });
+      const exportedAt = typeof backup.exported_at === "string" && !Number.isNaN(Date.parse(backup.exported_at))
+        ? backup.exported_at : "1970-01-01T00:00:00.000Z";
+      add(key, { id: legacyConversationId(key, legacy?.messages), updated_at: exportedAt,
+        messages: legacy?.messages });
     }
     if (!importedCount || importedCount > 500) {
       throw new Error(importedCount > 500 ? "A backup can contain at most 500 conversations." : "No valid conversations were found in this backup.");
@@ -280,9 +297,11 @@ $("#import-conversations-file").addEventListener("change", async (event) => {
         const current = byId.get(item.id);
         if (!current || Date.parse(item.updated_at) > Date.parse(current.updated_at || "")) byId.set(item.id, item);
       }
+      if (byId.size > 50) {
+        throw new Error("This backup would exceed the 50-conversation limit for a model. Existing history was left unchanged; delete or export older conversations before importing.");
+      }
       const merged = Array.from(byId.values())
-        .sort((a, b) => Date.parse(b.updated_at || "") - Date.parse(a.updated_at || ""))
-        .slice(0, 50);
+        .sort((a, b) => Date.parse(b.updated_at || "") - Date.parse(a.updated_at || ""));
       return { storageKey, previous, next: JSON.stringify(merged) };
     });
     const written = [];

@@ -1061,6 +1061,82 @@ jobs:
           test -s "$RUNNER_TEMP/kiln-install-proof.txt"
           echo "Archive checksum, executable digest, architecture, desktop launcher, dashboard startup, one-binary and no-overwrite install checks passed"
 
+      - name: Install and smoke-test the Debian desktop package
+        run: |
+          set -euo pipefail
+          PACKAGE="$(find "$RUNNER_TEMP/kiln-portable-release" -maxdepth 1 -name '*.deb' -print -quit)"
+          test -s "$PACKAGE"
+          # Install the actual release-built package so apt resolves its declared
+          # runtime dependencies and the system desktop entry is registered.
+          sudo apt-get install --no-install-recommends -y libgtk-3-bin "$PACKAGE"
+          test -x /usr/bin/kiln
+          test -s /usr/share/applications/kiln.desktop
+          grep -F 'Exec=/usr/bin/kiln dashboard' /usr/share/applications/kiln.desktop
+          mkdir -p "$RUNNER_TEMP/kiln-models"
+          export KILN_MODELS_DIR="$RUNNER_TEMP/kiln-models"
+          xvfb-run -a --server-args="-screen 0 1280x900x24" bash -euo pipefail -c '
+            openbox > "$RUNNER_TEMP/kiln-deb-openbox.log" 2>&1 &
+            window_manager_pid=$!
+            launch_pid=""
+            cleanup() {
+              for window_id in $(xdotool search --onlyvisible --name "^KILN$" 2>/dev/null || true); do
+                xdotool windowclose "$window_id" 2>/dev/null || true
+              done
+              if [[ -n "$launch_pid" ]] && kill -0 "$launch_pid" 2>/dev/null; then
+                kill "$launch_pid" 2>/dev/null || true
+                wait "$launch_pid" 2>/dev/null || true
+              fi
+              pkill -TERM -x kiln 2>/dev/null || true
+              kill "$window_manager_pid" 2>/dev/null || true
+            }
+            trap cleanup EXIT
+            sleep 1
+            gtk-launch kiln > "$RUNNER_TEMP/kiln-deb-desktop.log" 2>&1 &
+            launch_pid=$!
+            window_id=""
+            for attempt in $(seq 1 60); do
+              window_id="$(xdotool search --onlyvisible --name "^KILN$" 2>/dev/null | head -n 1 || true)"
+              api_ready=0
+              if curl --fail --silent --max-time 1 http://127.0.0.1:11435/api/version >/dev/null; then
+                api_ready=1
+              fi
+              if [[ -n "$window_id" && "$api_ready" -eq 1 ]] \
+                && grep -Fq "KILN desktop UI loaded" "$RUNNER_TEMP/kiln-deb-desktop.log"; then
+                break
+              fi
+              if [[ -n "$window_id" && "$api_ready" -eq 1 ]] \
+                && ! kill -0 "$launch_pid" 2>/dev/null \
+                && ! pgrep -x kiln >/dev/null; then
+                cat "$RUNNER_TEMP/kiln-deb-desktop.log"
+                echo "Installed KILN desktop launcher exited before loading" >&2
+                exit 1
+              fi
+              sleep 1
+            done
+            if [[ -z "$window_id" ]] || ! grep -Fq "KILN desktop UI loaded" "$RUNNER_TEMP/kiln-deb-desktop.log"; then
+              cat "$RUNNER_TEMP/kiln-deb-desktop.log"
+              echo "Installed KILN desktop entry did not load its UI" >&2
+              exit 1
+            fi
+            curl --fail --silent http://127.0.0.1:11435/api/version >/dev/null
+            xdotool windowclose "$window_id"
+            for attempt in $(seq 1 30); do
+              if ! curl --fail --silent --max-time 1 http://127.0.0.1:11435/api/version >/dev/null; then break; fi
+              sleep 1
+            done
+            if curl --fail --silent --max-time 1 http://127.0.0.1:11435/api/version >/dev/null; then
+              echo "Closing the installed KILN window did not stop its owned API" >&2
+              exit 1
+            fi
+            if pgrep -x kiln >/dev/null; then
+              echo "Closing the installed KILN window left a KILN process running" >&2
+              exit 1
+            fi
+            wait "$launch_pid" 2>/dev/null || true
+            launch_pid=""
+            echo "Installed Debian package resolved dependencies, launched its desktop entry, loaded the UI, and closed its owned API"
+          '
+
       - name: Archive portable one-binary KILN Linux release candidate
         if: always()
         uses: actions/upload-artifact@v4
