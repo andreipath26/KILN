@@ -1,7 +1,7 @@
 # KILN MASTER ROADMAP AND RULES SET
 
-**Version:** 10.0 — dashboard assesses the host and auto-starts a suitable local model; Tier 0 acceptance pending
-**Last updated:** 2026-11-20
+**Version:** 10.0 — dashboard assesses the host and auto-starts a suitable local model; desktop release smoke configured; real Kali and Tier 0 acceptance pending
+**Last updated:** 2026-11-23
 **Status:** Active master roadmap  
 **Repository:** https://github.com/andreipath26/KILN  
 **Runtime fork:** https://github.com/andreipath26/kiln-llama
@@ -849,3 +849,18 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Reworked the bundled dashboard around a Chat, Models, Activity and System details workspace with an adaptive machine-readiness panel, live API-backed memory/model-fit states, local activity metadata, and separate per-model conversations in the Recent sidebar.
 - On Kali/Debian, `kiln dashboard` now opens the local interface in a GTK window with WebKitGTK and restricts top-level navigation to the KILN loopback origin. Closing the app window stops only the API instance that command started. The `.deb` installs the Python GObject/WebKitGTK runtime and the KILN icon; the tar installer remains a developer path and does not bring those desktop dependencies.
 - The mockup direction was approved before the implementation. Hosted CI and an actual Kali desktop install still need to validate the redesigned UI and app-window behavior. No Tier 0 performance or quality claim is implied.
+
+### 2026-11-23 — UI deployment hardening batch
+
+- Aligned the fourth workspace destination with the roadmap name, **System details**, and added Home/End keyboard navigation to the tablist. The browser E2E script now covers the visible and accessible label and those navigation keys.
+- Made the GTK window size adapt to the current monitor work area and added a load-complete marker for the bundled WebKit UI.
+- Tightened `kiln dashboard` readiness detection to parse a successful JSON version response rather than searching raw HTTP text; added unit cases for a valid response and failure cases.
+- Added a CI path that installs GTK/WebKit and virtual-display dependencies, opens the actual KILN WebKit window, checks the bundled UI loaded, closes the window, and verifies the API process it owns stops. This workflow change has not yet run on this changeset; real Kali desktop verification remains required.
+- Kept tarball CLI installation usable without desktop libraries. The installer creates a menu launcher only when the system GTK/WebKit runtime is present and prints the exact Debian/Kali packages otherwise; the `.deb` remains the supported desktop installation path.
+- Updated README and UI deployment documentation. No phase status or hardware acceptance result changed; Phase 3.5, Phase 5, and Phase 6 Tier 0 acceptance remain open.
+
+### 2026-11-23 — Automatic setup status visibility follow-up
+
+- The first hosted browser run found that the startup result was written only to the Models panel, which is hidden on the default Chat destination. Mirrored the same status into the visible system-check panel and extended the browser check to assert that the automatic streaming fallback result is visible from Chat.
+- The next real-model browser run exposed two test-maintenance issues caused by that improvement and the renamed tab: one assertion matched the duplicate status in both destinations, and the real-model script still requested the former Settings label. Scoped the failure assertion to Models and aligned the test with System details.
+- This is a UI visibility correction; it does not change model-selection behavior, capability claims, or any phase acceptance status.

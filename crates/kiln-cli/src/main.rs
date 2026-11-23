@@ -44,8 +44,50 @@ async fn dashboard_api_is_ready(port: u16) -> bool {
     };
     tokio::time::timeout(Duration::from_secs(2), response).await
         .ok().flatten()
-        .is_some_and(|response| response.starts_with("HTTP/1.1 200")
-            && response.contains("\"version\""))
+        .is_some_and(|response| is_kiln_version_response(&response))
+}
+
+fn is_kiln_version_response(response: &str) -> bool {
+    let Some((headers, body)) = response.split_once("\r\n\r\n") else {
+        return false;
+    };
+    let status = headers.lines().next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|code| code.parse::<u16>().ok());
+    if status != Some(200) {
+        return false;
+    }
+    let Ok(payload) = serde_json::from_str::<serde_json::Value>(body) else {
+        return false;
+    };
+    payload.get("version")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|version| !version.trim().is_empty())
+}
+
+#[cfg(test)]
+mod dashboard_probe_tests {
+    use super::is_kiln_version_response;
+
+    #[test]
+    fn accepts_a_successful_version_json_response() {
+        assert!(is_kiln_version_response(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{\"version\":\"0.1.0\"}"
+        ));
+    }
+
+    #[test]
+    fn rejects_wrong_status_malformed_json_and_unrelated_json() {
+        assert!(!is_kiln_version_response(
+            "HTTP/1.1 404 Not Found\r\ncontent-type: application/json\r\n\r\n{\"version\":\"0.1.0\"}"
+        ));
+        assert!(!is_kiln_version_response(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\nnot-json"
+        ));
+        assert!(!is_kiln_version_response(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{\"status\":\"ok\"}"
+        ));
+    }
 }
 
 const DESKTOP_WINDOW: &str = include_str!("desktop_window.py");

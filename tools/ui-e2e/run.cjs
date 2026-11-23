@@ -167,7 +167,7 @@ async function checkAccessibility(page, label, { advanced = false } = {}) {
   );
   const accessibilityTree = await page.locator("body").ariaSnapshot();
   assert.match(accessibilityTree, /tablist "KILN navigation"/);
-  assert.match(accessibilityTree, advanced ? /tab "Settings" \[selected\]/ : /tab "Chat"/);
+  assert.match(accessibilityTree, advanced ? /tab "System details" \[selected\]/ : /tab "Chat"/);
   assert.match(accessibilityTree, advanced ? /spinbutton "Chat output limit"/ : /textbox "Message your model"/);
 }
 
@@ -232,7 +232,7 @@ async function main() {
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("ArrowDown");
-    const advancedTab = page.getByRole("tab", { name: "Settings" });
+    const advancedTab = page.getByRole("tab", { name: "System details" });
     await advancedTab.waitFor({ state: "visible" });
     assert.equal(await advancedTab.getAttribute("aria-selected"), "true");
     await page.getByRole("heading", { name: "Available in this build" }).waitFor();
@@ -241,10 +241,11 @@ async function main() {
     await page.locator("#max-tokens").dispatchEvent("change");
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("kiln.ui.settings.v1:/tmp/test-model.gguf")).max_tokens), 512);
     await advancedTab.focus();
-    await page.keyboard.press("ArrowUp");
-    await page.keyboard.press("ArrowUp");
-    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("Home");
     assert.equal(await simpleTab.getAttribute("aria-selected"), "true");
+    await simpleTab.focus();
+    await page.keyboard.press("End");
+    assert.equal(await advancedTab.getAttribute("aria-selected"), "true");
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload({ waitUntil: "networkidle" });
@@ -266,7 +267,13 @@ async function main() {
       autoStartStreamFallback: true,
     });
     await emptyPage.goto(baseUrl, { waitUntil: "networkidle" });
-    await emptyPage.getByText("Ready. KILN assessed this machine and started test-model with experimental CPU expert streaming.", { exact: true }).waitFor();
+    const setupStatus = emptyPage.locator("#machine-setup-status");
+    await setupStatus.waitFor({ state: "visible" });
+    assert.equal(
+      (await setupStatus.textContent()).trim(),
+      "Ready. KILN assessed this machine and started test-model with experimental CPU expert streaming.",
+      "automatic setup outcome is visible from the default Chat destination",
+    );
     assert.deepEqual(activationAttempts, [
       { path: "/tmp/test-model.gguf", mode: "auto" },
       { path: "/tmp/other-model.gguf", mode: "stream" },

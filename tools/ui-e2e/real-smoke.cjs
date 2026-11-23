@@ -49,10 +49,11 @@ async function main() {
 
     const invalid = page.locator(".model-entry").filter({ hasText: "zz-invalid-arch.gguf" });
     await invalid.getByRole("button", { name: "Use model" }).click();
-    await page.getByText(/restored previous model 'alternate-smoke'/).waitFor();
+    await page.locator("#panel-models")
+      .getByText(/restored previous model 'alternate-smoke'/).waitFor();
     assert.equal(await page.locator("#active-model-name").textContent(), "alternate-smoke");
 
-    await page.getByRole("tab", { name: "Settings" }).click();
+    await page.getByRole("tab", { name: "System details" }).click();
     const profileText = await page.locator("#system-profile").textContent();
     assert.ok(profileText.includes("Available RAM"), "UI exposes current memory headroom");
     assert.ok(profileText.includes("Estimated model residency budget"), "UI exposes conservative model-loading limit");
