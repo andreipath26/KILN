@@ -155,9 +155,11 @@ function collectConversationStorage() {
       ? key.slice(conversationsPrefix.length) : key.slice(legacyPrefix.length);
     const model = modelKey.split(/[\\/]/).pop() || "Unknown model";
     if (key.startsWith(conversationsPrefix) && Array.isArray(value)) {
-      conversations.push({ model, conversations: value });
+      const saved = value.filter((conversation) => conversation
+        && Array.isArray(conversation.messages) && conversation.messages.length > 0);
+      if (saved.length) conversations.push({ model, conversations: saved });
     } else if (key.startsWith(legacyPrefix) && Array.isArray(value)) {
-      legacyChats.push({ model, messages: value });
+      if (value.length) legacyChats.push({ model, messages: value });
     }
   }
   return { conversations, legacyChats };
@@ -205,7 +207,7 @@ $("#delete-conversations").addEventListener("click", () => {
     state.messages = [];
     renderSidebarChats();
     renderMessages();
-    status.textContent = `Deleted ${keys.filter((key) => key.startsWith("kiln.ui.conversations.v1:") || key.startsWith("kiln.ui.chat.v1:")).length} saved conversation records from this browser.`;
+    status.textContent = `Deleted ${keys.filter((key) => key.startsWith("kiln.ui.conversations.v1:") || key.startsWith("kiln.ui.chat.v1:")).length} conversation histories from this browser.`;
     recordActivity("Conversation data deleted", "Saved conversations were removed from this browser.");
     announceChat("Saved conversations deleted.");
   } catch {
