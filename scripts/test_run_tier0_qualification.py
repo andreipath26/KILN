@@ -53,6 +53,79 @@ class Tier0QualificationTests(unittest.TestCase):
             self.assertEqual(report["overall_status"], "inconclusive")
             self.assertIn("phase6-clad", calls)
 
+    def test_interruption_keeps_running_phase_in_incremental_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            (repo / "target/release").mkdir(parents=True)
+            (repo / "target/release/kiln").write_text("stub", encoding="utf-8")
+            model_dir = root / "models"
+            model_dir.mkdir()
+            models = {}
+            for name in ("dense.gguf", "moe.gguf", "llada.gguf"):
+                path = model_dir / name
+                path.write_bytes(name.encode())
+                models[name] = str(path)
+            config = root / "qualification.json"
+            config.write_text(json.dumps({
+                "phase35": {"model": models["dense.gguf"]},
+                "phase5": {"model": models["moe.gguf"]},
+                "phase6": {"model": models["llada.gguf"]},
+            }), encoding="utf-8")
+
+            def interrupt_during_phase5(_capture: qualification.Capture, name: str,
+                                        _command: list[str], *, env=None) -> bool:
+                if name == "phase5":
+                    raise KeyboardInterrupt("simulated interruption")
+                return True
+
+            output = root / "interrupted-evidence"
+            with patch.object(qualification, "ROOT", repo), \
+                    patch.object(qualification.Capture, "run", interrupt_during_phase5):
+                with self.assertRaises(KeyboardInterrupt):
+                    qualification.run(config, output)
+
+            report = json.loads((output / "qualification.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["run_state"], "interrupted")
+            self.assertEqual(report["build_status"], "passed")
+            self.assertEqual(report["phase_capture_status"], {
+                "phase35": "captured", "phase5": "running", "phase6": "pending"})
+            self.assertEqual(report["model_file_stability"], "pending")
+            self.assertEqual(report["overall_status"], "inconclusive")
+            self.assertFalse(report["deployment_ready"])
+
+    def test_missing_models_are_checkpointed_as_blocked_not_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            (repo / "target/release").mkdir(parents=True)
+            (repo / "target/release/kiln").write_text("stub", encoding="utf-8")
+            config = root / "qualification.json"
+            config.write_text(json.dumps({
+                "phase35": {"model": "missing-dense.gguf"},
+                "phase5": {"model": "missing-moe.gguf"},
+                "phase6": {"model": "missing-llada.gguf"},
+            }), encoding="utf-8")
+
+            def build_only(_capture: qualification.Capture, name: str,
+                           _command: list[str], *, env=None) -> bool:
+                return name == "build-release"
+
+            output = root / "blocked-evidence"
+            with patch.object(qualification, "ROOT", repo), \
+                    patch.object(qualification.Capture, "run", build_only):
+                code = qualification.run(config, output)
+
+            report = json.loads((output / "qualification.json").read_text(encoding="utf-8"))
+            commands = json.loads((output / "commands.json").read_text(encoding="utf-8"))
+            self.assertEqual(code, 1)
+            self.assertEqual(report["run_state"], "completed")
+            self.assertEqual(report["phase_capture_status"], {
+                "phase35": "blocked", "phase5": "blocked", "phase6": "blocked"})
+            self.assertEqual([entry["status"] for entry in commands], ["blocked"] * 3)
+            self.assertFalse(report["deployment_ready"])
+            self.assertEqual(report["overall_status"], "inconclusive")
+
     def test_relative_model_paths_resolve_from_config_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)

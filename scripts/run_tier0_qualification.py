@@ -113,6 +113,69 @@ def machine_info() -> dict:
     return result
 
 
+def write_qualification_checkpoint(
+    out: Path,
+    phase_status: dict[str, str],
+    model_paths: dict[str, Path | None],
+    initial_file_ids: dict[str, tuple[int, int, int, int] | None],
+    *,
+    run_state: str,
+    build_status: str,
+    final: bool = False,
+    failure: str | None = None,
+) -> dict:
+    """Atomically persist the aggregate without ever certifying deployment."""
+    model_report: dict[str, dict | None] = {}
+    model_file_stable = True
+    for key, path in model_paths.items():
+        if path is None:
+            model_report[key] = None
+            continue
+        entry: dict = {"path": str(path)}
+        before = initial_file_ids.get(key)
+        if before is not None:
+            entry["identity_before_capture"] = list(before)
+        try:
+            after = file_identity(path)
+            stable = before is not None and after == before
+            model_file_stable = model_file_stable and stable
+            entry["identity_stable_during_capture"] = stable if final else None
+            if final:
+                entry["sha256_after_capture"] = digest(path)
+        except OSError as error:
+            model_file_stable = False
+            entry["error"] = str(error)
+            entry["identity_stable_during_capture"] = False if final else None
+        model_report[key] = entry
+
+    report = {
+        "schema_version": 1,
+        "generated_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "run_state": run_state,
+        "overall_status": "inconclusive",
+        "deployment_ready": False,
+        "build_status": build_status,
+        "phase_capture_status": dict(phase_status),
+        "models": model_report,
+        "model_file_stability": ("pass" if model_file_stable else "fail") if final else "pending",
+        "machine_report": "machine.json",
+        "command_log": "commands.json",
+        "limits": [
+            "The runner never treats this aggregate as Tier 0 acceptance.",
+            "Confirm Dell Latitude 7490 identity, AC/power and sustained thermal conditions.",
+            "Review Phase 3.5 run-notes and every Phase 5/6 failure or quality miss.",
+            "Phase 5 physical storage, total-system memory and sustained Qwen3-30B-A3B gates need target evidence.",
+        ],
+    }
+    if failure:
+        report["failure"] = failure
+    target = out / "qualification.json"
+    temporary = out / "qualification.json.tmp"
+    temporary.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, target)
+    return report
+
+
 def run(config_path: Path, out: Path) -> int:
     config_path = config_path.expanduser().resolve(strict=True)
     config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -133,127 +196,131 @@ def run(config_path: Path, out: Path) -> int:
     for section, key in (("phase35", "dense_model"), ("phase5", "moe_model"), ("phase6", "llada_model")):
         model_paths[key] = resolve_file(config_path.parent, config[section].get("model"))
     initial_file_ids = {key: file_identity(path) for key, path in model_paths.items()}
+    phase_status = {"phase35": "pending", "phase5": "pending", "phase6": "pending"}
+    build_status = "pending"
+    run_state = "running"
+    failure: str | None = None
+    cap.write_records()
+    write_qualification_checkpoint(out, phase_status, model_paths, initial_file_ids,
+                                   run_state=run_state, build_status=build_status)
+    final_report: dict | None = None
 
-    build_ok = cap.run("build-release", ["cargo", "build", "--release", "-p", "kiln-cli", "-p", "kiln-bench"])
-    kiln = ROOT / "target/release/kiln"
-    phase_status: dict[str, str] = {}
+    def checkpoint() -> None:
+        write_qualification_checkpoint(out, phase_status, model_paths, initial_file_ids,
+                                       run_state=run_state, build_status=build_status,
+                                       failure=failure)
 
-    dense = model_paths["dense_model"]
-    if dense is None:
-        cap.blocked("phase35", "phase35.model must name a readable dense GGUF")
-        phase_status["phase35"] = "blocked"
-    elif not build_ok:
-        cap.blocked("phase35", "release build failed; review build-release logs")
-        phase_status["phase35"] = "blocked"
-    else:
-        settings = config["phase35"]
-        env = {"KILN_BENCH_TOKENS": str(settings.get("tokens", 256)),
-               "KILN_BENCH_RUNS": str(settings.get("runs", 5)),
-               "KILN_BENCH_WARMUP": str(settings.get("warmup", 1)),
-               "KILN_SKIP_BUILD": "1"}
-        if settings.get("ollama_model"):
-            env["KILN_OLLAMA_MODEL"] = str(settings["ollama_model"])
-        phase_status["phase35"] = "captured" if cap.run(
-            "phase35", ["bash", "scripts/run_phase35_suite.sh", str(dense), str(out / "phase35")], env=env
-        ) else "failed"
+    try:
+        build_status = "running"
+        checkpoint()
+        build_ok = cap.run("build-release", ["cargo", "build", "--release", "-p", "kiln-cli", "-p", "kiln-bench"])
+        build_status = "passed" if build_ok else "failed"
+        checkpoint()
+        kiln = ROOT / "target/release/kiln"
 
-    moe = model_paths["moe_model"]
-    if moe is None:
-        cap.blocked("phase5", "phase5.model must name a readable MoE GGUF")
-        phase_status["phase5"] = "blocked"
-    elif not build_ok or not kiln.is_file():
-        cap.blocked("phase5", "release executable is unavailable; review build-release logs")
-        phase_status["phase5"] = "blocked"
-    else:
-        settings = config["phase5"]
-        command = [str(kiln), "measure", str(moe), "--out", str(out / "phase5"),
-                   "--tokens", str(settings.get("tokens", 128)), "--runs", str(settings.get("runs", 5)),
-                   "--min-tps", str(settings.get("min_tps", 3.0)),
-                   "--max-rss-gib", str(settings.get("max_rss_gib", 15.0))]
-        if settings.get("threads") is not None:
-            command.extend(["--threads", str(settings["threads"])])
-        reference = resolve_file(config_path.parent, settings.get("reference_model"))
-        corpus = resolve_file(config_path.parent, settings.get("corpus"))
-        if reference and corpus:
-            command.extend(["--reference", str(reference), "--corpus", str(corpus)])
-        elif settings.get("reference_model") or settings.get("corpus"):
-            cap.blocked("phase5-quality", "both readable reference_model and corpus are required")
-        phase_status["phase5"] = "captured" if cap.run("phase5", command) else "failed"
-
-    llada = model_paths["llada_model"]
-    if llada is None:
-        cap.blocked("phase6", "phase6.model must name a readable LLaDA GGUF")
-        phase_status["phase6"] = "blocked"
-    elif not build_ok or not kiln.is_file():
-        cap.blocked("phase6", "release executable is unavailable; review build-release logs")
-        phase_status["phase6"] = "blocked"
-    else:
-        settings = config["phase6"]
-        answers = out / "phase6-confidence-answers.jsonl"
-        baseline = out / "phase6-confidence.json"
-        clad = out / "phase6-clad.json"
-        common = ["--kiln", str(kiln), "--model", str(llada),
-                  "--repeats", str(settings.get("repeats", 3)),
-                  "--max-tokens", str(settings.get("max_tokens", 32)),
-                  "--block-length", str(settings.get("block_length", 32))]
-        if settings.get("threads") is not None:
-            common.extend(["--threads", str(settings["threads"])])
-        baseline_ok = cap.run("phase6-confidence", [sys.executable, "scripts/run_phase6_clad_suite.py",
-            *common, "--decoder", "confidence", "--answers-jsonl", str(answers), "--output", str(baseline)])
-        if baseline_ok and answers.is_file() and baseline.is_file():
-            try:
-                model_sha = digest(llada)
-                phase_status["phase6"] = "captured" if cap.run("phase6-clad", [
-                    sys.executable, "scripts/run_phase6_clad_suite.py", *common,
-                    "--decoder", "clad", "--reference-jsonl", str(answers),
-                    "--reference-model-sha256", model_sha,
-                    "--reference-runtime", "KILN confidence decoder baseline",
-                    "--output", str(clad)]) else "failed"
-            except OSError as error:
-                cap.blocked("phase6-clad", f"could not hash LLaDA model: {error}")
-                phase_status["phase6"] = "failed"
+        phase_status["phase35"] = "running"
+        checkpoint()
+        dense = model_paths["dense_model"]
+        if dense is None:
+            cap.blocked("phase35", "phase35.model must name a readable dense GGUF")
+            phase_status["phase35"] = "blocked"
+        elif not build_ok:
+            cap.blocked("phase35", "release build failed; review build-release logs")
+            phase_status["phase35"] = "blocked"
         else:
-            cap.blocked("phase6-clad", "confidence baseline failed; see phase6-confidence logs")
-            phase_status["phase6"] = "failed"
+            settings = config["phase35"]
+            env = {"KILN_BENCH_TOKENS": str(settings.get("tokens", 256)),
+                   "KILN_BENCH_RUNS": str(settings.get("runs", 5)),
+                   "KILN_BENCH_WARMUP": str(settings.get("warmup", 1)),
+                   "KILN_SKIP_BUILD": "1"}
+            if settings.get("ollama_model"):
+                env["KILN_OLLAMA_MODEL"] = str(settings["ollama_model"])
+            phase_status["phase35"] = "captured" if cap.run(
+                "phase35", ["bash", "scripts/run_phase35_suite.sh", str(dense), str(out / "phase35")], env=env
+            ) else "failed"
+        checkpoint()
 
-    model_file_stable = True
-    model_report = {}
-    for key, path in model_paths.items():
-        if path is None:
-            model_report[key] = None
-            continue
-        try:
-            identity = file_identity(path)
-            stable = identity == initial_file_ids[key]
-            model_file_stable = model_file_stable and stable
-            model_report[key] = {"path": str(path), "sha256_after_capture": digest(path),
-                                 "identity_stable_during_capture": stable}
-        except OSError as error:
-            model_file_stable = False
-            model_report[key] = {"path": str(path), "error": str(error),
-                                 "identity_stable_during_capture": False}
-    report = {
-        "schema_version": 1,
-        "generated_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "overall_status": "inconclusive",
-        "deployment_ready": False,
-        "phase_capture_status": phase_status,
-        "models": model_report,
-        "model_file_stability": "pass" if model_file_stable else "fail",
-        "machine_report": "machine.json",
-        "command_log": "commands.json",
-        "limits": [
-            "The runner never treats this aggregate as Tier 0 acceptance.",
-            "Confirm Dell Latitude 7490 identity, AC/power and sustained thermal conditions.",
-            "Review Phase 3.5 run-notes and every Phase 5/6 failure or quality miss.",
-            "Phase 5 physical storage, total-system memory and sustained Qwen3-30B-A3B gates need target evidence.",
-        ],
-    }
-    (out / "qualification.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"status": report["overall_status"], "deployment_ready": False,
-                      "output": str(out), "phases": phase_status}, indent=2))
-    return 0 if (all(status == "captured" for status in phase_status.values())
-                 and len(phase_status) == 3 and model_file_stable) else 1
+        phase_status["phase5"] = "running"
+        checkpoint()
+        moe = model_paths["moe_model"]
+        if moe is None:
+            cap.blocked("phase5", "phase5.model must name a readable MoE GGUF")
+            phase_status["phase5"] = "blocked"
+        elif not build_ok or not kiln.is_file():
+            cap.blocked("phase5", "release executable is unavailable; review build-release logs")
+            phase_status["phase5"] = "blocked"
+        else:
+            settings = config["phase5"]
+            command = [str(kiln), "measure", str(moe), "--out", str(out / "phase5"),
+                       "--tokens", str(settings.get("tokens", 128)), "--runs", str(settings.get("runs", 5)),
+                       "--min-tps", str(settings.get("min_tps", 3.0)),
+                       "--max-rss-gib", str(settings.get("max_rss_gib", 15.0))]
+            if settings.get("threads") is not None:
+                command.extend(["--threads", str(settings["threads"])])
+            reference = resolve_file(config_path.parent, settings.get("reference_model"))
+            corpus = resolve_file(config_path.parent, settings.get("corpus"))
+            if reference and corpus:
+                command.extend(["--reference", str(reference), "--corpus", str(corpus)])
+            elif settings.get("reference_model") or settings.get("corpus"):
+                cap.blocked("phase5-quality", "both readable reference_model and corpus are required")
+            phase_status["phase5"] = "captured" if cap.run("phase5", command) else "failed"
+        checkpoint()
+
+        phase_status["phase6"] = "running"
+        checkpoint()
+        llada = model_paths["llada_model"]
+        if llada is None:
+            cap.blocked("phase6", "phase6.model must name a readable LLaDA GGUF")
+            phase_status["phase6"] = "blocked"
+        elif not build_ok or not kiln.is_file():
+            cap.blocked("phase6", "release executable is unavailable; review build-release logs")
+            phase_status["phase6"] = "blocked"
+        else:
+            settings = config["phase6"]
+            answers = out / "phase6-confidence-answers.jsonl"
+            baseline = out / "phase6-confidence.json"
+            clad = out / "phase6-clad.json"
+            common = ["--kiln", str(kiln), "--model", str(llada),
+                      "--repeats", str(settings.get("repeats", 3)),
+                      "--max-tokens", str(settings.get("max_tokens", 32)),
+                      "--block-length", str(settings.get("block_length", 32))]
+            if settings.get("threads") is not None:
+                common.extend(["--threads", str(settings["threads"])])
+            baseline_ok = cap.run("phase6-confidence", [sys.executable, "scripts/run_phase6_clad_suite.py",
+                *common, "--decoder", "confidence", "--answers-jsonl", str(answers), "--output", str(baseline)])
+            if baseline_ok and answers.is_file() and baseline.is_file():
+                try:
+                    model_sha = digest(llada)
+                    phase_status["phase6"] = "captured" if cap.run("phase6-clad", [
+                        sys.executable, "scripts/run_phase6_clad_suite.py", *common,
+                        "--decoder", "clad", "--reference-jsonl", str(answers),
+                        "--reference-model-sha256", model_sha,
+                        "--reference-runtime", "KILN confidence decoder baseline",
+                        "--output", str(clad)]) else "failed"
+                except OSError as error:
+                    cap.blocked("phase6-clad", f"could not hash LLaDA model: {error}")
+                    phase_status["phase6"] = "failed"
+            else:
+                cap.blocked("phase6-clad", "confidence baseline failed; see phase6-confidence logs")
+                phase_status["phase6"] = "failed"
+        checkpoint()
+
+        run_state = "completed"
+    except BaseException as error:
+        run_state = "interrupted" if isinstance(error, KeyboardInterrupt) else "failed"
+        failure = f"{type(error).__name__}: {error}"
+        raise
+    finally:
+        final_report = write_qualification_checkpoint(
+            out, phase_status, model_paths, initial_file_ids,
+            run_state=run_state, build_status=build_status,
+            final=run_state == "completed", failure=failure)
+
+    return 0 if (
+        all(status == "captured" for status in phase_status.values())
+        and len(phase_status) == 3
+        and final_report["model_file_stability"] == "pass"
+    ) else 1
 
 
 def main() -> int:
