@@ -15,6 +15,7 @@ const state = {
   autoStartAttempted: false,
   recommendation: null,
   activity: [],
+  importingConversationData: false,
   runtimeWasConnected: null,
   lastActiveModel: null,
   conversations: [],
@@ -157,9 +158,9 @@ function collectConversationStorage() {
     if (key.startsWith(conversationsPrefix) && Array.isArray(value)) {
       const saved = value.filter((conversation) => conversation
         && Array.isArray(conversation.messages) && conversation.messages.length > 0);
-      if (saved.length) conversations.push({ model, conversations: saved });
+      if (saved.length) conversations.push({ model, model_key: modelKey, conversations: saved });
     } else if (key.startsWith(legacyPrefix) && Array.isArray(value)) {
-      if (value.length) legacyChats.push({ model, messages: value });
+      if (value.length) legacyChats.push({ model, model_key: modelKey, messages: value });
     }
   }
   return { conversations, legacyChats };
@@ -174,7 +175,7 @@ $("#export-conversations").addEventListener("click", () => {
       return;
     }
     const backup = {
-      format: "kiln-conversations-v1",
+      format: "kiln-conversations-v2",
       exported_at: new Date().toISOString(),
       conversations: data.conversations,
       legacy_chats: data.legacyChats,
@@ -185,9 +186,129 @@ $("#export-conversations").addEventListener("click", () => {
     link.download = `kiln-conversations-${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    status.textContent = "Conversation backup downloaded. Keep the file somewhere private; it contains your prompts and responses.";
+    status.textContent = "Conversation backup downloaded. It contains chat text and model identifiers, which may include local paths; keep the file private.";
   } catch {
     status.textContent = "Could not read or export conversation data from this browser.";
+  }
+});
+
+$("#import-conversations").addEventListener("click", () => {
+  if (!state.busy) $("#import-conversations-file").click();
+});
+
+$("#import-conversations-file").addEventListener("change", async (event) => {
+  const input = event.currentTarget;
+  const status = $("#conversation-data-status");
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  if (state.busy) {
+    status.textContent = "Stop generation before importing conversation history.";
+    return;
+  }
+  if (file.size > 8 * 1024 * 1024) {
+    status.textContent = "This backup is over the 8 MiB import limit.";
+    return;
+  }
+  state.importingConversationData = true;
+  setBusy(false);
+  try {
+    const backup = JSON.parse(await file.text());
+    if (!backup || !["kiln-conversations-v1", "kiln-conversations-v2"].includes(backup.format)
+        || !Array.isArray(backup.conversations) || !Array.isArray(backup.legacy_chats)) {
+      throw new Error("This file is not a supported KILN conversation backup.");
+    }
+    const grouped = new Map();
+    let importedCount = 0;
+    const resolveModelKey = (key) => {
+      if (typeof key !== "string") return key;
+      const matches = state.models.filter((model) => model.name === key
+        || model.path.split(/[\\/]/).pop() === key);
+      return matches.length === 1 ? matches[0].path : key;
+    };
+    const add = (modelKey, conversation) => {
+      if (typeof modelKey !== "string" || !modelKey.trim() || modelKey.length > 4096
+          || /[\u0000-\u001f\u007f]/.test(modelKey)) return;
+      const messages = Array.isArray(conversation.messages)
+        ? conversation.messages.filter((message) => message
+          && ["user", "assistant"].includes(message.role) && typeof message.content === "string").slice(-100)
+        : [];
+      if (!messages.length) return;
+      const id = typeof conversation.id === "string" && conversation.id.length <= 160
+        ? conversation.id : createConversation().id;
+      const updatedAt = typeof conversation.updated_at === "string"
+        && !Number.isNaN(Date.parse(conversation.updated_at))
+        ? conversation.updated_at : new Date().toISOString();
+      const value = {
+        id,
+        title: typeof conversation.title === "string" ? conversation.title.slice(0, 120) : conversationTitle(messages),
+        updated_at: updatedAt,
+        messages,
+      };
+      if (!grouped.has(modelKey)) grouped.set(modelKey, []);
+      grouped.get(modelKey).push(value);
+      importedCount += 1;
+    };
+    for (const group of backup.conversations) {
+      const key = resolveModelKey(typeof group?.model_key === "string" ? group.model_key : group?.model);
+      if (Array.isArray(group?.conversations)) {
+        for (const conversation of group.conversations) add(key, conversation || {});
+      }
+    }
+    for (const legacy of backup.legacy_chats) {
+      const key = resolveModelKey(typeof legacy?.model_key === "string" ? legacy.model_key : legacy?.model);
+      add(key, { messages: legacy?.messages });
+    }
+    if (!importedCount || importedCount > 500) {
+      throw new Error(importedCount > 500 ? "A backup can contain at most 500 conversations." : "No valid conversations were found in this backup.");
+    }
+    if (Array.from(grouped.values()).some((items) => items.length > 50)) {
+      throw new Error("A backup can contain at most 50 conversations per model.");
+    }
+    if (!window.confirm(`Import and merge ${importedCount} conversations across ${grouped.size} model(s)? Newer versions of matching conversations will be kept.`)) return;
+
+    const changes = Array.from(grouped, ([modelKey, imported]) => {
+      const storageKey = `kiln.ui.conversations.v1:${modelKey}`;
+      const previous = localStorage.getItem(storageKey);
+      let existing = [];
+      try {
+        const saved = JSON.parse(previous || "[]");
+        if (Array.isArray(saved)) existing = saved.filter((item) => item && typeof item.id === "string" && Array.isArray(item.messages));
+      } catch { /* Replace malformed existing data with the validated import. */ }
+      const byId = new Map(existing.map((item) => [item.id, item]));
+      for (const item of imported) {
+        const current = byId.get(item.id);
+        if (!current || Date.parse(item.updated_at) > Date.parse(current.updated_at || "")) byId.set(item.id, item);
+      }
+      const merged = Array.from(byId.values())
+        .sort((a, b) => Date.parse(b.updated_at || "") - Date.parse(a.updated_at || ""))
+        .slice(0, 50);
+      return { storageKey, previous, next: JSON.stringify(merged) };
+    });
+    const written = [];
+    try {
+      for (const change of changes) {
+        localStorage.setItem(change.storageKey, change.next);
+        written.push(change);
+      }
+    } catch (error) {
+      for (const change of written.reverse()) {
+        try {
+          if (change.previous === null) localStorage.removeItem(change.storageKey);
+          else localStorage.setItem(change.storageKey, change.previous);
+        } catch { /* Preserve the original quota/security error for the user. */ }
+      }
+      throw error;
+    }
+    if (state.model && grouped.has(state.model.path || state.model.name)) loadConversations();
+    renderMessages();
+    status.textContent = `Imported and merged ${importedCount} conversations. Existing newer versions were kept.`;
+    recordActivity("Conversation backup imported", `${importedCount} saved conversations were merged on this device.`);
+  } catch (error) {
+    status.textContent = error.message || "Could not import this conversation backup.";
+  } finally {
+    state.importingConversationData = false;
+    setBusy(false);
   }
 });
 
@@ -459,10 +580,11 @@ function renderMessages() {
   }
   if (shouldStickToBottom) container.scrollTop = container.scrollHeight;
   const enabled = Boolean(state.model);
-  $("#prompt").disabled = !enabled || state.busy;
-  $("#send-button").disabled = !enabled || state.busy;
+  const locked = state.busy || state.importingConversationData;
+  $("#prompt").disabled = !enabled || locked;
+  $("#send-button").disabled = !enabled || locked;
   $("#send-button").setAttribute("aria-label", state.busy ? "Stop generation" : "Send");
-  $("#clear-chat").disabled = !enabled || state.busy;
+  $("#clear-chat").disabled = !enabled || locked;
   $("#chat-subtitle").textContent = state.model ? "Streaming from the local KILN API" : "Waiting for a loaded model";
 }
 
@@ -1076,19 +1198,21 @@ async function refresh() {
 
 function setBusy(busy) {
   state.busy = busy;
+  const locked = busy || state.importingConversationData;
   $("#send-button").textContent = busy ? "Stop" : "↑";
   $("#send-button").setAttribute("aria-label", busy ? "Stop generation" : "Send");
   $("#send-button").classList.toggle("button-primary", !busy);
   $("#send-button").classList.toggle("button-secondary", busy);
-  $("#prompt").disabled = busy || !state.model;
-  $("#send-button").disabled = !busy && !state.model;
-  $("#clear-chat").disabled = busy || !state.model;
-  $("#export-conversations").disabled = busy;
-  $("#delete-conversations").disabled = busy;
+  $("#prompt").disabled = locked || !state.model;
+  $("#send-button").disabled = !busy && (!state.model || state.importingConversationData);
+  $("#clear-chat").disabled = locked || !state.model;
+  $("#export-conversations").disabled = locked;
+  $("#import-conversations").disabled = locked;
+  $("#delete-conversations").disabled = locked;
 }
 
 async function sendMessage(text) {
-  if (!state.model || state.busy || !text.trim()) return;
+  if (!state.model || state.busy || state.importingConversationData || !text.trim()) return;
   showChatError();
   state.messages.push({ role: "user", content: text.trim() });
   const requestMessages = state.messages.map(({ role, content }) => ({ role, content }));
@@ -1100,7 +1224,7 @@ async function sendMessage(text) {
 }
 
 async function regenerateResponse() {
-  if (!state.model || state.busy || state.messages.length < 2) return;
+  if (!state.model || state.busy || state.importingConversationData || state.messages.length < 2) return;
   const answerIndex = state.messages.length - 1;
   if (state.messages[answerIndex].role !== "assistant" || state.messages[answerIndex - 1]?.role !== "user") return;
   const requestMessages = state.messages.slice(0, answerIndex).map(({ role, content }) => ({ role, content }));
