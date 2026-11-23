@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # User-scoped atomic installer for a previously built KILN Linux archive.
 # The archive contains exactly ONE executable; no model files are copied.
+# GTK/WebKit are system desktop dependencies, not bundled in the archive.
 # Usage: bash scripts/install_linux_release.sh <kiln-linux-*.tar.gz> [bin-dir]
 set -euo pipefail
 if [[ $# -lt 1 || $# -gt 2 ]]; then
@@ -58,7 +59,19 @@ if target.exists() or target.is_symlink():
 data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
 applications = data_home / "applications"
 desktop_entry = applications / "kiln.desktop"
-if desktop_entry.exists() or desktop_entry.is_symlink():
+desktop_runtime = False
+desktop_python = Path("/usr/bin/python3")
+if desktop_python.is_file():
+    try:
+        result = subprocess.run(
+            [str(desktop_python), "-c",
+             'import gi; gi.require_version("Gtk", "3.0"); '
+             'gi.require_version("WebKit2", "4.1"); from gi.repository import Gtk, WebKit2'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False)
+        desktop_runtime = result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        desktop_runtime = False
+if desktop_runtime and (desktop_entry.exists() or desktop_entry.is_symlink()):
     raise SystemExit(f"KILN desktop launcher already exists; refusing to replace it: {desktop_entry}")
 with tarfile.open(archive, "r:gz") as package:
     members = package.getmembers()
@@ -94,43 +107,49 @@ with tarfile.open(archive, "r:gz") as package:
             if result.returncode != 0:
                 raise SystemExit("KILN binary failed pre-install runtime smoke: " +
                                  result.stderr.decode("utf-8", errors="replace")[:1000])
-        # Stage a standard desktop launcher beside the installed binary. The
-        # absolute executable path makes it work even when ~/.local/bin is
-        # absent from the desktop session's PATH.
-        applications.mkdir(parents=True, exist_ok=True)
-        escaped_exec = str(target).replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
-        desktop_text = (
-            "[Desktop Entry]\n"
-            "Type=Application\n"
-            "Name=KILN\n"
-            "Comment=Start KILN and open the local model dashboard\n"
-            f'Exec="{escaped_exec}" dashboard\n'
-            f'TryExec="{escaped_exec}"\n'
-            "Terminal=false\n"
-            "StartupNotify=true\n"
-            "Categories=Development;Utility;\n"
-        )
-        launcher_fd, launcher_name = tempfile.mkstemp(prefix=".kiln-launcher-", dir=applications)
-        launcher_tmp = Path(launcher_name)
-        try:
-            with os.fdopen(launcher_fd, "w", encoding="utf-8") as launcher:
-                launcher.write(desktop_text)
-                launcher.flush()
-                os.fsync(launcher.fileno())
-            os.chmod(launcher_tmp, 0o644)
-            # No accidental overwrite: both links are atomic and fail if a
-            # concurrent install created either destination path.
-            os.link(tmp, target)
+        # Desktop integration is optional for this CLI archive. When system
+        # WebKitGTK is available, stage a launcher beside the installed binary;
+        # otherwise keep the command-line install usable without leaving a
+        # menu entry that cannot open.
+        if desktop_runtime:
+            applications.mkdir(parents=True, exist_ok=True)
+            escaped_exec = str(target).replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
+            desktop_text = (
+                "[Desktop Entry]\n"
+                "Type=Application\n"
+                "Name=KILN\n"
+                "Comment=Start KILN and open the local model dashboard\n"
+                f'Exec="{escaped_exec}" dashboard\n'
+                f'TryExec="{escaped_exec}"\n'
+                "Terminal=false\n"
+                "StartupNotify=true\n"
+                "Categories=Development;Utility;\n"
+            )
+            launcher_fd, launcher_name = tempfile.mkstemp(prefix=".kiln-launcher-", dir=applications)
+            launcher_tmp = Path(launcher_name)
             try:
-                os.link(launcher_tmp, desktop_entry)
-            except BaseException:
-                target.unlink(missing_ok=True)
-                raise
-        finally:
-            launcher_tmp.unlink(missing_ok=True)
+                with os.fdopen(launcher_fd, "w", encoding="utf-8") as launcher:
+                    launcher.write(desktop_text)
+                    launcher.flush()
+                    os.fsync(launcher.fileno())
+                os.chmod(launcher_tmp, 0o644)
+                os.link(tmp, target)
+                try:
+                    os.link(launcher_tmp, desktop_entry)
+                except BaseException:
+                    target.unlink(missing_ok=True)
+                    raise
+            finally:
+                launcher_tmp.unlink(missing_ok=True)
+        else:
+            os.link(tmp, target)
     finally:
         tmp.unlink(missing_ok=True)
 print(f"Verified single KILN binary installed at {target}")
-print(f"Desktop launcher installed at {desktop_entry}")
+if desktop_runtime:
+    print(f"Desktop launcher installed at {desktop_entry}")
+else:
+    print("GTK/WebKit is not installed; command-line use is ready, but no desktop launcher was created.")
+    print("On Kali/Debian, install desktop support with: sudo apt install python3-gi gir1.2-webkit2-4.1")
 print("Experimental MoE streaming is opt-in; Tier 0 acceptance remains unverified.")
 PY

@@ -141,6 +141,63 @@ jobs:
         if: always()
         run: if [ -f "$RUNNER_TEMP/kiln-api.pid" ]; then kill "$(cat "$RUNNER_TEMP/kiln-api.pid")" || true; fi
 
+      - name: Install GTK/WebKit desktop smoke dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            gir1.2-webkit2-4.1 openbox python3-gi xauth xvfb xdotool
+
+      - name: Smoke-test the native desktop window and close lifecycle
+        run: |
+          xvfb-run -a --server-args="-screen 0 1280x900x24" bash -euo pipefail -c '
+            openbox > "$RUNNER_TEMP/kiln-openbox.log" 2>&1 &
+            window_manager_pid=$!
+            dashboard_pid=""
+            cleanup() {
+              if [[ -n "$dashboard_pid" ]] && kill -0 "$dashboard_pid" 2>/dev/null; then
+                kill "$dashboard_pid" 2>/dev/null || true
+                wait "$dashboard_pid" 2>/dev/null || true
+              fi
+              kill "$window_manager_pid" 2>/dev/null || true
+            }
+            trap cleanup EXIT
+            sleep 1
+            KILN_MODELS_DIR="$RUNNER_TEMP/kiln-models" \
+              target/debug/kiln dashboard --port 11436 \
+              > "$RUNNER_TEMP/kiln-desktop-window.log" 2>&1 &
+            dashboard_pid=$!
+            for attempt in $(seq 1 40); do
+              if grep -Fq "KILN desktop UI loaded" "$RUNNER_TEMP/kiln-desktop-window.log"; then break; fi
+              if ! kill -0 "$dashboard_pid" 2>/dev/null; then
+                cat "$RUNNER_TEMP/kiln-desktop-window.log"
+                exit 1
+              fi
+              sleep 1
+            done
+            grep -F "KILN desktop UI loaded" "$RUNNER_TEMP/kiln-desktop-window.log"
+            curl --fail --silent http://127.0.0.1:11436/api/version >/dev/null
+            window_id="$(xdotool search --onlyvisible --name "^KILN$" | head -n 1)"
+            test -n "$window_id"
+            xdotool windowclose "$window_id"
+            for attempt in $(seq 1 20); do
+              process_state="$(ps -o stat= -p "$dashboard_pid" 2>/dev/null | tr -d " " || true)"
+              if [[ -z "$process_state" || "$process_state" == Z* ]]; then break; fi
+              sleep 1
+            done
+            process_state="$(ps -o stat= -p "$dashboard_pid" 2>/dev/null | tr -d " " || true)"
+            if [[ -n "$process_state" && "$process_state" != Z* ]]; then
+              echo "Closing the KILN window did not stop its owned dashboard process" >&2
+              exit 1
+            fi
+            wait "$dashboard_pid"
+            dashboard_pid=""
+            if curl --fail --silent --max-time 2 http://127.0.0.1:11436/api/version >/dev/null; then
+              echo "KILN API remained available after its desktop window closed" >&2
+              exit 1
+            fi
+            echo "GTK/WebKit window loaded the bundled UI and closed its owned API cleanly"
+          '
+
       - name: Restore verified public GGUF smoke model cache
         uses: actions/cache@v4
         with:

@@ -42,6 +42,11 @@ function selectTab(index) {
 tabs.forEach((tab, index) => {
   tab.button.addEventListener("click", () => selectTab(index));
   tab.button.addEventListener("keydown", (event) => {
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      selectTab(event.key === "Home" ? 0 : tabs.length - 1);
+      return;
+    }
     if (["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"].includes(event.key)) {
       event.preventDefault();
       const forward = event.key === "ArrowRight" || event.key === "ArrowDown";

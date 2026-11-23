@@ -47,16 +47,27 @@ def allow_local_navigation(_view, decision, decision_type):
     return True
 
 
+def report_ui_loaded(view, event):
+    if event == WebKit2.LoadEvent.FINISHED and view.get_title() == "KILN":
+        print("KILN desktop UI loaded", flush=True)
+
+
 Gtk.init(None)
 window = Gtk.Window(title="KILN")
-window.set_default_size(1440, 960)
-window.set_size_request(800, 560)
+screen = window.get_screen()
+monitor = screen.get_primary_monitor()
+workarea = screen.get_monitor_workarea(monitor) if monitor >= 0 else None
+screen_width = workarea.width if workarea else screen.get_width()
+screen_height = workarea.height if workarea else screen.get_height()
+window.set_default_size(min(1100, int(screen_width * 0.9)), min(740, int(screen_height * 0.9)))
+window.set_size_request(min(800, screen_width), min(560, screen_height))
 window.set_position(Gtk.WindowPosition.CENTER)
 window.set_icon_name("kiln")
 window.connect("destroy", Gtk.main_quit)
 
 webview = WebKit2.WebView()
 webview.connect("decide-policy", allow_local_navigation)
+webview.connect("load-changed", report_ui_loaded)
 webview.load_uri(dashboard_url)
 window.add(webview)
 window.show_all()

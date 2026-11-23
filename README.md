@@ -28,6 +28,7 @@ These are approved design previews. The example model and hardware values are il
 ## What works today
 
 - Local chat with installed GGUF models and compatible Ollama model files.
+- Native desktop workspace with Chat, Models, Activity and System details views.
 - System assessment and automatic selection among suitable installed models.
 - Public Hugging Face GGUF search and verified downloads from the Models page.
 - A local API at 127.0.0.1:11435 for Ollama-compatible clients.
