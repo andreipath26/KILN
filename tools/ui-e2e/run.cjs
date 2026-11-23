@@ -34,6 +34,24 @@ function localModels(activePath = "/tmp/test-model.gguf") {
   ];
 }
 
+function conversation(id, updatedAt = "2026-11-23T10:00:00.000Z") {
+  return {
+    id,
+    title: `Conversation ${id}`,
+    updated_at: updatedAt,
+    messages: [{ role: "user", content: `Prompt ${id}` }],
+  };
+}
+
+function conversationBackup(conversations = [], legacyChats = []) {
+  return {
+    format: "kiln-conversations-v2",
+    exported_at: "2026-11-23T10:00:00.000Z",
+    conversations,
+    legacy_chats: legacyChats,
+  };
+}
+
 async function installApiMocks(page, { modelLoaded = true, autoStartStreamFallback = false } = {}) {
   let activePath = modelLoaded ? "/tmp/test-model.gguf" : null;
   const activationAttempts = [];
@@ -282,8 +300,70 @@ async function main() {
     await checkAccessibility(emptyPage, "automatically configured model");
     await emptyContext.close();
 
+    const backupContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const backupPage = await backupContext.newPage();
+    backupPage.on("pageerror", (error) => failures.push(error.message));
+    await installApiMocks(backupPage);
+    await backupPage.goto(baseUrl, { waitUntil: "networkidle" });
+    await backupPage.getByRole("tab", { name: "Activity" }).click();
+    backupPage.on("dialog", (dialog) => dialog.accept());
+
+    const legacyBackup = conversationBackup([], [{
+      model_key: "test-model.gguf",
+      messages: [{ role: "user", content: "Legacy prompt" }, { role: "assistant", content: "Legacy answer" }],
+    }]);
+    const legacyFile = {
+      name: "legacy-backup.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify(legacyBackup)),
+    };
+    const importInput = backupPage.locator("#import-conversations-file");
+    const importStatus = backupPage.locator("#conversation-data-status");
+    await importInput.setInputFiles(legacyFile);
+    await importStatus.getByText("Imported and merged 1 conversations.", { exact: false }).waitFor();
+    const importedLegacy = await backupPage.evaluate(() =>
+      JSON.parse(localStorage.getItem("kiln.ui.conversations.v1:/tmp/test-model.gguf")));
+    assert.equal(importedLegacy.length, 1);
+    assert.match(importedLegacy[0].id, /^legacy-[0-9a-f]{16}$/);
+    await importInput.setInputFiles(legacyFile);
+    await importStatus.getByText("Imported and merged 1 conversations.", { exact: false }).waitFor();
+    const reimportedLegacy = await backupPage.evaluate(() =>
+      JSON.parse(localStorage.getItem("kiln.ui.conversations.v1:/tmp/test-model.gguf")));
+    assert.equal(reimportedLegacy.length, 1, "reimporting the same legacy backup does not duplicate its conversation");
+    assert.equal(reimportedLegacy[0].id, importedLegacy[0].id);
+
+    const otherModelKey = "kiln.ui.conversations.v1:/tmp/other-model.gguf";
+    const fullHistory = Array.from({ length: 50 }, (_, index) => conversation(`existing-${index}`));
+    await backupPage.evaluate(({ key, items }) => localStorage.setItem(key, JSON.stringify(items)), {
+      key: otherModelKey,
+      items: fullHistory,
+    });
+    const goodModelKey = "kiln.ui.conversations.v1:/tmp/test-model.gguf";
+    const beforeGoodModel = await backupPage.evaluate((key) => localStorage.getItem(key), goodModelKey);
+    const overflowingBackup = conversationBackup([
+      { model_key: "/tmp/test-model.gguf", conversations: [conversation("valid-new-import")] },
+      { model_key: "/tmp/other-model.gguf", conversations: [conversation("overflow-new-import")] },
+    ]);
+    await importInput.setInputFiles({
+      name: "overflowing-backup.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify(overflowingBackup)),
+    });
+    await importStatus.getByText(/would exceed the 50-conversation limit/).waitFor();
+    assert.equal(
+      await backupPage.evaluate((key) => localStorage.getItem(key), goodModelKey),
+      beforeGoodModel,
+      "an overflow in a later model group leaves earlier model histories unchanged",
+    );
+    assert.deepEqual(
+      await backupPage.evaluate((key) => JSON.parse(localStorage.getItem(key)), otherModelKey),
+      fullHistory,
+      "the overflowing model history remains unchanged",
+    );
+    await backupContext.close();
+
     assert.deepEqual(failures, [], "the UI has no uncaught JavaScript errors");
-    console.log("KILN UI browser checks passed: chat, model search/download, activation recovery, automatic resident-to-streaming startup, keyboard modes, accessibility, and mobile layout.");
+    console.log("KILN UI browser checks passed: chat, model search/download, activation recovery, automatic setup, keyboard modes, accessibility, mobile layout, and backup import safety.");
   } finally {
     await browser.close();
   }
