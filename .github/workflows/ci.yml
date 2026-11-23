@@ -53,6 +53,7 @@ jobs:
         run: |
           python3 -m unittest scripts.test_summarize_phase35 -v
           python3 -m unittest scripts.test_capture_phase35_ollama -v
+          python3 -m unittest scripts.test_run_phase35_suite -v
           bash -n scripts/run_phase35_suite.sh scripts/run_tier0_dense_matrix.sh scripts/profile_phase35_hotpath.sh scripts/run_tier0_gate5a.sh scripts/capture_moe_router_phase5a.sh scripts/run_cpu_moe_stream_experiment.sh scripts/build_linux_release.sh scripts/install_linux_release.sh
 
       - name: Test one-command measurement runner and retained failure logs

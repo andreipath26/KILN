@@ -10,6 +10,7 @@ use kiln_models::{
     discover_complete_fused_moe_selections, resolve_fused_expert_tensor_components,
     ExpertTensorComponent, GgufFile,
 };
+use kiln_models::split_gguf::SplitSourceIdentity;
 
 const MAX_STREAM_INDEX_BYTES: usize = 64 * 1024 * 1024;
 const MAX_MULTI_SOURCE_SHARDS: usize = 64;
@@ -235,14 +236,21 @@ fn verify_stream_audit(contents: &str, expected_names: &HashSet<String>) -> Resu
 /// Reject swapped/replaced model files between offset validation and
 /// external read completion, including a same-length replacement. This
 /// cannot replace actual cryptographic weight verification on every read.
-#[cfg(unix)]
-fn same_file_identity(before: &std::fs::Metadata, after: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    before.dev() == after.dev() && before.ino() == after.ino()
-}
-#[cfg(not(unix))]
-fn same_file_identity(_before: &std::fs::Metadata, _after: &std::fs::Metadata) -> bool {
-    true
+fn verify_split_source_snapshots(
+    snapshots: &[(PathBuf, SplitSourceIdentity)],
+    stage: &str,
+) -> Result<(), String> {
+    for (source, expected) in snapshots {
+        let actual = std::fs::metadata(source)
+            .map_err(|error| format!("source GGUF shard {} unavailable {stage}: {error}", source.display()))?;
+        if !expected.matches_metadata(&actual) {
+            return Err(format!(
+                "source GGUF shard {} changed after inventory validation {stage}",
+                source.display()
+            ));
+        }
+    }
+    Ok(())
 }
 
 struct TemporaryAudit {
@@ -309,11 +317,16 @@ pub fn run(
     }
     let split_inventory = kiln_models::split_gguf::inspect_split_gguf(&path)?;
     let (bytes,expected_names,source_snapshots) = if let Some(ref index) = split_inventory {
-        let snapshots = index.shards.iter().map(|part| {
-            std::fs::metadata(&part.path)
-                .map(|meta|(part.path.clone(),meta))
-                .map_err(|e|format!("cannot stat split source {}: {e}",part.path.display()))
-        }).collect::<Result<Vec<_>,_>>()?;
+        let selected_identity = index.shards.iter()
+            .find(|part| part.path == path)
+            .map(|part| &part.source_identity)
+            .ok_or_else(|| format!("selected split GGUF shard {} is missing from its validated inventory", path.display()))?;
+        if !selected_identity.matches_metadata(&source_before) {
+            return Err(format!("selected split GGUF shard {} changed during inventory validation", path.display()));
+        }
+        let snapshots = index.shards.iter()
+            .map(|part| (part.path.clone(), part.source_identity.clone()))
+            .collect::<Vec<_>>();
         let (index_bytes,names) = split_external_index_contents(index)?;
         (index_bytes,names,snapshots)
     } else {
@@ -327,7 +340,7 @@ pub fn run(
         ).map_err(|e|e.to_string())?;
         let bytes = external_index_contents(&source_map.components)?;
         let names = choices.iter().map(|choice|choice.tensor_name.clone()).collect();
-        (bytes,names,vec![(path.clone(),source_before.clone())])
+        (bytes,names,vec![(path.clone(),SplitSourceIdentity::from_metadata(&source_before))])
     };
     let temp = TemporaryStreamIndex::create(&bytes)?;
     let audit = TemporaryAudit::create()?;
@@ -359,6 +372,7 @@ pub fn run(
         // pages while the selected-expert external reader is active.
         command.arg("--lazy-moe-experts");
     }
+    verify_split_source_snapshots(&source_snapshots, "before inference spawn")?;
     let exit = command.status()
         .map_err(|e| format!("failed to execute KILN native inference child: {e}"))?;
     if !exit.success() {
@@ -372,17 +386,7 @@ pub fn run(
     if audit_bytes > 16 * 1024 * 1024 {
         return Err("native stream audit exceeded the 16 MiB safety cap".into());
     }
-    for (source, before) in &source_snapshots {
-        let after = std::fs::metadata(source)
-            .map_err(|e|format!("source GGUF shard {} disappeared: {e}",source.display()))?;
-        if before.len() != after.len() ||
-            before.modified().ok() != after.modified().ok() ||
-            !same_file_identity(before,&after) {
-            return Err(format!(
-                "source GGUF shard {} changed during streamed inference; discard results",
-                source.display()));
-        }
-    }
+    verify_split_source_snapshots(&source_snapshots, "during streamed inference; discard results")?;
     let recorded = std::fs::read_to_string(&audit.path)
         .map_err(|e| format!("could not verify native MoE graph read audit: {e}"))?;
     let (served, pread, hits) = verify_stream_audit(&recorded, &expected_names)?;
@@ -396,6 +400,22 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn split_source_snapshot_rejects_changed_file_metadata() {
+        let unique=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .unwrap().as_nanos();
+        let path=std::env::temp_dir().join(format!("kiln-source-identity-{}-{unique}",std::process::id()));
+        std::fs::write(&path,b"validated source").unwrap();
+        let before=std::fs::metadata(&path).unwrap();
+        let snapshots=vec![(path.clone(),SplitSourceIdentity::from_metadata(&before))];
+        assert!(verify_split_source_snapshots(&snapshots,"before inference spawn").is_ok());
+        std::fs::write(&path,b"replaced source with a different size").unwrap();
+        let result=verify_split_source_snapshots(&snapshots,"before inference spawn");
+        assert!(result.unwrap_err().contains("changed after inventory validation"));
+        std::fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn version_two_split_index_selects_each_original_shard_and_rejects_bad_source() {
         use kiln_models::split_gguf::{SplitGgufInventory,SplitShardSummary,SplitFusedExpertSlab};
@@ -404,6 +424,15 @@ mod tests {
         let shards=[first.clone(),second.clone()].into_iter().enumerate()
             .map(|(i,path)|SplitShardSummary {
                 shard_number:i as u32+1,path,file_size_bytes:4096,
+                source_identity:SplitSourceIdentity {
+                    file_size_bytes:4096,
+                    modified_unix_seconds:None,
+                    modified_subsec_nanos:None,
+                    changed_unix_seconds:None,
+                    changed_subsec_nanos:None,
+                    device:None,
+                    inode:None,
+                },
                 tensor_count:1,expert_tensor_count:1,unsupported_expert_tensor_count:0
             }).collect::<Vec<_>>();
         let slabs=(0..2u32).map(|expert_id|SplitFusedExpertSlab {

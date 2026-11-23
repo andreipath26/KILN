@@ -122,7 +122,7 @@ impl SplitGgufExpertReader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kiln_models::split_gguf::{SplitShardSummary, SplitExpertSource};
+    use kiln_models::split_gguf::{SplitShardSummary, SplitExpertSource, SplitSourceIdentity};
 
     #[test]
     fn reads_exact_ranges_from_each_shard_without_concatenation() {
@@ -139,8 +139,10 @@ mod tests {
             total_tensor_count:2,architecture:Some("tiny".into()),
             shards:vec![
                 SplitShardSummary{shard_number:1,path:a.clone(),file_size_bytes:100,
+                    source_identity:SplitSourceIdentity::from_metadata(&std::fs::metadata(&a).unwrap()),
                     tensor_count:1,expert_tensor_count:1,unsupported_expert_tensor_count:0},
                 SplitShardSummary{shard_number:2,path:b.clone(),file_size_bytes:100,
+                    source_identity:SplitSourceIdentity::from_metadata(&std::fs::metadata(&b).unwrap()),
                     tensor_count:1,expert_tensor_count:1,unsupported_expert_tensor_count:0},
             ],
             expert_sources:vec![
@@ -187,8 +189,10 @@ mod tests {
             total_tensor_count:1,architecture:Some("tiny".into()),
             shards:vec![
                 SplitShardSummary{shard_number:1,path:first.clone(),file_size_bytes:128,
+                    source_identity:SplitSourceIdentity::from_metadata(&std::fs::metadata(&first).unwrap()),
                     tensor_count:0,expert_tensor_count:0,unsupported_expert_tensor_count:0},
                 SplitShardSummary{shard_number:2,path:second.clone(),file_size_bytes:128,
+                    source_identity:SplitSourceIdentity::from_metadata(&std::fs::metadata(&second).unwrap()),
                     tensor_count:1,expert_tensor_count:1,unsupported_expert_tensor_count:0},
             ],
             expert_sources:vec![],
@@ -213,6 +217,7 @@ mod tests {
         let file=std::env::temp_dir().join(format!("kiln-split-invalid-{}.dat",std::process::id()));
         std::fs::write(&file,[0u8;12]).unwrap();
         let shard=SplitShardSummary{shard_number:1,path:file.clone(),file_size_bytes:12,
+            source_identity:SplitSourceIdentity::from_metadata(&std::fs::metadata(&file).unwrap()),
             tensor_count:1,expert_tensor_count:1,unsupported_expert_tensor_count:0};
         let component=SplitExpertSource{tensor_name:"up".into(),shard_number:1,
             source_path:file.clone(),source_byte_offset:11,byte_length:2};
