@@ -161,6 +161,18 @@ jobs:
               fi
               kill "$window_manager_pid" 2>/dev/null || true
             }
+            diagnose() {
+              echo "Desktop lifecycle smoke failed: process and display diagnostics follow" >&2
+              ps -o pid,ppid,stat,args -p "$dashboard_pid" >&2 || true
+              curl --fail --show-error --max-time 3 http://127.0.0.1:11436/api/version >&2 || true
+              xdotool search --onlyvisible --name "KILN" >&2 || true
+              xdotool search --name "KILN" >&2 || true
+              echo "--- KILN dashboard log ---" >&2
+              tail -n 120 "$RUNNER_TEMP/kiln-desktop-window.log" >&2 || true
+              echo "--- openbox log ---" >&2
+              tail -n 80 "$RUNNER_TEMP/kiln-openbox.log" >&2 || true
+            }
+            trap diagnose ERR
             trap cleanup EXIT
             sleep 1
             KILN_MODELS_DIR="$RUNNER_TEMP/kiln-models" \
@@ -176,9 +188,33 @@ jobs:
               sleep 1
             done
             grep -F "KILN desktop UI loaded" "$RUNNER_TEMP/kiln-desktop-window.log"
-            curl --fail --silent http://127.0.0.1:11436/api/version >/dev/null
-            window_id="$(xdotool search --onlyvisible --name "^KILN$" | head -n 1)"
-            test -n "$window_id"
+            # WebKit load and HTTP listen are distinct asynchronous startup events.
+            # Do not race the API or window manager immediately after the UI log.
+            api_ready=0
+            for attempt in $(seq 1 30); do
+              if curl --fail --silent --max-time 2 http://127.0.0.1:11436/api/version >/dev/null; then
+                api_ready=1
+                break
+              fi
+              if ! kill -0 "$dashboard_pid" 2>/dev/null; then break; fi
+              sleep 1
+            done
+            if [[ "$api_ready" != 1 ]]; then
+              echo "Dashboard UI loaded but API did not become ready on port 11436" >&2
+              false
+            fi
+            window_id=""
+            for attempt in $(seq 1 30); do
+              window_id="$(xdotool search --onlyvisible --name "^KILN$" 2>/dev/null | sed -n "1p" || true)"
+              if [[ -n "$window_id" ]]; then break; fi
+              if ! kill -0 "$dashboard_pid" 2>/dev/null; then break; fi
+              sleep 1
+            done
+            if [[ -z "$window_id" ]]; then
+              echo "Dashboard API ready but no visible KILN window appeared" >&2
+              false
+            fi
+            echo "Verified KILN API readiness and visible window $window_id"
             xdotool windowclose "$window_id"
             for attempt in $(seq 1 20); do
               process_state="$(ps -o stat= -p "$dashboard_pid" 2>/dev/null | tr -d " " || true)"
