@@ -39,6 +39,17 @@ function selectTab(index) {
   tabs[index].button.focus();
 }
 
+function updateTabOrientation() {
+  const orientation = window.matchMedia("(max-width: 780px)").matches ? "horizontal" : "vertical";
+  document.querySelector(".mode-tabs").setAttribute("aria-orientation", orientation);
+}
+
+tabs.forEach((tab) => {
+  tab.button.tabIndex = tab.button.getAttribute("aria-selected") === "true" ? 0 : -1;
+});
+updateTabOrientation();
+window.addEventListener("resize", updateTabOrientation);
+
 tabs.forEach((tab, index) => {
   tab.button.addEventListener("click", () => selectTab(index));
   tab.button.addEventListener("keydown", (event) => {
@@ -53,6 +64,16 @@ tabs.forEach((tab, index) => {
       selectTab((index + (forward ? 1 : tabs.length - 1)) % tabs.length);
     }
   });
+});
+
+const recentToggle = $("#toggle-recent");
+function setRecentChatsOpen(open) {
+  document.querySelector(".sidebar").classList.toggle("mobile-recent-open", open);
+  recentToggle.setAttribute("aria-expanded", String(open));
+}
+
+recentToggle.addEventListener("click", () => {
+  setRecentChatsOpen(recentToggle.getAttribute("aria-expanded") !== "true");
 });
 
 function readActivity() {
@@ -289,6 +310,7 @@ function renderSidebarChats() {
       saveConversations();
       renderMessages();
       selectTab(0);
+      setRecentChatsOpen(false);
     });
     const remove = document.createElement("button");
     remove.type = "button";

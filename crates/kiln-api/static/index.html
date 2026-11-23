@@ -26,7 +26,9 @@
           <button class="mode-tab" id="tab-advanced" role="tab" aria-selected="false" aria-controls="panel-advanced"><span class="nav-icon" aria-hidden="true">⚙</span>System details</button>
         </nav>
 
-        <section class="recent-section" aria-labelledby="recent-heading">
+        <button id="toggle-recent" class="mobile-recent-toggle" type="button" aria-expanded="false" aria-controls="recent-section">Recent chats <span aria-hidden="true">⌄</span></button>
+
+        <section id="recent-section" class="recent-section" aria-labelledby="recent-heading">
           <h2 id="recent-heading">Recent</h2>
           <div id="recent-chats" class="recent-chats"><p class="recent-empty">Your conversations appear here.</p></div>
         </section>
