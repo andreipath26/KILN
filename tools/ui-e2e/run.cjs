@@ -267,7 +267,13 @@ async function main() {
       autoStartStreamFallback: true,
     });
     await emptyPage.goto(baseUrl, { waitUntil: "networkidle" });
-    await emptyPage.getByText("Ready. KILN assessed this machine and started test-model with experimental CPU expert streaming.", { exact: true }).waitFor();
+    const setupStatus = emptyPage.locator("#machine-setup-status");
+    await setupStatus.waitFor({ state: "visible" });
+    assert.equal(
+      (await setupStatus.textContent()).trim(),
+      "Ready. KILN assessed this machine and started test-model with experimental CPU expert streaming.",
+      "automatic setup outcome is visible from the default Chat destination",
+    );
     assert.deepEqual(activationAttempts, [
       { path: "/tmp/test-model.gguf", mode: "auto" },
       { path: "/tmp/other-model.gguf", mode: "stream" },

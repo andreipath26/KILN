@@ -858,3 +858,8 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 - Added a CI path that installs GTK/WebKit and virtual-display dependencies, opens the actual KILN WebKit window, checks the bundled UI loaded, closes the window, and verifies the API process it owns stops. This workflow change has not yet run on this changeset; real Kali desktop verification remains required.
 - Kept tarball CLI installation usable without desktop libraries. The installer creates a menu launcher only when the system GTK/WebKit runtime is present and prints the exact Debian/Kali packages otherwise; the `.deb` remains the supported desktop installation path.
 - Updated README and UI deployment documentation. No phase status or hardware acceptance result changed; Phase 3.5, Phase 5, and Phase 6 Tier 0 acceptance remain open.
+
+### 2026-11-23 — Automatic setup status visibility follow-up
+
+- The first hosted browser run found that the startup result was written only to the Models panel, which is hidden on the default Chat destination. Mirrored the same status into the visible system-check panel and extended the browser check to assert that the automatic streaming fallback result is visible from Chat.
+- This is a UI visibility correction; it does not change model-selection behavior, capability claims, or any phase acceptance status.
