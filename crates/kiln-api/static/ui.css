@@ -41,6 +41,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .nav-icon { display: inline-grid; place-items: center; width: 17px; color: #aab1aa; font-size: 17px; line-height: 1; }
 .mode-tab.is-active .nav-icon { color: var(--accent); }
 .recent-section { min-height: 0; max-height: 42vh; margin-top: 23px; padding-top: 16px; overflow: hidden; border-top: 1px solid var(--line); }
+.mobile-recent-toggle { display: none; }
 .recent-section h2 { margin: 0 8px 9px; color: #899189; font-size: 10px; font-weight: 620; }
 .recent-chats { display: grid; gap: 3px; overflow-y: auto; max-height: calc(42vh - 42px); }
 .recent-empty { margin: 0; padding: 6px 8px; color: var(--muted); font-size: 10px; line-height: 1.5; }
@@ -213,7 +214,13 @@ td:last-child { color: var(--muted); line-height: 1.5; }
   .mode-tab { flex: 1; justify-content: center; gap: 7px; min-width: max-content; min-height: 37px; padding: 0 9px; font-size: 10px; }
   .nav-icon { font-size: 14px; }
   .sidebar-spacer, .sidebar-runtime, .sidebar > .local-badge { display: none; }
-  .recent-section { display: none; }
+  .mobile-recent-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 36px; margin-top: 5px; padding: 0 10px; border: 1px solid #303430; border-radius: 7px; color: #c3cac2; background: #191b19; text-align: left; font-size: 11px; cursor: pointer; }
+  .mobile-recent-toggle span { color: var(--muted); transition: transform .15s ease; }
+  .mobile-recent-open .mobile-recent-toggle span { transform: rotate(180deg); }
+  .recent-section { display: none; max-height: 30vh; margin-top: 8px; padding: 9px 0 0; overflow: auto; border-top: 1px solid var(--line); }
+  .mobile-recent-open .recent-section { display: block; }
+  .recent-chats { max-height: calc(30vh - 34px); }
+  .delete-recent { opacity: 1; }
   .app-main { min-height: calc(100vh - 95px); grid-template-rows: 54px minmax(0, 1fr) 36px; }
   .topbar { padding: 0 16px; }
   main { padding: 0 16px 18px; }

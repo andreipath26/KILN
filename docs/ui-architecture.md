@@ -1,13 +1,13 @@
 # KILN UI architecture and continuation guide
 
-**Status:** Architecture baseline plus initial local UI implementation; development-only until the verification gates below pass.
+**Status:** The local chat and model-library UI is shipped in Linux preview packages. Automated browser and desktop-window checks pass; validation on a real Kali desktop and hardware-tier qualification remain open.
 **Roadmap authority:** [KILN MASTER ROADMAP AND RULES SET](../KILN%20MASTER%20ROADMAP%20AND%20RULES%20SET.md). This document translates that roadmap into UI responsibilities; it does not change phase order, implementation status, or acceptance targets.
 
 ## 1. Product intent
 
 The KILN UI is the local-first control surface for the whole KILN runtime. It must cover the roadmap's model lifecycle, heterogeneous execution, unified memory, performance and quality controls, and future workload types without becoming a CPU-only laptop dashboard or a chat-only product.
 
-The workspace has four top-level destinations: **Chat**, **Models**, **Activity** and **System details**. Chat is the default simple experience; System details exposes the settings and capabilities the active runtime actually supports. All destinations use the same model, run, configuration and API state. They must not create separate inference paths or separate setting stores. System details adds progressive disclosure for supported controls rather than a second product.
+The workspace has four top-level destinations: **Chat**, **Models**, **Activity** and **System details**. Chat is the default simple experience; System details exposes the settings and capabilities the active runtime actually supports. All destinations use the same model, run, configuration and API state. They must not create separate inference paths or separate setting stores. System details adds progressive disclosure for supported controls rather than a second product. Recent conversation selection and deletion must remain available on narrow screens as well as desktop.
 
 ## 2. Product constraints from the roadmap
 
@@ -93,7 +93,7 @@ Preserve the existing Ollama-compatible endpoints. UI-specific APIs must not bre
 
 The UI is a local web client served by the KILN API inside a native GTK desktop window on Linux. The window uses the system WebKitGTK engine and loads only KILN's loopback origin; users do not need a general-purpose browser to manage KILN. The `.deb` declares the Python GObject and WebKitGTK runtime packages so Kali/Debian installs bring in the window dependencies. The tar archive remains a one-executable release; its installer checks for the system GTK/WebKit runtime and creates a desktop launcher only when it is available. Without those optional desktop dependencies, the CLI binary still installs and the installer prints the Kali/Debian package command needed to enable the desktop window. The API remains independently usable by Ollama-compatible clients and `kiln serve`. Keep the client boundary replaceable so Phase 8 can change the desktop shell without rewriting runtime contracts. Static assets are bundled with the API; ordinary use does not require a separately running frontend server. The exact frontend toolchain may evolve, but retain:
 
-- a small application shell and two-mode navigation;
+- a small application shell and four-destination navigation;
 - feature modules by domain (models, chat/tasks, devices, memory, execution, diagnostics);
 - typed API/capability models and one centralized client;
 - shared design tokens/components and accessible keyboard/focus behavior;
