@@ -862,4 +862,5 @@ The roadmap remains the single phase/status authority. Defer unrelated framework
 ### 2026-11-23 — Automatic setup status visibility follow-up
 
 - The first hosted browser run found that the startup result was written only to the Models panel, which is hidden on the default Chat destination. Mirrored the same status into the visible system-check panel and extended the browser check to assert that the automatic streaming fallback result is visible from Chat.
+- The next real-model browser run exposed two test-maintenance issues caused by that improvement and the renamed tab: one assertion matched the duplicate status in both destinations, and the real-model script still requested the former Settings label. Scoped the failure assertion to Models and aligned the test with System details.
 - This is a UI visibility correction; it does not change model-selection behavior, capability claims, or any phase acceptance status.
