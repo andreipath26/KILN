@@ -187,6 +187,9 @@ td:last-child { color: var(--muted); line-height: 1.5; }
 .capability-state.limited { color: #e8d39b; background: #312c1c; }
 .capability-state.not-integrated, .capability-state.not-started { color: #c3c9c0; background: #292c29; }
 .activity-card { padding: 0 18px; }
+.conversation-data-card { margin: 0 0 14px; }
+.conversation-data-card > p { max-width: 760px; line-height: 1.55; }
+.conversation-data-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .activity-list > p { margin: 0; padding: 20px 0; font-size: 12px; }
 .activity-entry { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 16px 0; border-bottom: 1px solid #ffffff0c; }
 .activity-entry:last-child { border-bottom: 0; }
