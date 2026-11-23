@@ -9,6 +9,50 @@ use serde::Serialize;
 use crate::gguf::{GgufFile, GgufTensorInfo, GgufType};
 use crate::library::{normalize_gguf_load_path, split_gguf_parts};
 
+/// Filesystem identity captured around shard parsing and carried with the
+/// inventory so downstream readers can reject a stale source mapping.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SplitSourceIdentity {
+    pub file_size_bytes: u64,
+    pub modified_unix_seconds: Option<u64>,
+    pub modified_subsec_nanos: Option<u32>,
+    pub changed_unix_seconds: Option<i64>,
+    pub changed_subsec_nanos: Option<i64>,
+    pub device: Option<u64>,
+    pub inode: Option<u64>,
+}
+
+impl SplitSourceIdentity {
+    pub fn from_metadata(metadata: &std::fs::Metadata) -> Self {
+        let (modified_unix_seconds, modified_subsec_nanos) = metadata.modified().ok()
+            .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| (Some(duration.as_secs()), Some(duration.subsec_nanos())))
+            .unwrap_or((None, None));
+        #[cfg(unix)]
+        let (device, inode, changed_unix_seconds, changed_subsec_nanos) = {
+            use std::os::unix::fs::MetadataExt;
+            (Some(metadata.dev()), Some(metadata.ino()),
+                Some(metadata.ctime()), Some(metadata.ctime_nsec()))
+        };
+        #[cfg(not(unix))]
+        let (device, inode, changed_unix_seconds, changed_subsec_nanos) =
+            (None, None, None, None);
+        Self {
+            file_size_bytes: metadata.len(),
+            modified_unix_seconds,
+            modified_subsec_nanos,
+            changed_unix_seconds,
+            changed_subsec_nanos,
+            device,
+            inode,
+        }
+    }
+
+    pub fn matches_metadata(&self, metadata: &std::fs::Metadata) -> bool {
+        self == &Self::from_metadata(metadata)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SplitExpertSource {
     pub tensor_name: String,
@@ -23,6 +67,8 @@ pub struct SplitShardSummary {
     pub shard_number: u32,
     pub path: PathBuf,
     pub file_size_bytes: u64,
+    #[serde(skip)]
+    pub source_identity: SplitSourceIdentity,
     pub tensor_count: usize,
     pub expert_tensor_count: usize,
     pub unsupported_expert_tensor_count: usize,
@@ -183,6 +229,16 @@ fn fused_slabs(
 /// Inspect all numbered parts in-place; never download, rewrite or combine
 /// the original shards. Each expert source is tied to one exact shard.
 pub fn inspect_split_gguf(path: &Path) -> Result<Option<SplitGgufInventory>, String> {
+    inspect_split_gguf_with_hook(path, |_, _| Ok(()))
+}
+
+fn inspect_split_gguf_with_hook<F>(
+    path: &Path,
+    mut after_parse: F,
+) -> Result<Option<SplitGgufInventory>, String>
+where
+    F: FnMut(&Path, u32) -> Result<(), String>,
+{
     let Some((_, _, count)) = split_gguf_parts(path) else { return Ok(None); };
     let first = normalize_gguf_load_path(path)?;
     let (prefix, _, _) = split_gguf_parts(&first)
@@ -202,8 +258,22 @@ pub fn inspect_split_gguf(path: &Path) -> Result<Option<SplitGgufInventory>, Str
 
     for number in 1..=count {
         let shard = parent.join(format!("{base}-{number:05}-of-{count:05}.gguf"));
+        let source_before = std::fs::metadata(&shard)
+            .map_err(|e| format!("cannot stat GGUF shard {number}/{count} ({}): {e}", shard.display()))?;
+        if !source_before.is_file() {
+            return Err(format!("GGUF shard {} is not a regular file", shard.display()));
+        }
         let model = GgufFile::open(&shard)
             .map_err(|e| format!("GGUF shard {number}/{count} ({}): {e}", shard.display()))?;
+        after_parse(&shard, number)?;
+        let source_after = std::fs::metadata(&shard)
+            .map_err(|e| format!("GGUF shard {} disappeared during inspection: {e}", shard.display()))?;
+        let source_identity = SplitSourceIdentity::from_metadata(&source_before);
+        if !source_identity.matches_metadata(&source_after)
+            || model.file_size() != source_identity.file_size_bytes
+        {
+            return Err(format!("GGUF shard {} changed during inspection", shard.display()));
+        }
         let expected_split_number = number - 1;
         if let Some(encoded) = model.metadata.get("split.no") {
             if encoded.as_u32() != Some(expected_split_number) {
@@ -259,7 +329,7 @@ pub fn inspect_split_gguf(path: &Path) -> Result<Option<SplitGgufInventory>, Str
             }
         }
         shards.push(SplitShardSummary {
-            shard_number:number, path:shard, file_size_bytes:model.file_size(),
+            shard_number:number, path:shard, file_size_bytes:model.file_size(), source_identity,
             tensor_count:model.tensor_count(), expert_tensor_count:expert_count,
             unsupported_expert_tensor_count:unsupported_count,
         });
@@ -341,12 +411,44 @@ mod tests {
         assert_eq!(found.expert_sources[0].shard_number,1);
         assert_eq!(found.expert_sources[1].shard_number,2);
         assert_eq!(found.expert_sources[1].byte_length,256);
+        assert_eq!(found.shards[0].source_identity.file_size_bytes, found.shards[0].file_size_bytes);
+        assert!(found.shards.iter().all(|shard| {
+            std::fs::metadata(&shard.path)
+                .map(|metadata| shard.source_identity.matches_metadata(&metadata))
+                .unwrap_or(false)
+        }));
+        let serialized=serde_json::to_value(&found).unwrap();
+        assert!(serialized["shards"][0].get("source_identity").is_none());
         assert!(!found.native_multi_source_streaming_ready);
         assert_eq!(std::fs::read(&first).unwrap(),initial);
         std::fs::remove_file(&second).unwrap();
         assert!(inspect_split_gguf(&first).unwrap_err().contains("00002-of-00002"));
         tiny_split_shard(&second,2,"blk.0.ffn_up_exps.weight",1);
         assert!(inspect_split_gguf(&first).unwrap_err().contains("duplicate tensor"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn rejects_shard_replacement_or_truncation_during_inspection() {
+        let unique=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .unwrap().as_nanos();
+        let dir=std::env::temp_dir().join(format!("kiln-split-race-{}-{unique}",std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let first=dir.join("tiny-00001-of-00002.gguf");
+        let second=dir.join("tiny-00002-of-00002.gguf");
+        tiny_split_shard(&first,1,"blk.0.ffn_up_exps.weight",1);
+        tiny_split_shard(&second,2,"blk.0.ffn_down_exps.weight",1);
+
+        let result=inspect_split_gguf_with_hook(&first, |shard, number| {
+            if number == 2 && shard == second.as_path() {
+                let file=std::fs::OpenOptions::new().write(true).open(shard)
+                    .map_err(|error| error.to_string())?;
+                file.set_len(0).map_err(|error| error.to_string())?;
+            }
+            Ok(())
+        });
+        let error=result.unwrap_err();
+        assert!(error.contains("changed during inspection"), "{error}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

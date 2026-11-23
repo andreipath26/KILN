@@ -6,7 +6,7 @@
 
 Phase 3.5 is the controlled dense-path baseline and optimization phase. The historical Qwen2.5-1.5B Q4_K measurement and Ollama comparison in the roadmap/README are not current controlled results. The recorded 27 tok/s goal, pinned Dell comparison, repeatability, output parity, thermal stability and profile remain acceptance requirements.
 
-The unified capture workflow is `scripts/run_phase35_suite.sh`; isolated Linux profiling is `scripts/profile_phase35_hotpath.sh`. Check each script's help/current source before running. The suite records model and runtime provenance, dense thread/batch/microbatch settings, Rust/native greedy A/B, bounded n-gram speculative widths, and KV reuse A/B. The Ollama capture helper records a paired comparison, but identical model weights and equivalent conditions still require manual verification.
+The unified capture workflow is `scripts/run_phase35_suite.sh`; isolated Linux profiling is `scripts/profile_phase35_hotpath.sh`. Check each script's help/current source before running. Each capture must use a new output directory; the runner refuses to reuse an existing path so stale files cannot be mixed into a retry. The suite records model and runtime provenance, dense thread/batch/microbatch settings, Rust/native greedy A/B, bounded n-gram speculative widths, and KV reuse A/B. The Ollama capture helper records a paired comparison, but identical model weights and equivalent conditions still require manual verification.
 
 ## Measurement contract
 

@@ -170,6 +170,11 @@ int32_t kiln_llama_diffusion_step(
         return -3;
     }
 
+    // Diffusion evaluates the whole sequence afresh; it never leaves an
+    // appendable autoregressive prefix in the context. Invalidate any prior
+    // decode bookkeeping before validation can return through an error path.
+    k->n_past = 0;
+
     for (int32_t pos = 0; pos < n_tokens; ++pos) {
         const int32_t logits_pos = k->shift_logits && pos > 0 ? pos - 1 : pos;
         const float* row = llama_get_logits_ith(k->ctx, logits_pos);

@@ -15,7 +15,13 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 OUT="${2:-phase35-$(date -u +%Y%m%dT%H%M%SZ)}"
-mkdir -p "$OUT"
+# A capture is immutable evidence. Require a newly created directory so a
+# retry cannot mix fresh measurements with files left by an older/failed run.
+mkdir -p "$(dirname "$OUT")"
+if ! mkdir "$OUT" 2>/dev/null; then
+  echo "Refusing to reuse existing Phase 3.5 output directory: $OUT" >&2
+  exit 2
+fi
 OUT="$(cd "$OUT" && pwd)"
 BIN="$ROOT/target/release/kiln"
 TOKENS="${KILN_BENCH_TOKENS:-256}"
